@@ -178,20 +178,32 @@ fn assert_no_active_job(db: &Db) -> Result<()> {
     Ok(())
 }
 
-fn spawn<F, Fut>(app: AppHandle, state: &AppState, job_id: i64, run: F) -> Result<()>
+/// `owns_row`: `true` when `job_id` is a row this call just created (`import_start`,
+/// `refresh_start`) — on a lost `begin` race it must not stay an orphan RUNNING row, so it is
+/// marked FAILED with the error recorded. `false` when the row is shared with whichever call
+/// actually won the race (`import_continue`, resuming a job already sitting in REVIEW) — on a
+/// lost race that row belongs to the winner and must be left untouched; only the `JobBusy` error
+/// is returned.
+fn spawn<F, Fut>(
+    app: AppHandle,
+    state: &AppState,
+    job_id: i64,
+    owns_row: bool,
+    run: F,
+) -> Result<()>
 where
     F: FnOnce(JobCtx, Services) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = Result<()>> + Send,
 {
-    // `begin` can lose a start race between two concurrent `*_start` calls that both passed
-    // `assert_no_active_job`; the row it already created must not become an orphan RUNNING row.
     let cancel = match state.jobs.begin(job_id) {
         Ok(c) => c,
         Err(e) => {
-            state.db.set_job_status(job_id, "FAILED", "PREFLIGHT")?;
-            state
-                .db
-                .record_error(Some(job_id), e.kind(), &e.message_fa(), None)?;
+            if owns_row {
+                state.db.set_job_status(job_id, "FAILED", "PREFLIGHT")?;
+                state
+                    .db
+                    .record_error(Some(job_id), e.kind(), &e.message_fa(), None)?;
+            }
             return Err(e);
         }
     };
@@ -251,7 +263,7 @@ pub async fn import_start(
         since,
         fetch_limit,
     };
-    spawn(app, &state, job_id, move |ctx, svc| async move {
+    spawn(app, &state, job_id, true, move |ctx, svc| async move {
         let phase = ctx
             .db
             .job(ctx.job_id)
@@ -377,7 +389,7 @@ pub async fn import_continue(
     if job.status != "REVIEW" {
         return Err(BridgeError::JobBusy(format!("#{job_id} is {}", job.status)));
     }
-    spawn(app, &state, job_id, move |ctx, svc| async move {
+    spawn(app, &state, job_id, false, move |ctx, svc| async move {
         let outcome = jobs::import::commit(&ctx, &svc).await;
         let phase = ctx
             .db
@@ -400,7 +412,7 @@ pub async fn refresh_start(app: AppHandle, state: State<'_, AppState>) -> Result
     let job_id = state
         .db
         .create_job("REFRESH", None, None, store, s.overwrite_manual)?;
-    spawn(app, &state, job_id, move |ctx, svc| async move {
+    spawn(app, &state, job_id, true, move |ctx, svc| async move {
         let outcome = jobs::refresh::run(&ctx, &svc).await;
         let phase = ctx
             .db
