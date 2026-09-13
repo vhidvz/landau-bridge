@@ -3102,7 +3102,7 @@ Implements spec §2.1 and §5. One struct, one method per route, envelope-tolera
 **Interfaces:**
 - Consumes: `errors::*`, `domain::Authenticity`.
 - Produces: `landau::{LandauClient, Membership, Store, ShelfRow, Candidate, PricingRule, RepricedRow, AttachBody, PatchBody}` with
-  `LandauClient::new(base_url, token) -> Result<LandauClient>`, `memberships()`, `shelf(store)`, `search(term, size)`, `attach(&AttachBody) -> Result<ShelfRow>`, `patch(id, &PatchBody)`, `delete(id)`, `pricing_rules()`, `reprice(store, overwrite) -> Result<Vec<RepricedRow>>`, `await_visible(store, ids, timeout) -> Result<Vec<String>>` (the ids still missing).
+  `LandauClient::new(base_url, token) -> Result<LandauClient>`, `memberships()`, `shelf(store)`, `registry_search(term, limit, skip) -> Result<RegistryPage>` (the seller's picker — a substring search over the whole registry; **replaces the ES `search()` of the original spec per §13**), `attach(&AttachBody) -> Result<ShelfRow>`, `patch(id, &PatchBody)`, `delete(id)`, `pricing_rules()`, `reprice(store, overwrite) -> Result<Vec<RepricedRow>>`, `await_visible(store, ids, timeout) -> Result<Vec<String>>` (the ids still missing).
 
 - [ ] **Step 1: Write the unit tests for the pure helpers and the live test**
 
@@ -3149,6 +3149,17 @@ mod tests {
     }
 
     #[test]
+    fn registry_page_reads_the_picker_shape() {
+        let v = serde_json::json!({"items": [{"product": {"id": "p1", "name": "سیبک فرمان پراید", "alias": "سیبک | جعبه فرمان", "brand": "امیرنیا"}, "held": []}], "total": 14, "limit": 100, "skip": 0});
+        let page = peel(&v);
+        let total = page.get("total").and_then(|t| t.as_u64()).unwrap_or(0) as usize;
+        assert_eq!(total, 14);
+        let p = page["items"][0].get("product").unwrap();
+        assert_eq!(s(p, "id").as_deref(), Some("p1"));
+        assert_eq!(s(p, "brand").as_deref(), Some("امیرنیا"));
+    }
+
+    #[test]
     fn patch_body_never_carries_price() {
         let v = PatchBody { inventory: Some(5), cost: Some(1200) }.to_json();
         assert!(v.get("price").is_none());
@@ -3188,16 +3199,18 @@ async fn memberships_shelf_search_attach_patch_reprice_delete() {
 
     let before = landau.shelf(&store).await.expect("shelf");
 
-    let hits = landau.search("لنت ترمز جلو پراید", 10).await.expect("search");
-    assert!(!hits.is_empty(), "the registry must be seeded (see docs/RUNBOOK.md)");
-    assert!(hits[0].score > 0.0);
+    let page = landau.registry_search("سیبک فرمان پراید", 100, 0).await.expect("registry search");
+    assert!(page.total >= 1 && !page.items.is_empty(), "the registry must be seeded (see docs/RUNBOOK.md)");
+    assert!(page.items.iter().any(|c| c.name.contains("سیبک")));
+    let broad = landau.registry_search("پراید", 1, 0).await.expect("registry search");
+    assert!(broad.total > page.total, "a single generic token matches far more rows than a phrase");
     // pick a product this store does not already hold as NEW|FAKE
     let held: std::collections::HashSet<_> = before
         .iter()
         .filter(|r| r.authenticity.as_deref() == Some("FAKE"))
         .map(|r| r.product.clone())
         .collect();
-    let product = hits.iter().find(|h| !held.contains(&h.id)).expect("an unstocked hit");
+    let product = page.items.iter().find(|h| !held.contains(&h.id)).expect("an unstocked hit");
 
     let row = landau
         .attach(&AttachBody { product: product.id.clone(), store: store.clone(), inventory: 1, cost: 150_000, authenticity: Authenticity::Fake })
@@ -3294,7 +3307,15 @@ pub struct Candidate {
     pub name: String,
     pub alias: Option<String>,
     pub brand: Option<String>,
+    /// Kept for a search that ranks; the registry picker ranks nothing, so it is `0.0` there.
     pub score: f64,
+}
+
+/// One page of the seller's picker (`GET /career/stocks/registry`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RegistryPage {
+    pub total: usize,
+    pub items: Vec<Candidate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -3414,8 +3435,17 @@ impl LandauClient {
         Ok(LandauClient { http, base, token: token.to_string() })
     }
 
+    fn url(&self, path: &str) -> Result<Url> {
+        self.base.join(path.trim_start_matches('/')).map_err(|e| BridgeError::Other(format!("url {path}: {e}")))
+    }
+
     async fn call(&self, method: Method, path: &str, body: Option<&Value>) -> Result<Value> {
-        let url = self.base.join(path.trim_start_matches('/')).map_err(|e| BridgeError::Other(format!("url {path}: {e}")))?;
+        let url = self.url(path)?;
+        self.call_url(method, url, body).await
+    }
+
+    async fn call_url(&self, method: Method, url: Url, body: Option<&Value>) -> Result<Value> {
+        let path = url.path().to_string();
         let mut req = self.http.request(method.clone(), url).bearer_auth(&self.token);
         if let Some(b) = body {
             req = req.json(b);
@@ -3484,32 +3514,28 @@ impl LandauClient {
         Ok(rows)
     }
 
-    /// The query Landau's own technician search sends (spec §2.1), with scores.
-    pub async fn search(&self, term: &str, size: usize) -> Result<Vec<Candidate>> {
-        let body = json!({
-            "from": 0,
-            "size": size,
-            "track_scores": true,
-            "query": {"bool": {
-                "must": [{"multi_match": {"query": term, "fields": ["name^3", "alias^2", "brand", "categories"], "fuzziness": "AUTO", "operator": "OR"}}],
-                "filter": [{"term": {"state": "APPROVED"}}]
-            }}
-        });
-        let v = self.call(Method::POST, "/-/career/products/search?zone=client", Some(&body)).await?;
-        let hits = peel(&v).get("hits").and_then(|h| h.as_array()).cloned().unwrap_or_default();
-        Ok(hits
-            .iter()
-            .filter_map(|h| {
-                let source = h.get("source").unwrap_or(h);
-                Some(Candidate {
-                    id: s(h, "id").or_else(|| s(source, "id"))?,
-                    name: s(source, "name")?,
-                    alias: s(source, "alias"),
-                    brand: s(source, "brand"),
-                    score: h.get("score").and_then(|x| x.as_f64()).unwrap_or(0.0),
+    /// The seller's picker (spec §13): a case-insensitive substring match over `name`/`alias`/
+    /// `brand` of every APPROVED definition, alphabetical, `limit` ≤ 100, with `total`.
+    pub async fn registry_search(&self, term: &str, limit: usize, skip: usize) -> Result<RegistryPage> {
+        let mut url = self.url("career/stocks/registry")?;
+        url.query_pairs_mut()
+            .append_pair("term", term)
+            .append_pair("limit", &limit.clamp(1, 100).to_string())
+            .append_pair("skip", &skip.to_string());
+        let v = self.call_url(Method::GET, url, None).await?;
+        let page = peel(&v);
+        let total = page.get("total").and_then(|t| t.as_u64()).unwrap_or(0) as usize;
+        let items = page.get("items").and_then(|i| i.as_array()).cloned().unwrap_or_default();
+        Ok(RegistryPage {
+            total,
+            items: items
+                .iter()
+                .filter_map(|it| {
+                    let p = it.get("product").unwrap_or(it);
+                    Some(Candidate { id: s(p, "id")?, name: s(p, "name")?, alias: s(p, "alias"), brand: s(p, "brand"), score: 0.0 })
                 })
-            })
-            .collect())
+                .collect(),
+        })
     }
 
     /// `POST /career/stocks` — reply is the row, flat or enveloped.
@@ -3624,8 +3650,8 @@ Implements spec §6 (candidates, threshold, decisions). `decide` takes the searc
 
 **Interfaces:**
 - Consumes: `landau::Candidate`, `db::Db` (`match_for`, `set_match`), `normalize::search_term`, `similarity::token_set_ratio`.
-- Produces: `matching::{Scored, Decision, Matcher}`:
-  `score(term, &[Candidate]) -> Vec<Scored>`; `Matcher::new(db: Db, supplier: &str, threshold: u8)`; `Matcher::decide(&self, search: impl Fn(String) -> Fut, code, name) -> Result<Decision>`; `Matcher::record_user_pick(code, name_seen, product_id, product_name, similarity)`; `Matcher::record_none(code, name_seen)`; `Matcher::clear(code)`.
+- Produces: `matching::{Scored, Decision, Matcher, queries, candidates, RegistrySearch}`:
+  `score(term, &[Candidate]) -> Vec<Scored>`; `queries(term) -> Vec<String>` (whole term, adjacent bigrams, single tokens ≥ 2 chars, deduped, most specific first); `candidates(search, term) -> Result<Vec<Candidate>>` where `search: Fn(String, usize, usize) -> Fut<Output = Result<RegistryPage>>` is the picker `(query, limit, skip)`; `Matcher::new(db: Db, supplier: &str, threshold: u8)`; `Matcher::decide(&self, search, code, name) -> Result<Decision>` (same closure shape); `Matcher::record_user_pick(code, name_seen, product_id, product_name, similarity)`; `Matcher::record_none(code, name_seen)`; `Matcher::clear(code)`. Spec §13 (option A): the registry picker is a substring search, so gathering candidates is the bridge's job and the fuzziness lives in `score`.
 
 - [ ] **Step 1: Write the failing tests** (bottom of `matching/mod.rs`)
 
@@ -3634,10 +3660,20 @@ Implements spec §6 (candidates, threshold, decisions). `decide` takes the searc
 mod tests {
     use super::*;
     use crate::db::Db;
-    use crate::landau::Candidate;
+    use crate::landau::{Candidate, RegistryPage};
+    use std::collections::HashMap;
 
     fn cand(id: &str, name: &str, alias: Option<&str>, score: f64) -> Candidate {
         Candidate { id: id.into(), name: name.into(), alias: alias.map(str::to_string), brand: None, score }
+    }
+
+    /// A picker stub: query → (total, rows). Unknown queries answer nothing.
+    fn picker(table: HashMap<&'static str, (usize, Vec<Candidate>)>) -> impl Fn(String, usize, usize) -> std::future::Ready<Result<RegistryPage>> {
+        move |q, limit, skip| {
+            let (total, rows) = table.get(q.as_str()).cloned().unwrap_or((0, Vec::new()));
+            let items = rows.into_iter().skip(skip).take(limit).collect();
+            std::future::ready(Ok(RegistryPage { total, items }))
+        }
     }
 
     #[test]
@@ -3654,32 +3690,69 @@ mod tests {
         assert_eq!(scored[2].candidate.id, "a");
     }
 
+    #[test]
+    fn queries_go_from_the_whole_term_to_bigrams_to_tokens() {
+        assert_eq!(
+            queries("سیبک فرمان پراید امیرنیا"),
+            vec!["سیبک فرمان پراید امیرنیا", "سیبک فرمان", "فرمان پراید", "پراید امیرنیا", "سیبک", "فرمان", "پراید", "امیرنیا"]
+        );
+        assert_eq!(queries("لنت"), vec!["لنت"]);
+        assert_eq!(queries("  a  لنت "), vec!["a لنت", "لنت"], "one-character tokens are dropped");
+    }
+
+    #[tokio::test]
+    async fn candidates_union_specific_queries_and_skip_broad_tokens() {
+        let table = HashMap::from([
+            ("سیبک فرمان پراید", (2, vec![cand("p1", "سیبک فرمان پراید", None, 0.0), cand("p2", "سیبک فرمان پراید امیرنیا", None, 0.0)])),
+            ("سیبک فرمان", (3, vec![cand("p1", "سیبک فرمان پراید", None, 0.0), cand("p3", "سیبک فرمان پژو 405", None, 0.0), cand("p2", "سیبک فرمان پراید امیرنیا", None, 0.0)])),
+            ("فرمان پراید", (1, vec![cand("p1", "سیبک فرمان پراید", None, 0.0)])),
+            ("سیبک", (40, vec![cand("p9", "سیبک بغل شاسی", None, 0.0)])),
+            ("پراید", (5297, vec![cand("p8", "آبگیر پراید", None, 0.0)])), // broader than BROAD_TOKEN → skipped
+        ]);
+        let found = candidates(&picker(table), "سیبک فرمان پراید").await.unwrap();
+        let ids: Vec<&str> = found.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, vec!["p1", "p2", "p3", "p9"], "unioned in query order, deduped, broad token skipped");
+    }
+
+    #[tokio::test]
+    async fn candidates_fall_back_to_the_least_broad_token_when_nothing_else_matches() {
+        let table = HashMap::from([
+            ("پراید", (5297, vec![cand("p8", "آبگیر پراید", None, 0.0)])),
+            ("405", (5317, vec![cand("p7", "آبگیر 405", None, 0.0)])),
+        ]);
+        let found = candidates(&picker(table), "پراید 405").await.unwrap();
+        assert_eq!(found.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(), vec!["p8"], "the less broad token's first page");
+        let none = candidates(&picker(HashMap::new()), "چیزی").await.unwrap();
+        assert!(none.is_empty());
+    }
+
     #[tokio::test]
     async fn auto_accepts_at_threshold_and_persists_the_decision() {
         let db = Db::in_memory().unwrap();
         let m = Matcher::new(db.clone(), "barezpakhsh", 90);
         let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let c = calls.clone();
-        let search = move |term: String| {
+        let search = move |q: String, _limit: usize, _skip: usize| {
             c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            async move {
-                assert_eq!(term, "لنت جلو پراید");
-                Ok(vec![cand("p1", "لنت جلو پراید", None, 5.0), cand("p2", "شمع", None, 1.0)])
-            }
+            let items = if q == "لنت جلو پراید" { vec![cand("p1", "لنت جلو پراید", None, 0.0), cand("p2", "شمع", None, 0.0)] } else { Vec::new() };
+            let total = items.len();
+            std::future::ready(Ok(RegistryPage { total, items }))
         };
         let d = m.decide(&search, "111", "لنت جلو پرايد (4 عددي)").await.unwrap();
-        assert!(matches!(d, Decision::Matched { ref product_id, similarity: 100, ref how, .. } if product_id == "p1" && how == "AUTO"));
+        assert!(matches!(d, Decision::Matched { ref product_id, similarity: Some(100), ref how, .. } if product_id == "p1" && how == "AUTO"));
+        let first = calls.load(std::sync::atomic::Ordering::SeqCst);
+        assert!(first >= 1);
         // second call answers from the table, no search
         let d2 = m.decide(&search, "111", "anything").await.unwrap();
         assert!(matches!(d2, Decision::Matched { .. }));
-        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), first);
     }
 
     #[tokio::test]
     async fn below_threshold_goes_to_review_and_none_sticks() {
         let db = Db::in_memory().unwrap();
         let m = Matcher::new(db.clone(), "barezpakhsh", 95);
-        let search = |_: String| async { Ok(vec![cand("p1", "لنت جلو پژو 405", None, 5.0)]) };
+        let search = |_: String, _: usize, _: usize| std::future::ready(Ok(RegistryPage { total: 1, items: vec![cand("p1", "لنت جلو پژو 405", None, 0.0)] }));
         let d = m.decide(&search, "222", "لنت جلو پراید").await.unwrap();
         let Decision::Review(scored) = d else { panic!("expected review") };
         assert_eq!(scored[0].candidate.id, "p1");
@@ -3699,7 +3772,7 @@ mod tests {
     async fn no_hits_is_a_review_with_no_candidates() {
         let db = Db::in_memory().unwrap();
         let m = Matcher::new(db, "barezpakhsh", 80);
-        let search = |_: String| async { Ok(Vec::new()) };
+        let search = |_: String, _: usize, _: usize| std::future::ready(Ok(RegistryPage { total: 0, items: Vec::new() }));
         assert!(matches!(m.decide(&search, "3", "چیزی").await.unwrap(), Decision::Review(ref v) if v.is_empty()));
     }
 }
@@ -3714,12 +3787,14 @@ Expected: compile errors.
 
 Replace `src-tauri/src/matching/mod.rs` with:
 ```rust
-//! Part matching (spec §6): Landau's fuzzy hits, scored by token-set similarity against the
-//! normalised invoice name, auto-accepted at the threshold, every decision persisted.
+//! Part matching (spec §6 as amended by §13): candidates gathered from the seller's registry
+//! picker (a substring search), scored by token-set similarity against the normalised invoice
+//! name, auto-accepted at the threshold, every decision persisted.
 
 pub mod normalize;
 pub mod similarity;
 
+use std::collections::HashSet;
 use std::future::Future;
 
 use serde::Serialize;
@@ -3727,11 +3802,20 @@ use serde::Serialize;
 use crate::db::matches::MatchRow;
 use crate::db::Db;
 use crate::errors::Result;
-use crate::landau::Candidate;
-use normalize::search_term;
+use crate::landau::{Candidate, RegistryPage};
+use normalize::{key_text, search_term};
 use similarity::token_set_ratio;
 
+/// Candidates shown on the review screen.
 pub const CANDIDATES: usize = 10;
+/// The picker's page size (its hard maximum).
+pub const PAGE: usize = 100;
+/// A single token matching more rows than this is too generic to page through («پراید» ≈ 5 300).
+pub const BROAD_TOKEN: usize = 300;
+/// Stop gathering once this many distinct definitions are in hand.
+pub const MAX_CANDIDATES: usize = 500;
+/// Pages read per query at most (300 rows).
+const PAGES_PER_QUERY: usize = 3;
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Scored {
@@ -3766,6 +3850,79 @@ pub fn score(term: &str, candidates: &[Candidate]) -> Vec<Scored> {
     scored
 }
 
+/// The picker queries for a term, most specific first: the whole term, each adjacent bigram, then
+/// each single token of at least two characters. Deduped, order kept.
+pub fn queries(term: &str) -> Vec<String> {
+    let cleaned = key_text(term);
+    let tokens: Vec<&str> = cleaned.split(' ').filter(|t| t.chars().count() >= 2).collect();
+    let mut out: Vec<String> = Vec::new();
+    let mut push = |q: String| {
+        if !q.is_empty() && !out.contains(&q) {
+            out.push(q);
+        }
+    };
+    push(tokens.join(" "));
+    for pair in tokens.windows(2) {
+        push(pair.join(" "));
+    }
+    for t in &tokens {
+        push((*t).to_string());
+    }
+    out
+}
+
+/// Gather registry candidates for a term through the picker (`search(query, limit, skip)`):
+/// every query in [`queries`] order, single tokens broader than [`BROAD_TOKEN`] skipped, up to
+/// [`PAGES_PER_QUERY`] pages each, unioned by id up to [`MAX_CANDIDATES`]. When nothing at all
+/// matched, the least broad skipped token's first page is the fallback.
+pub async fn candidates<F, Fut>(search: &F, term: &str) -> Result<Vec<Candidate>>
+where
+    F: Fn(String, usize, usize) -> Fut,
+    Fut: Future<Output = Result<RegistryPage>>,
+{
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut out: Vec<Candidate> = Vec::new();
+    let mut fallback: Option<(usize, String)> = None;
+    let mut extend = |out: &mut Vec<Candidate>, items: Vec<Candidate>| {
+        for c in items {
+            if seen.insert(c.id.clone()) {
+                out.push(c);
+            }
+        }
+    };
+    for q in queries(term) {
+        let single = !q.contains(' ');
+        let first = search(q.clone(), PAGE, 0).await?;
+        if first.total == 0 {
+            continue;
+        }
+        if single && first.total > BROAD_TOKEN {
+            if fallback.as_ref().map(|(t, _)| first.total < *t).unwrap_or(true) {
+                fallback = Some((first.total, q.clone()));
+            }
+            continue;
+        }
+        let total = first.total;
+        extend(&mut out, first.items);
+        let mut skip = PAGE;
+        while skip < total && skip < PAGES_PER_QUERY * PAGE && out.len() < MAX_CANDIDATES {
+            let more = search(q.clone(), PAGE, skip).await?;
+            extend(&mut out, more.items);
+            skip += PAGE;
+        }
+        if out.len() >= MAX_CANDIDATES {
+            break;
+        }
+    }
+    if out.is_empty() {
+        if let Some((_, q)) = fallback {
+            let page = search(q, PAGE, 0).await?;
+            extend(&mut out, page.items);
+        }
+    }
+    Ok(out)
+}
+
 pub struct Matcher {
     db: Db,
     supplier: String,
@@ -3788,8 +3945,8 @@ impl Matcher {
 
     pub async fn decide<F, Fut>(&self, search: &F, code: &str, name: &str) -> Result<Decision>
     where
-        F: Fn(String) -> Fut,
-        Fut: Future<Output = Result<Vec<Candidate>>>,
+        F: Fn(String, usize, usize) -> Fut,
+        Fut: Future<Output = Result<RegistryPage>>,
     {
         if let Some(row) = self.stored(code)? {
             return Ok(match row.product_id {
@@ -3803,7 +3960,7 @@ impl Matcher {
             });
         }
         let term = search_term(name, code);
-        let hits = search(term.clone()).await?;
+        let hits = candidates(search, &term).await?;
         let scored = score(&term, &hits);
         if let Some(top) = scored.first() {
             if top.similarity >= self.threshold {
@@ -3823,7 +3980,7 @@ impl Matcher {
                 });
             }
         }
-        Ok(Decision::Review(scored))
+        Ok(Decision::Review(scored.into_iter().take(CANDIDATES).collect()))
     }
 
     pub fn record_user_pick(&self, code: &str, name_seen: &str, product_id: &str, product_name: &str, similarity: Option<i64>) -> Result<()> {
@@ -3843,7 +4000,7 @@ impl Matcher {
 - [ ] **Step 4: Run the tests**
 
 Run: `cd src-tauri && cargo test matching::`
-Expected: all matching tests pass (7 from Task 5 + 4 here).
+Expected: all matching tests pass (6 from Task 5 + 7 here).
 
 - [ ] **Step 5: Commit**
 
@@ -3881,7 +4038,7 @@ use std::io::Write;
 
 use landau_bridge_lib::landau::LandauClient;
 use landau_bridge_lib::matching::normalize::{key_text, search_term};
-use landau_bridge_lib::matching::score;
+use landau_bridge_lib::matching::{candidates, score};
 
 #[derive(Debug)]
 struct Trial {
@@ -3935,7 +4092,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for (i, idx) in sample_indices(rows.len(), sample, seed).into_iter().enumerate() {
         let (code, raw, expected) = &rows[idx];
         let term = search_term(raw, code);
-        let hits = landau.search(&term, 10).await?;
+        let search = |q: String, limit: usize, skip: usize| async move { landau.registry_search(&q, limit, skip).await };
+        let hits = candidates(&search, &term).await?;
         empty_streak = if hits.is_empty() { empty_streak + 1 } else { 0 };
         if i < 20 && empty_streak == 20 {
             panic!("the first 20 searches answered nothing — is the registry imported? (docs/RUNBOOK.md → Registry)");
@@ -3968,7 +4126,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut f = std::fs::File::create(&out)?;
     writeln!(f, "# Matching threshold — calibration record\n")?;
     writeln!(f, "Generated by `cargo run --bin calibrate --features live` on {} against `{map}`.", chrono::Utc::now().format("%Y-%m-%d"))?;
-    writeln!(f, "Sample: {} SKUs (seed {seed}) of {} usable rows; search = Landau's own `multi_match` (fuzziness AUTO) over `name^3, alias^2, brand, categories`; similarity = token-set ratio of the normalised invoice name against each hit's name and aliases.\n", trials.len(), rows.len())?;
+    writeln!(f, "Sample: {} SKUs (seed {seed}) of {} usable rows; candidates = the seller's registry picker (`GET /career/stocks/registry?term=`, substring over name/alias/brand) queried with the whole normalised name, its bigrams and its tokens (single tokens matching > 300 rows skipped); similarity = token-set ratio of the normalised invoice name against each candidate's name and aliases.\n", trials.len(), rows.len())?;
     writeln!(f, "Top-1 hit names the expected registry part for **{top1_correct} / {}** samples regardless of threshold.\n", trials.len())?;
     writeln!(f, "| threshold | auto-accepted | correct | precision | coverage |")?;
     writeln!(f, "| --- | --- | --- | --- | --- |")?;
@@ -4650,7 +4808,7 @@ async fn match_phase(ctx: &JobCtx, svc: &Services) -> Result<usize> {
     ctx.phase("MATCH")?;
     let matcher = Matcher::new(ctx.db.clone(), SUPPLIER_ID, svc.settings.threshold);
     let landau = &svc.landau;
-    let search = |term: String| async move { landau.search(&term, crate::matching::CANDIDATES).await };
+    let search = |q: String, limit: usize, skip: usize| async move { landau.registry_search(&q, limit, skip).await };
     let items = ctx.db.job_items(ctx.job_id)?;
     let total = items.len() as u32;
     let mut pending = 0usize;
@@ -5023,7 +5181,7 @@ use crate::domain::ImportMode;
 use crate::errors::{kinds, BridgeError, Result};
 use crate::jobs::{self, JobCtx, JobRegistry, Services};
 use crate::landau::LandauClient;
-use crate::matching::{score, Matcher, Scored};
+use crate::matching::{candidates, score, Matcher, Scored};
 use crate::secrets::SecretStore;
 use crate::settings::{Settings, SettingsPatch, SUPPLIER_ID};
 use crate::supplier;
@@ -5217,8 +5375,10 @@ pub async fn review_decide(state: State<'_, AppState>, decision: ReviewDecision)
 #[tauri::command(rename_all = "snake_case")]
 pub async fn review_search(state: State<'_, AppState>, term: String) -> Result<Vec<Scored>> {
     let s = settings(&state)?;
-    let hits = landau(&s)?.search(&term, crate::matching::CANDIDATES).await?;
-    Ok(score(&term, &hits))
+    let client = landau(&s)?;
+    let search = |q: String, limit: usize, skip: usize| async move { client.registry_search(&q, limit, skip).await };
+    let hits = candidates(&search, &term).await?;
+    Ok(score(&term, &hits).into_iter().take(crate::matching::CANDIDATES).collect())
 }
 
 #[tauri::command(rename_all = "snake_case")]
