@@ -182,6 +182,12 @@ fn required_text(node: roxmltree::Node<'_, '_>, tag: &str, page: &str) -> Result
     Ok(text)
 }
 
+/// `DocAliasID` 2 = «فاکتور فروش», 6 = «مرجوع از فروش», 67 = «دريافت» (a payment). A ledger can also
+/// carry adjustment lines (e.g. a «جشنواره تخفیف» discount credit) that print no `DocAliasID` and
+/// no `TransactionID` at all — verified live on 2026-09-13 (a ~208-page ledger read hit one at page
+/// 112). Only rows whose `DocAliasID` is `2` or `6` need `TransactionID`/`BusinessID` to build a
+/// [`header_of`] URL; every other row (including one missing `DocAliasID` outright) is not an
+/// invoice and must not fail the whole page over fields it never had.
 pub fn ledger_rows(body: &str) -> Result<Vec<LedgerRow>> {
     let page = "moein2-page";
     let xml = unwrap_json_xml(body, page)?;
@@ -189,22 +195,32 @@ pub fn ledger_rows(body: &str) -> Result<Vec<LedgerRow>> {
     doc.descendants()
         .filter(|n| n.has_tag_name("result"))
         .map(|n| {
+            let doc_alias_id = child_text(n, "DocAliasID");
+            let is_invoice = matches!(doc_alias_id.as_str(), "2" | "6");
+            let (transaction_id, business_id) = if is_invoice {
+                (
+                    required_text(n, "TransactionID", page)?,
+                    required_text(n, "BusinessID", page)?,
+                )
+            } else {
+                (child_text(n, "TransactionID"), child_text(n, "BusinessID"))
+            };
             Ok(LedgerRow {
-                doc_alias_id: required_text(n, "DocAliasID", page)?,
+                doc_alias_id,
                 doc_alias: child_text(n, "DocAliasDescription"),
                 trans_number: required_text(n, "TransNumber", page)?,
                 voucher_date: required_text(n, "VoucherDate", page)?,
                 voucher_date_old: child_text(n, "VoucherDateOld"),
-                transaction_id: required_text(n, "TransactionID", page)?,
-                business_id: required_text(n, "BusinessID", page)?,
+                transaction_id,
+                business_id,
                 status: child_text(n, "status"),
             })
         })
         .collect()
 }
 
-/// `DocAliasID` 2 = «فاکتور فروش», 6 = «مرجوع از فروش»; 67 («دريافت», a payment) and anything else
-/// is not an invoice. Payment state comes from `status`.
+/// `DocAliasID` 2 = «فاکتور فروش», 6 = «مرجوع از فروش»; 67 («دريافت», a payment), anything else and
+/// a missing `DocAliasID` are not an invoice. Payment state comes from `status`.
 pub fn header_of(row: &LedgerRow) -> Option<InvoiceHeader> {
     let kind = match row.doc_alias_id.as_str() {
         "2" => InvoiceKind::Sale,
@@ -306,7 +322,9 @@ pub fn buy_context(html: &str) -> Result<BuyContext> {
 pub fn price_quotes(body: &str) -> Result<Vec<PriceQuote>> {
     let page = "items-search";
     let xml = unwrap_json_xml(body, page)?;
-    if xml.trim().is_empty() {
+    // Verified live on 2026-09-13: a search with zero matches answers the literal string `"{}"`
+    // (not XML, not empty) rather than an empty `<NewDataSet>`.
+    if xml.trim().is_empty() || xml.trim() == "{}" {
         return Ok(Vec::new());
     }
     let doc = Document::parse(&xml).map_err(|_| missing(page, "xml"))?;
@@ -440,6 +458,22 @@ mod tests {
         }
     }
 
+    /// Verified live on 2026-09-13: a discount/adjustment ledger line (e.g. «جشنواره تخفیف
+    /// پرداخت اینترنتی») carries neither `DocAliasID` nor `TransactionID` at all. It must parse
+    /// (not fail the whole page) and `header_of` must drop it rather than treat it as an invoice.
+    #[test]
+    fn ledger_rows_accept_adjustment_lines_with_no_doc_alias_id() {
+        let xml = "<NewDataSet><result><TransNumber>174914</TransNumber>\
+                   <VoucherDate>1403/4/9</VoucherDate><BusinessID>11750</BusinessID>\
+                   <status>-</status></result></NewDataSet>";
+        let body = serde_json::to_string(&xml).unwrap();
+        let rows = ledger_rows(&body).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].doc_alias_id, "");
+        assert_eq!(rows[0].transaction_id, "");
+        assert!(header_of(&rows[0]).is_none());
+    }
+
     #[test]
     fn parses_sale_invoice_lines() {
         let lines = invoice_lines(FACTOR).unwrap();
@@ -506,6 +540,14 @@ mod tests {
             Err(BridgeError::SupplierParse { field, .. }) => assert_eq!(field, "ItemCode"),
             other => panic!("expected SupplierParse{{ field: \"ItemCode\", .. }}, got {other:?}"),
         }
+    }
+
+    /// Verified live on 2026-09-13: a zero-match search answers the literal string `"{}"`, not an
+    /// empty `<NewDataSet>` and not an empty string.
+    #[test]
+    fn price_quotes_are_empty_for_the_sites_no_match_sentinel() {
+        let body = serde_json::to_string("{}").unwrap();
+        assert_eq!(price_quotes(&body).unwrap(), Vec::new());
     }
 
     #[test]
