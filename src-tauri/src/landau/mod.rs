@@ -12,6 +12,21 @@ use crate::errors::{BridgeError, Result};
 
 const SHELF_PAGE: usize = 100;
 
+/// Up to 3 attempts total, sleeping 1s then 3s between them; see [`retryable`] for what qualifies.
+const RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(3)];
+
+/// Retry policy for the transport layer: a transport error (`None`) and statuses 408, 429 and any
+/// 5xx are retried — the picker is called thousands of times per import run, so a transient
+/// backend blip (seen live: a 500 from the registry search) must not fail the whole request.
+/// Every other 4xx and every 2xx/3xx is returned as-is; retrying would not change the outcome.
+pub(crate) fn retryable(status: Option<u16>) -> bool {
+    match status {
+        None => true,
+        Some(408) | Some(429) => true,
+        Some(s) => (500..600).contains(&s),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Store {
     pub id: String,
@@ -207,19 +222,49 @@ impl LandauClient {
         self.call_url(method, url, body).await
     }
 
+    /// Sends a request built fresh on each attempt (so a JSON body can be resent), retrying per
+    /// [`retryable`]. Never logs the token — only the path, method, attempt and status/error.
+    async fn send_with_retry(
+        &self,
+        method: &Method,
+        url: &Url,
+        path: &str,
+        body: Option<&Value>,
+    ) -> Result<reqwest::Response> {
+        let mut attempt: usize = 0;
+        loop {
+            attempt += 1;
+            let mut req = self
+                .http
+                .request(method.clone(), url.clone())
+                .bearer_auth(&self.token);
+            if let Some(b) = body {
+                req = req.json(b);
+            }
+            let outcome = req.send().await;
+            let status = outcome.as_ref().ok().map(|r| r.status().as_u16());
+            if attempt <= RETRY_DELAYS.len() && retryable(status) {
+                match &outcome {
+                    Ok(res) => tracing::warn!(
+                        %method,
+                        path,
+                        attempt,
+                        status = res.status().as_u16(),
+                        "landau retrying"
+                    ),
+                    Err(e) => tracing::warn!(%method, path, attempt, error = %e, "landau retrying"),
+                }
+                tokio::time::sleep(RETRY_DELAYS[attempt - 1]).await;
+                continue;
+            }
+            return outcome
+                .map_err(|e| BridgeError::LandauUnreachable(e.without_url().to_string()));
+        }
+    }
+
     async fn call_url(&self, method: Method, url: Url, body: Option<&Value>) -> Result<Value> {
         let path = url.path().to_string();
-        let mut req = self
-            .http
-            .request(method.clone(), url)
-            .bearer_auth(&self.token);
-        if let Some(b) = body {
-            req = req.json(b);
-        }
-        let res = req
-            .send()
-            .await
-            .map_err(|e| BridgeError::LandauUnreachable(e.without_url().to_string()))?;
+        let res = self.send_with_retry(&method, &url, &path, body).await?;
         let status = res.status();
         let text = res
             .text()
@@ -473,6 +518,20 @@ impl LandauClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retry_policy_covers_transport_errors_408_429_and_5xx_only() {
+        assert!(retryable(None));
+        assert!(retryable(Some(408)));
+        assert!(retryable(Some(429)));
+        assert!(retryable(Some(500)));
+        assert!(retryable(Some(502)));
+        assert!(!retryable(Some(200)));
+        assert!(!retryable(Some(400)));
+        assert!(!retryable(Some(401)));
+        assert!(!retryable(Some(403)));
+        assert!(!retryable(Some(404)));
+    }
 
     #[test]
     fn peels_the_data_envelope_only_when_present() {

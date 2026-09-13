@@ -7,39 +7,9 @@
 use std::collections::BTreeMap;
 use std::io::Write;
 
-use landau_bridge_lib::errors::BridgeError;
-use landau_bridge_lib::landau::{LandauClient, RegistryPage};
+use landau_bridge_lib::landau::LandauClient;
 use landau_bridge_lib::matching::normalize::{key_text, search_term};
 use landau_bridge_lib::matching::{candidates, score};
-
-/// The live registry occasionally answers a bare request with a transient backend error (seen:
-/// `LandauRejected { status: 500, body: "ERR invalid expire time in 'psetex' command" }`, roughly
-/// once per few hundred requests — a rate-limiter edge case, not a query problem). `LandauClient`
-/// itself does not retry, so a 2 000-sample run would otherwise abort on the first blip; retry
-/// transport errors and 5xx/429 up to twice with a short backoff, same policy shape as the
-/// supplier client's (spec §3), scaled down since this is a one-off calibration run, not the app.
-async fn search_with_retry(
-    landau: &LandauClient,
-    q: &str,
-    limit: usize,
-    skip: usize,
-) -> landau_bridge_lib::errors::Result<RegistryPage> {
-    let delays = [
-        std::time::Duration::from_millis(500),
-        std::time::Duration::from_millis(1500),
-    ];
-    for delay in delays {
-        match landau.registry_search(q, limit, skip).await {
-            Ok(page) => return Ok(page),
-            Err(BridgeError::LandauUnreachable(_)) => tokio::time::sleep(delay).await,
-            Err(BridgeError::LandauRejected { status, .. }) if status >= 500 || status == 429 => {
-                tokio::time::sleep(delay).await;
-            }
-            Err(e) => return Err(e),
-        }
-    }
-    landau.registry_search(q, limit, skip).await
-}
 
 #[derive(Debug)]
 struct Trial {
@@ -125,7 +95,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let term = search_term(raw, code);
         let search = |q: String, limit: usize, skip: usize| {
             let landau = &landau;
-            async move { search_with_retry(landau, &q, limit, skip).await }
+            async move { landau.registry_search(&q, limit, skip).await }
         };
         let hits = candidates(&search, &term).await?;
         empty_streak = if hits.is_empty() { empty_streak + 1 } else { 0 };

@@ -308,6 +308,42 @@ mod tests {
     }
 
     #[test]
+    fn brand_in_the_invoice_name_is_matched_through_name_plus_brand() {
+        let term = "لنت جلو پراید برند الف";
+        // p1's name+brand is exactly the term → 100.
+        let p1 = Candidate {
+            id: "p1".into(),
+            name: "لنت جلو پراید".into(),
+            alias: None,
+            brand: Some("برند الف".into()),
+            score: 0.0,
+        };
+        // p2's name alone shares 3 of the term's 5 tokens (3/5 = 60), but its name+brand shares
+        // "برند" too (the generic word) while swapping «الف» for «ب» — 4 of 6 union tokens (4/6 ≈
+        // 66.7, rounds to 67) — the higher of the two facets, so that is `similarity_of`'s answer.
+        let p2 = Candidate {
+            id: "p2".into(),
+            name: "لنت جلو پراید".into(),
+            alias: None,
+            brand: Some("برند ب".into()),
+            score: 0.0,
+        };
+        assert_eq!(similarity_of(term, &p1), 100);
+        assert_eq!(similarity_of(term, &p2), 67);
+        assert_eq!(score(term, &[p2.clone(), p1.clone()])[0].candidate.id, "p1");
+
+        // p3's name is unrelated; only its alias, folded with the matching brand, hits the term.
+        let p3 = Candidate {
+            id: "p3".into(),
+            name: "قطعه نامرتبط".into(),
+            alias: Some("لنت جلو پراید".into()),
+            brand: Some("برند الف".into()),
+            score: 0.0,
+        };
+        assert_eq!(similarity_of(term, &p3), 100);
+    }
+
+    #[test]
     fn queries_go_from_the_whole_term_to_bigrams_to_tokens() {
         assert_eq!(
             queries("سیبک فرمان پراید امیرنیا"),
