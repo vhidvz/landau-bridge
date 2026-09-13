@@ -26,12 +26,14 @@ pub struct Aggregation {
 }
 
 /// Quantity mode: paid invoices dated on/after `since` and not transferred before, sales minus
-/// returns. Zero mode: every paid invoice, quantity 0. Lines are expected oldest first.
+/// returns. The transfer guard is per `(invoice, code)` line, not per invoice — one code on an
+/// invoice can be guarded while a sibling code on the same invoice still transfers. Zero mode:
+/// every paid invoice, quantity 0. Lines are expected oldest first.
 pub fn aggregate(
     lines: &[LineWithInvoice],
     mode: ImportMode,
     since: Option<&str>,
-    already: &HashSet<i64>,
+    already: &HashSet<(i64, String)>,
 ) -> Aggregation {
     let mut agg = Aggregation::default();
     let mut items: BTreeMap<String, AggregatedItem> = BTreeMap::new();
@@ -49,7 +51,7 @@ pub fn aggregate(
                     continue;
                 }
             }
-            if already.contains(&l.invoice_id) {
+            if already.contains(&(l.invoice_id, l.code.clone())) {
                 imported.insert(l.invoice_id);
                 continue;
             }
@@ -111,17 +113,24 @@ pub enum WriteAction {
     },
 }
 
-/// The row for `(product, NEW, authenticity)` — the whole unique tuple, never a subset (spec §2.1).
+/// The index of the row for `(product, NEW, authenticity)` — the whole unique tuple, never a
+/// subset (spec §2.1). An index (not a reference) lets a caller mutate the shelf in place after a
+/// successful write, so a second item mapped to the same tuple sees the updated figures.
+pub fn find_row_index(shelf: &[ShelfRow], product_id: &str, authenticity: &str) -> Option<usize> {
+    shelf.iter().position(|r| {
+        r.product == product_id
+            && r.condition.as_deref() == Some("NEW")
+            && r.authenticity.as_deref() == Some(authenticity)
+    })
+}
+
+/// The row for `(product, NEW, authenticity)` — see [`find_row_index`].
 pub fn find_row<'a>(
     shelf: &'a [ShelfRow],
     product_id: &str,
     authenticity: &str,
 ) -> Option<&'a ShelfRow> {
-    shelf.iter().find(|r| {
-        r.product == product_id
-            && r.condition.as_deref() == Some("NEW")
-            && r.authenticity.as_deref() == Some(authenticity)
-    })
+    find_row_index(shelf, product_id, authenticity).map(|i| &shelf[i])
 }
 
 pub fn plan_write(existing: Option<&ShelfRow>, qty: i64, mode: ImportMode) -> WriteAction {
@@ -191,7 +200,7 @@ mod tests {
             line(5, InvoiceKind::Sale, true, "1403/03/02", "B", "b", 0),
             line(6, InvoiceKind::Sale, true, "1403/03/03", "C", "c", 2),
         ];
-        let already = HashSet::from([6]);
+        let already = HashSet::from([(6, "C".to_string())]);
         let agg = aggregate(&lines, ImportMode::Quantity, Some("1402/01/01"), &already);
         let a = agg.items.iter().find(|i| i.code == "A").unwrap();
         assert_eq!(
@@ -223,7 +232,7 @@ mod tests {
             &lines,
             ImportMode::Zero,
             Some("1402/01/01"),
-            &HashSet::from([1]),
+            &HashSet::from([(1, "A".to_string())]),
         );
         assert_eq!(agg.items.len(), 1);
         assert_eq!(agg.items[0].code, "A");
@@ -232,6 +241,26 @@ mod tests {
             agg.skipped_imported.is_empty(),
             "zero mode ignores the transfer guard"
         );
+    }
+
+    #[test]
+    fn transfer_guard_is_per_invoice_and_code() {
+        let lines = vec![
+            line(7, InvoiceKind::Sale, true, "1403/01/01", "A", "a", 2),
+            line(7, InvoiceKind::Sale, true, "1403/01/01", "B", "b", 3),
+        ];
+        let already = HashSet::from([(7, "A".to_string())]);
+        let agg = aggregate(&lines, ImportMode::Quantity, None, &already);
+        assert!(
+            agg.items.iter().all(|i| i.code != "A"),
+            "invoice 7's A line was already transferred"
+        );
+        let b = agg.items.iter().find(|i| i.code == "B").unwrap();
+        assert_eq!(
+            b.qty, 3,
+            "invoice 7's B line is a different (invoice, code) pair and still transfers"
+        );
+        assert_eq!(agg.skipped_imported, vec![7]);
     }
 
     #[test]
@@ -279,6 +308,18 @@ mod tests {
             find_row(&shelf, "p2", "ORIGINAL").is_none(),
             "a legacy row without a variant is not the same tuple"
         );
+    }
+
+    #[test]
+    fn find_row_index_is_the_position_find_row_would_dereference() {
+        let shelf = vec![
+            row("s1", "p1", Some("ORIGINAL"), 2),
+            row("s2", "p1", Some("FAKE"), 0),
+            row("s3", "p2", None, 1),
+        ];
+        assert_eq!(find_row_index(&shelf, "p1", "FAKE"), Some(1));
+        assert_eq!(find_row_index(&shelf, "p1", "ORIGINAL"), Some(0));
+        assert_eq!(find_row_index(&shelf, "p2", "ORIGINAL"), None);
     }
 
     #[test]

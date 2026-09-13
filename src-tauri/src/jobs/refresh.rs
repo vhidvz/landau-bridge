@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use serde_json::json;
 
-use super::{cost_for, i, opt_i, preflight, readback, reprice_items, t, JobCtx, Services};
+use super::{cost_for, fatal, i, opt_i, preflight, readback, reprice_items, t, JobCtx, Services};
 use crate::errors::{kinds, BridgeError, Result};
 use crate::landau::PatchBody;
 use crate::settings::SUPPLIER_ID;
@@ -57,7 +57,7 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
     let shelf = svc.landau.shelf(&store).await?;
     let links = links(ctx)?;
     let total = shelf.len() as u32;
-    let mut to_write: Vec<(i64, String, i64)> = Vec::new(); // item, stock, cost
+    let mut to_write: Vec<(i64, String, i64, bool)> = Vec::new(); // item, stock, cost, unchanged
     for (n, row) in shelf.iter().enumerate() {
         ctx.check_cancel()?;
         let name = row
@@ -78,6 +78,7 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
                     ("error_msg", t("این ردیف به هیچ کد بارزپخش وصل نیست.")),
                 ],
             )?;
+            ctx.progress("PRICE", n as u32 + 1, total, "قیمت روز بارزپخش");
             continue;
         };
         let id = ctx
@@ -95,19 +96,8 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
         match cost_for(ctx, svc, "PRICE", code).await {
             Ok(Some(cost)) => {
                 ctx.item(id, &[("cost", i(cost))])?;
-                if row.cost == Some(cost) {
-                    ctx.item(
-                        id,
-                        &[
-                            ("action", t("SKIP")),
-                            ("reprice_verdict", t("COST_UNCHANGED")),
-                            ("status", t("WRITTEN")),
-                        ],
-                    )?;
-                    to_write.push((id, row.id.clone(), cost)); // still repriced: a rule may have changed
-                } else {
-                    to_write.push((id, row.id.clone(), cost));
-                }
+                // still repriced below (a rule may have changed even when the cost has not).
+                to_write.push((id, row.id.clone(), cost, row.cost == Some(cost)));
             }
             Ok(None) => {
                 let e = BridgeError::NoCurrentPrice { code: code.clone() };
@@ -121,17 +111,7 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
                     ],
                 )?;
             }
-            Err(e)
-                if matches!(
-                    e,
-                    BridgeError::SupplierUnreachable(_)
-                        | BridgeError::SupplierBlocked
-                        | BridgeError::SupplierSessionExpired
-                        | BridgeError::JobCancelled
-                ) =>
-            {
-                return Err(e)
-            }
+            Err(e) if fatal(&e) => return Err(e),
             Err(e) => {
                 ctx.error("PRICE", &e, Some(json!({"item_id": id})));
                 ctx.item(
@@ -150,14 +130,12 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
     ctx.phase("WRITE")?;
     let mut written: Vec<(i64, String)> = Vec::new();
     let total = to_write.len() as u32;
-    for (n, (item_id, stock_id, cost)) in to_write.iter().enumerate() {
+    for (n, (item_id, stock_id, cost, unchanged)) in to_write.iter().enumerate() {
         ctx.check_cancel()?;
-        let unchanged = ctx
-            .db
-            .job_item(*item_id)?
-            .map(|i| i.reprice_verdict.as_deref() == Some("COST_UNCHANGED"))
-            .unwrap_or(false);
-        if !unchanged {
+        let ok = if *unchanged {
+            ctx.item(*item_id, &[("action", t("SKIP")), ("status", t("WRITTEN"))])?;
+            true
+        } else {
             match svc
                 .landau
                 .patch(
@@ -169,13 +147,14 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
                 )
                 .await
             {
-                Ok(()) => ctx.item(
-                    *item_id,
-                    &[("action", t("PATCH")), ("status", t("WRITTEN"))],
-                )?,
-                Err(e @ (BridgeError::LandauUnauthorized | BridgeError::LandauUnreachable(_))) => {
-                    return Err(e)
+                Ok(()) => {
+                    ctx.item(
+                        *item_id,
+                        &[("action", t("PATCH")), ("status", t("WRITTEN"))],
+                    )?;
+                    true
                 }
+                Err(e) if fatal(&e) => return Err(e),
                 Err(e) => {
                     ctx.error("WRITE", &e, Some(json!({"item_id": item_id})));
                     ctx.item(
@@ -186,11 +165,13 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
                             ("error_msg", t(&e.message_fa())),
                         ],
                     )?;
-                    continue;
+                    false
                 }
             }
+        };
+        if ok {
+            written.push((*item_id, stock_id.clone()));
         }
-        written.push((*item_id, stock_id.clone()));
         ctx.progress(
             "WRITE",
             n as u32 + 1,
@@ -207,6 +188,7 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
         "rows": all.len(),
         "linked": all.iter().filter(|i| !i.code.is_empty()).count(),
         "patched": all.iter().filter(|i| i.action.as_deref() == Some("PATCH")).count(),
+        "unchanged": all.iter().filter(|i| i.action.as_deref() == Some("SKIP") && i.status == "WRITTEN").count(),
         "repriced": all.iter().filter(|i| i.reprice_verdict.as_deref().map(|v| v.starts_with("REPRICED:")).unwrap_or(false)).count(),
         "skipped": all.iter().filter(|i| i.status == "SKIPPED").count(),
         "failed": all.iter().filter(|i| i.status == "FAILED").count(),

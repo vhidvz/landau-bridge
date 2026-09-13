@@ -120,21 +120,23 @@ impl Db {
         })
     }
 
-    pub fn imported_invoice_ids(&self) -> Result<std::collections::HashSet<i64>> {
+    /// Every `(invoice_id, code)` pair already transferred, ever — the per-line transfer guard.
+    pub fn imported_lines(&self) -> Result<std::collections::HashSet<(i64, String)>> {
         self.with(|c| {
-            let mut st = c.prepare("SELECT invoice_id FROM invoice_imports")?;
-            let rows = st.query_map([], |r| r.get::<_, i64>(0))?;
+            let mut st = c.prepare("SELECT invoice_id, code FROM invoice_imports")?;
+            let rows = st.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
             rows.collect()
         })
     }
 
-    pub fn mark_invoices_imported(&self, invoice_ids: &[i64], job_id: i64) -> Result<()> {
+    /// One transfer per `(invoice, code)` pair, ever (`INSERT OR IGNORE`; idempotent).
+    pub fn mark_lines_imported(&self, lines: &[(i64, String)], job_id: i64) -> Result<()> {
         self.with(|c| {
             let mut st = c.prepare(
-                "INSERT OR IGNORE INTO invoice_imports(invoice_id, job_id) VALUES (?1, ?2)",
+                "INSERT OR IGNORE INTO invoice_imports(invoice_id, code, job_id) VALUES (?1, ?2, ?3)",
             )?;
-            for id in invoice_ids {
-                st.execute(params![id, job_id])?;
+            for (invoice_id, code) in lines {
+                st.execute(params![invoice_id, code, job_id])?;
             }
             Ok(())
         })

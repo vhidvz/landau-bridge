@@ -40,6 +40,8 @@ pub struct JobItemRow {
     pub error_kind: Option<String>,
     pub error_msg: Option<String>,
     pub candidates: Option<serde_json::Value>,
+    /// Invoice ids this item's quantity was aggregated from (empty for a refresh-job row).
+    pub invoice_ids: Vec<i64>,
     pub status: String,
 }
 
@@ -78,6 +80,7 @@ const ITEM_COLUMNS: &[&str] = &[
     "error_kind",
     "error_msg",
     "candidates_json",
+    "invoice_ids_json",
     "status",
     "qty",
     "name",
@@ -102,7 +105,7 @@ fn job_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<JobRow> {
     })
 }
 
-const ITEM_COLS: &str = "id, job_id, code, name, qty, product_id, product_name, stock_id, authenticity, action, qty_before, qty_after, cost, price_before, price_after, reprice_verdict, error_kind, error_msg, candidates_json, status";
+const ITEM_COLS: &str = "id, job_id, code, name, qty, product_id, product_name, stock_id, authenticity, action, qty_before, qty_after, cost, price_before, price_after, reprice_verdict, error_kind, error_msg, candidates_json, invoice_ids_json, status";
 
 fn item_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<JobItemRow> {
     Ok(JobItemRow {
@@ -127,7 +130,11 @@ fn item_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<JobItemRow> {
         candidates: r
             .get::<_, Option<String>>(18)?
             .and_then(|c| serde_json::from_str(&c).ok()),
-        status: r.get(19)?,
+        invoice_ids: r
+            .get::<_, Option<String>>(19)?
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default(),
+        status: r.get(20)?,
     })
 }
 

@@ -242,12 +242,16 @@ mod tests {
                 &header("9", InvoiceKind::Sale, "1401/10/05", true),
             )
             .unwrap();
-        assert!(db.imported_invoice_ids().unwrap().is_empty());
-        db.mark_invoices_imported(&[id], 1).unwrap();
-        db.mark_invoices_imported(&[id], 2).unwrap(); // idempotent
+        assert!(db.imported_lines().unwrap().is_empty());
+        db.mark_lines_imported(&[(id, "A".into())], 1).unwrap();
+        db.mark_lines_imported(&[(id, "A".into())], 2).unwrap(); // idempotent, PK is (invoice_id, code)
         assert_eq!(
-            db.imported_invoice_ids().unwrap(),
-            std::collections::HashSet::from([id])
+            db.imported_lines().unwrap(),
+            std::collections::HashSet::from([(id, "A".to_string())])
         );
+        assert!(!db
+            .imported_lines()
+            .unwrap()
+            .contains(&(id, "B".to_string())));
     }
 }

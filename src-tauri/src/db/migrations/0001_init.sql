@@ -86,6 +86,7 @@ CREATE TABLE job_items (
   error_kind      TEXT,
   error_msg       TEXT,
   candidates_json TEXT,                 -- review candidates, best first (Scored[])
+  invoice_ids_json TEXT,                -- invoice ids this item's quantity was aggregated from
   status          TEXT NOT NULL DEFAULT 'PLANNED'  -- PLANNED | REVIEW | SKIPPED | WRITTEN | FAILED | DONE
 );
 CREATE INDEX job_items_job ON job_items(job_id);
@@ -102,8 +103,10 @@ CREATE TABLE job_events (
 CREATE INDEX job_events_job ON job_events(job_id);
 
 CREATE TABLE invoice_imports (
-  invoice_id INTEGER PRIMARY KEY REFERENCES invoices(id),
-  job_id     INTEGER NOT NULL
+  invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+  code       TEXT NOT NULL,
+  job_id     INTEGER NOT NULL,
+  PRIMARY KEY (invoice_id, code)
 );
 
 CREATE TABLE errors (

@@ -5,8 +5,8 @@ use std::collections::HashSet;
 
 use serde_json::json;
 
-use super::planner::{aggregate, find_row, plan_write, WriteAction};
-use super::{cost_for, i, opt_i, preflight, readback, reprice_items, t, JobCtx, Services};
+use super::planner::{aggregate, find_row, find_row_index, plan_write, WriteAction};
+use super::{cost_for, fatal, i, opt_i, preflight, readback, reprice_items, t, JobCtx, Services};
 use crate::domain::{Authenticity, ImportMode};
 use crate::errors::{kinds, BridgeError, Result};
 use crate::landau::{AttachBody, PatchBody};
@@ -28,19 +28,6 @@ pub enum Outcome {
     /// Paused: this many items need the seller.
     Review(usize),
     Done,
-}
-
-fn fatal(e: &BridgeError) -> bool {
-    matches!(
-        e,
-        BridgeError::SupplierUnreachable(_)
-            | BridgeError::SupplierBlocked
-            | BridgeError::SupplierBadCredentials
-            | BridgeError::SupplierSessionExpired
-            | BridgeError::LandauUnauthorized
-            | BridgeError::LandauUnreachable(_)
-            | BridgeError::JobCancelled
-    )
 }
 
 pub async fn start(ctx: &JobCtx, svc: &Services, params: &ImportParams) -> Result<Outcome> {
@@ -136,7 +123,7 @@ async fn fetch(ctx: &JobCtx, svc: &Services, limit: Option<usize>) -> Result<()>
 fn aggregate_phase(ctx: &JobCtx, params: &ImportParams) -> Result<()> {
     ctx.phase("AGGREGATE")?;
     let lines = ctx.db.lines_with_invoices(SUPPLIER_ID)?;
-    let already = ctx.db.imported_invoice_ids()?;
+    let already = ctx.db.imported_lines()?;
     let agg = aggregate(&lines, params.mode, params.since.as_deref(), &already);
     if !agg.skipped_unpaid.is_empty() {
         ctx.warn(
@@ -176,6 +163,13 @@ fn aggregate_phase(ctx: &JobCtx, params: &ImportParams) -> Result<()> {
         let id = ctx
             .db
             .add_job_item(ctx.job_id, &item.code, &item.name, item.qty)?;
+        ctx.item(
+            id,
+            &[(
+                "invoice_ids_json",
+                t(&serde_json::to_string(&item.invoice_ids)?),
+            )],
+        )?;
         if item.negative {
             ctx.warn(
                 "AGGREGATE",
@@ -365,7 +359,8 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
             .as_deref()
             .and_then(Authenticity::parse)
             .unwrap_or(svc.settings.default_authenticity);
-        let existing = find_row(&shelf, &product, authenticity.as_str());
+        let idx = find_row_index(&shelf, &product, authenticity.as_str());
+        let existing = idx.map(|pos| &shelf[pos]);
         let action = plan_write(existing, item.qty, mode);
         // stock_id, qty_before, qty_after, price_before, action verb
         #[allow(clippy::type_complexity)]
@@ -446,6 +441,14 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
         };
         match result {
             Ok((stock_id, before, after, price_before, verb)) => {
+                // keep the local mirror current: a second item mapped to the same
+                // (product, authenticity) tuple must see this write, not the stale figure.
+                if let Some(new_qty) = after {
+                    if let Some(pos) = shelf.iter().position(|r| r.id == stock_id) {
+                        shelf[pos].inventory = new_qty;
+                        shelf[pos].cost = Some(cost);
+                    }
+                }
                 ctx.item(
                     item.id,
                     &[
@@ -459,6 +462,16 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                     ],
                 )?;
                 written.push((item.id, stock_id));
+                // the transfer guard is written as each item is written, not deferred to the
+                // report step, so a failure or cancel after this point cannot double-add.
+                if mode == ImportMode::Quantity {
+                    let lines: Vec<(i64, String)> = item
+                        .invoice_ids
+                        .iter()
+                        .map(|invoice_id| (*invoice_id, item.code.clone()))
+                        .collect();
+                    ctx.db.mark_lines_imported(&lines, ctx.job_id)?;
+                }
             }
             Err(e) if fatal(&e) => return Err(e),
             Err(e) => {
@@ -483,16 +496,6 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
     reprice_items(ctx, svc, &store, &written).await?;
     readback(ctx, svc, &store, &written).await?;
 
-    if mode == ImportMode::Quantity {
-        let ids: Vec<i64> = job
-            .summary
-            .as_ref()
-            .and_then(|s| s.get("invoice_ids"))
-            .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|x| x.as_i64()).collect())
-            .unwrap_or_default();
-        ctx.db.mark_invoices_imported(&ids, ctx.job_id)?;
-    }
     let all = ctx.db.job_items(ctx.job_id)?;
     let count = |status: &str| all.iter().filter(|i| i.status == status).count();
     let summary = json!({

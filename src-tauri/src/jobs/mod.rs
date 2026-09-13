@@ -4,6 +4,7 @@ pub mod import;
 pub mod planner;
 pub mod refresh;
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -35,6 +36,20 @@ pub fn i(n: i64) -> rusqlite::types::Value {
 pub fn opt_i(n: Option<i64>) -> rusqlite::types::Value {
     n.map(rusqlite::types::Value::Integer)
         .unwrap_or(rusqlite::types::Value::Null)
+}
+
+/// Failures that stop a job outright rather than being recorded against one item and continuing.
+pub fn fatal(e: &BridgeError) -> bool {
+    matches!(
+        e,
+        BridgeError::SupplierUnreachable(_)
+            | BridgeError::SupplierBlocked
+            | BridgeError::SupplierBadCredentials
+            | BridgeError::SupplierSessionExpired
+            | BridgeError::LandauUnauthorized
+            | BridgeError::LandauUnreachable(_)
+            | BridgeError::JobCancelled
+    )
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -155,7 +170,10 @@ impl JobCtx {
     pub fn finish(&self, outcome: &Result<()>, phase: &str) {
         let status = match outcome {
             Ok(()) => "DONE",
-            Err(BridgeError::JobCancelled) => "CANCELLED",
+            Err(BridgeError::JobCancelled) => {
+                self.info(phase, "عملیات به درخواست شما متوقف شد.", None);
+                "CANCELLED"
+            }
             Err(e) => {
                 self.error(phase, e, None);
                 "FAILED"
@@ -309,50 +327,59 @@ pub async fn reprice_items(
             );
         }
     }
-    let rows: Vec<RepricedRow> = svc
-        .landau
-        .reprice(store, svc.settings.overwrite_manual)
-        .await?;
+    let job = ctx
+        .db
+        .job(ctx.job_id)?
+        .ok_or(BridgeError::JobNotFound(ctx.job_id))?;
+    let rows: Vec<RepricedRow> = svc.landau.reprice(store, job.overwrite).await?;
     ctx.info(
         "REPRICE",
         &format!("reprice answered {} row(s)", rows.len()),
         None,
     );
+    let mut skipped: HashMap<String, Vec<String>> = HashMap::new();
     for (item_id, stock_id) in items {
         ctx.check_cancel()?;
-        let verdict =
-            rows.iter()
-                .find(|r| &r.stock == stock_id)
-                .map(|r| match (&r.next, &r.skipped) {
-                    (Some(next), _) => format!("REPRICED:{next}"),
-                    (None, Some(why)) => format!("SKIPPED:{why}"),
-                    (None, None) => "UNCHANGED".to_string(),
-                });
-        if let Some(v) = &verdict {
-            if v.starts_with("SKIPPED:") && !v.ends_with("UNCHANGED") {
-                ctx.warn(
-                    "REPRICE",
-                    kinds::REPRICE_SKIPPED,
-                    &format!("ردیف {stock_id}: {v}"),
-                    Some(json!({"stock": stock_id})),
-                );
+        let row_match = rows.iter().find(|r| &r.stock == stock_id);
+        let verdict = row_match.map(|r| match (&r.next, &r.skipped) {
+            (Some(next), _) => format!("REPRICED:{next}"),
+            (None, Some(why)) => format!("SKIPPED:{why}"),
+            (None, None) => "UNCHANGED".to_string(),
+        });
+        if let Some(why) = row_match.and_then(|r| r.skipped.clone()) {
+            // Landau can also report `skipped = "UNCHANGED"`, which is not a rejection.
+            if why != "UNCHANGED" {
+                skipped.entry(why).or_default().push(stock_id.clone());
             }
         }
-        ctx.item(
-            *item_id,
-            &[(
-                "reprice_verdict",
-                verdict
-                    .as_deref()
-                    .map(t)
-                    .unwrap_or(rusqlite::types::Value::Null),
-            )],
-        )?;
+        let mut patch: Vec<(&str, rusqlite::types::Value)> = vec![(
+            "reprice_verdict",
+            verdict
+                .as_deref()
+                .map(t)
+                .unwrap_or(rusqlite::types::Value::Null),
+        )];
+        // the item's final price is already known when Landau just repriced it; `readback`
+        // fills the rest (rows Landau left UNCHANGED or SKIPPED) from a fresh shelf read.
+        if let Some(next) = row_match.and_then(|r| r.next) {
+            patch.push(("price_after", i(next)));
+        }
+        ctx.item(*item_id, &patch)?;
+    }
+    if !skipped.is_empty() {
+        let count: usize = skipped.values().map(Vec::len).sum();
+        ctx.warn(
+            "REPRICE",
+            kinds::REPRICE_SKIPPED,
+            &format!("{count} ردیف در قیمت‌گذاری رد شد."),
+            Some(json!(skipped)),
+        );
     }
     Ok(())
 }
 
-/// Read the shelf once more and stamp final prices; mark items DONE.
+/// Wait out mirror lag, read the shelf once more, and fill any `price_after` still missing —
+/// `reprice_items` already stamped it for rows Landau just repriced. Mark items DONE either way.
 pub async fn readback(
     ctx: &JobCtx,
     svc: &Services,
@@ -360,16 +387,23 @@ pub async fn readback(
     items: &[(i64, String)],
 ) -> Result<()> {
     ctx.phase("REPORT")?;
+    tokio::time::sleep(Duration::from_secs(2)).await;
     let shelf = svc.landau.shelf(store).await?;
     for (item_id, stock_id) in items {
-        let price = shelf
-            .iter()
-            .find(|r| &r.id == stock_id)
-            .and_then(|r| r.price);
-        ctx.item(
-            *item_id,
-            &[("price_after", opt_i(price)), ("status", t("DONE"))],
-        )?;
+        let already_priced = ctx
+            .db
+            .job_item(*item_id)?
+            .and_then(|row| row.price_after)
+            .is_some();
+        let mut patch: Vec<(&str, rusqlite::types::Value)> = vec![("status", t("DONE"))];
+        if !already_priced {
+            let price = shelf
+                .iter()
+                .find(|r| &r.id == stock_id)
+                .and_then(|r| r.price);
+            patch.push(("price_after", opt_i(price)));
+        }
+        ctx.item(*item_id, &patch)?;
     }
     Ok(())
 }
