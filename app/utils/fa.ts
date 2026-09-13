@@ -101,4 +101,8 @@ export const kindLabel = (kind: string): string =>
     NoSupplierLink: 'بدون پیوند به بارزپخش',
     SettingsIncomplete: 'تنظیمات ناقص',
     KeyringUnavailable: 'ذخیره‌ساز امن در دسترس نیست',
+    Db: 'پایگاه داده برنامه',
+    Other: 'خطای پیش‌بینی‌نشده',
+    JobNotFound: 'عملیات پیدا نشد',
+    JobBusy: 'عملیات دیگری در جریان است',
   })[kind] ?? kind;

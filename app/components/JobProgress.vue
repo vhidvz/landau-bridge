@@ -20,7 +20,7 @@ const percent = computed(() => (props.progress && props.progress.total > 0 ? Mat
     <p v-if="status" class="text-sm">وضعیت: <UBadge :color="status === 'DONE' ? 'success' : status === 'FAILED' ? 'error' : 'neutral'">{{ statusLabel[status] ?? status }}</UBadge></p>
     <ul class="max-h-64 space-y-1 overflow-auto rounded-lg border border-neutral-200 p-2 text-sm dark:border-neutral-800">
       <li v-for="(e, i) in events" :key="i" :class="e.level === 'ERROR' ? 'text-red-700' : e.level === 'WARN' ? 'text-amber-700' : 'text-neutral-700'">
-        <span class="font-mono text-xs">[{{ phaseLabel[e.phase] ?? e.phase }}]</span> {{ e.message }}
+        <span class="font-mono text-xs">[<template v-if="phaseLabel[e.phase]">{{ phaseLabel[e.phase] }}</template><bdi v-else dir="ltr">{{ e.phase }}</bdi>]</span> {{ e.message }}
       </li>
     </ul>
   </div>

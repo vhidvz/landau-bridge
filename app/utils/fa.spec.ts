@@ -25,6 +25,7 @@ describe('fa', () => {
     expect(verdictLabel('SKIPPED:MANUAL')).toContain('دستی');
     expect(verdictLabel(null)).toBe('—');
     expect(kindLabel('NoCurrentPrice')).toContain('قیمت');
+    expect(kindLabel('JobBusy')).toContain('عملیات');
     expect(kindLabel('Whatever')).toBe('Whatever');
   });
 });
