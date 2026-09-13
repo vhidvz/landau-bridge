@@ -172,24 +172,35 @@ fn child_text(node: roxmltree::Node<'_, '_>, tag: &str) -> String {
         .to_string()
 }
 
+/// Like [`child_text`], but a missing element or empty text is a hard parse failure rather than
+/// a silent `""` — for fields whose absence must never be read downstream as a zero/blank value.
+fn required_text(node: roxmltree::Node<'_, '_>, tag: &str, page: &str) -> Result<String> {
+    let text = child_text(node, tag);
+    if text.is_empty() {
+        return Err(missing(page, tag));
+    }
+    Ok(text)
+}
+
 pub fn ledger_rows(body: &str) -> Result<Vec<LedgerRow>> {
     let page = "moein2-page";
     let xml = unwrap_json_xml(body, page)?;
     let doc = Document::parse(&xml).map_err(|_| missing(page, "xml"))?;
-    Ok(doc
-        .descendants()
+    doc.descendants()
         .filter(|n| n.has_tag_name("result"))
-        .map(|n| LedgerRow {
-            doc_alias_id: child_text(n, "DocAliasID"),
-            doc_alias: child_text(n, "DocAliasDescription"),
-            trans_number: child_text(n, "TransNumber"),
-            voucher_date: child_text(n, "VoucherDate"),
-            voucher_date_old: child_text(n, "VoucherDateOld"),
-            transaction_id: child_text(n, "TransactionID"),
-            business_id: child_text(n, "BusinessID"),
-            status: child_text(n, "status"),
+        .map(|n| {
+            Ok(LedgerRow {
+                doc_alias_id: required_text(n, "DocAliasID", page)?,
+                doc_alias: child_text(n, "DocAliasDescription"),
+                trans_number: required_text(n, "TransNumber", page)?,
+                voucher_date: required_text(n, "VoucherDate", page)?,
+                voucher_date_old: child_text(n, "VoucherDateOld"),
+                transaction_id: required_text(n, "TransactionID", page)?,
+                business_id: required_text(n, "BusinessID", page)?,
+                status: child_text(n, "status"),
+            })
         })
-        .collect())
+        .collect()
 }
 
 /// `DocAliasID` 2 = «فاکتور فروش», 6 = «مرجوع از فروش»; 67 («دريافت», a payment) and anything else
@@ -302,13 +313,15 @@ pub fn price_quotes(body: &str) -> Result<Vec<PriceQuote>> {
     doc.descendants()
         .filter(|n| n.has_tag_name("result"))
         .map(|n| {
-            let list_price = child_text(n, "FinalPrice")
+            let list_price = required_text(n, "FinalPrice", page)?
                 .parse::<f64>()
                 .map_err(|_| missing(page, "FinalPrice"))?
                 .round() as i64;
-            let qty: f64 = child_text(n, "QtyAvailable").parse().unwrap_or(0.0);
+            let qty: f64 = required_text(n, "QtyAvailable", page)?
+                .parse()
+                .map_err(|_| missing(page, "QtyAvailable"))?;
             Ok(PriceQuote {
-                code: latin_digits(&child_text(n, "ItemCode")),
+                code: latin_digits(&required_text(n, "ItemCode", page)?),
                 name: child_text(n, "ItemName"),
                 list_price,
                 vat_percent: child_text(n, "TaxAndTollPercent").parse().ok(),
@@ -415,6 +428,19 @@ mod tests {
     }
 
     #[test]
+    fn ledger_rows_fail_when_transaction_id_is_missing() {
+        let xml = "<NewDataSet><result><DocAliasID>2</DocAliasID><TransNumber>226456</TransNumber>\
+                   <VoucherDate>1401/10/14</VoucherDate><BusinessID>11000</BusinessID></result></NewDataSet>";
+        let body = serde_json::to_string(&xml).unwrap();
+        match ledger_rows(&body) {
+            Err(BridgeError::SupplierParse { field, .. }) => assert_eq!(field, "TransactionID"),
+            other => {
+                panic!("expected SupplierParse{{ field: \"TransactionID\", .. }}, got {other:?}")
+            }
+        }
+    }
+
+    #[test]
     fn parses_sale_invoice_lines() {
         let lines = invoice_lines(FACTOR).unwrap();
         assert_eq!(lines.len(), 36);
@@ -470,6 +496,16 @@ mod tests {
                 unit: "دست".into(),
             }
         );
+    }
+
+    #[test]
+    fn price_quotes_fail_when_item_code_is_missing() {
+        let xml = "<NewDataSet><result><FinalPrice>10731000</FinalPrice><QtyAvailable>1</QtyAvailable></result></NewDataSet>";
+        let body = serde_json::to_string(&xml).unwrap();
+        match price_quotes(&body) {
+            Err(BridgeError::SupplierParse { field, .. }) => assert_eq!(field, "ItemCode"),
+            other => panic!("expected SupplierParse{{ field: \"ItemCode\", .. }}, got {other:?}"),
+        }
     }
 
     #[test]
