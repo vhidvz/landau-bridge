@@ -13,12 +13,14 @@ const form = reactive({
 });
 
 const load = async () => {
-  view.value = await bridge.settingsGet();
-  Object.assign(form, {
-    landau_url: view.value.landau_url, store: view.value.store ?? '', supplier_user: view.value.supplier_user ?? '',
-    default_authenticity: view.value.default_authenticity, threshold: view.value.threshold, vat_percent: view.value.vat_percent,
-    overwrite_manual: view.value.overwrite_manual, landau_token: '', supplier_password: '',
-  });
+  try {
+    view.value = await bridge.settingsGet();
+    Object.assign(form, {
+      landau_url: view.value.landau_url, store: view.value.store ?? '', supplier_user: view.value.supplier_user ?? '',
+      default_authenticity: view.value.default_authenticity, threshold: view.value.threshold, vat_percent: view.value.vat_percent,
+      overwrite_manual: view.value.overwrite_manual, landau_token: '', supplier_password: '',
+    });
+  } catch (e) { error.value = e as BridgeError; }
 };
 onMounted(load);
 
@@ -36,7 +38,7 @@ const validateLandau = async () => {
   error.value = null; busy.value = 'landau';
   try {
     // save url+key first so the check uses what is typed
-    await bridge.settingsSave({ landau_url: form.landau_url, landau_token: form.landau_token || undefined });
+    view.value = await bridge.settingsSave({ landau_url: form.landau_url, landau_token: form.landau_token || undefined });
     form.landau_token = '';
     landau.value = await bridge.landauValidate();
     if (!form.store && landau.value.stores.length === 1) form.store = landau.value.stores[0]!.id;
@@ -47,7 +49,7 @@ const validateLandau = async () => {
 const testSupplier = async () => {
   error.value = null; busy.value = 'supplier';
   try {
-    await bridge.settingsSave({ supplier_user: form.supplier_user, supplier_password: form.supplier_password || undefined });
+    view.value = await bridge.settingsSave({ supplier_user: form.supplier_user, supplier_password: form.supplier_password || undefined });
     form.supplier_password = '';
     await bridge.supplierTestLogin();
     toast.add({ title: 'ورود به بارزپخش موفق بود', color: 'success' });

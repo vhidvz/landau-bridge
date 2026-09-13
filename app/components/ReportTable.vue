@@ -7,9 +7,12 @@ const rows = computed(() => props.items.filter((i) => filter.value === 'ALL' || 
 const actionLabel: Record<string, string> = { ATTACH: 'افزوده شد', PATCH: 'به‌روزرسانی شد', SKIP: 'بدون تغییر' };
 
 const csv = () => {
-  const head = ['code', 'name', 'action', 'qty_before', 'qty_after', 'cost', 'price_before', 'price_after', 'verdict', 'status', 'error'];
+  const head = ['کد', 'نام', 'اقدام', 'تعداد قبل', 'تعداد بعد', 'قیمت خرید', 'قیمت قفسه قبل', 'قیمت قفسه بعد', 'نتیجه قیمت‌گذاری', 'وضعیت', 'خطا'];
   const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
-  const lines = [head.join(','), ...props.items.map((i) => [i.code, i.name, i.action, i.qty_before, i.qty_after, i.cost, i.price_before, i.price_after, i.reprice_verdict, i.status, i.error_msg].map(esc).join(','))];
+  const lines = [head.join(','), ...props.items.map((i) => [
+    i.code, i.name, i.action ? actionLabel[i.action] : '—', i.qty_before, i.qty_after, i.cost, i.price_before, i.price_after,
+    verdictLabel(i.reprice_verdict), statusLabel[i.status] ?? i.status, i.error_msg,
+  ].map(esc).join(','))];
   const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);

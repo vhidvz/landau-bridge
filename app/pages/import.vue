@@ -15,17 +15,19 @@ const sinceOk = computed(() => normalizeJalali(since.value) !== null);
 
 const loadReview = async () => {
   if (job.jobId.value == null) return;
-  review.value = await bridge.importReview(job.jobId.value);
+  try { review.value = await bridge.importReview(job.jobId.value); } catch (e) { error.value = e as BridgeError; }
 };
 
 onMounted(async () => {
-  settings.value = await bridge.settingsGet();
-  const fromQuery = Number(route.query.job);
-  const current = Number.isFinite(fromQuery) && fromQuery > 0 ? { id: fromQuery } : await bridge.jobCurrent();
-  if (current) {
-    await job.follow(current.id);
-    if (job.status.value === 'REVIEW') await loadReview();
-  }
+  try {
+    settings.value = await bridge.settingsGet();
+    const fromQuery = Number(route.query.job);
+    const current = Number.isFinite(fromQuery) && fromQuery > 0 ? { id: fromQuery } : await bridge.jobCurrent();
+    if (current) {
+      await job.follow(current.id);
+      if (job.status.value === 'REVIEW') await loadReview();
+    }
+  } catch (e) { error.value = e as BridgeError; }
 });
 
 watch(job.status, async (s) => { if (s === 'REVIEW') await loadReview(); });
@@ -52,9 +54,17 @@ const cont = async () => {
   } catch (e) { error.value = e as BridgeError; }
 };
 
-const cancel = async () => { if (job.jobId.value != null) { await bridge.jobCancel(job.jobId.value); toast.add({ title: 'درخواست توقف ثبت شد', color: 'neutral' }); } };
+const cancel = async () => {
+  if (job.jobId.value == null) return;
+  error.value = null;
+  try {
+    await bridge.jobCancel(job.jobId.value);
+    toast.add({ title: 'درخواست توقف ثبت شد', color: 'neutral' });
+    await job.reload();
+  } catch (e) { error.value = e as BridgeError; }
+};
 
-const active = computed(() => job.status.value === 'RUNNING');
+const active = computed(() => job.status.value === 'RUNNING' || job.status.value === 'REVIEW');
 const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLED', 'INTERRUPTED'].includes(job.status.value));
 </script>
 
@@ -67,7 +77,7 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
       <template #header><h3 class="font-semibold">انتخاب روش</h3></template>
       <div class="space-y-4">
         <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800" :class="mode === 'QUANTITY' && 'ring-2 ring-primary-500'">
-          <input v-model="mode" type="radio" value="QUANTITY" class="mt-1" />
+          <input v-model="mode" type="radio" name="mode" value="QUANTITY" class="mt-1" />
           <div>
             <p class="font-semibold">با تعداد، از تاریخ</p>
             <p class="text-sm text-neutral-600">تعداد خریداری‌شده در فاکتورهای پرداخت‌شده از این تاریخ به بعد (منهای مرجوعی‌ها) به قفسه اضافه می‌شود؛ اگر قطعه از قبل روی قفسه باشد، به موجودی فعلی افزوده می‌شود. هر فاکتور فقط یک بار منتقل می‌شود.</p>
@@ -75,7 +85,7 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
           </div>
         </label>
         <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800" :class="mode === 'ZERO' && 'ring-2 ring-primary-500'">
-          <input v-model="mode" type="radio" value="ZERO" class="mt-1" />
+          <input v-model="mode" type="radio" name="mode" value="ZERO" class="mt-1" />
           <div>
             <p class="font-semibold">با تعداد صفر، برای بازبینی</p>
             <p class="text-sm text-neutral-600">همه اقلام همه فاکتورهای پرداخت‌شده تا امروز با تعداد صفر و قیمت روز روی قفسه می‌آیند تا خودتان تعداد را اصلاح کنید. موجودی ردیف‌های موجود دست نمی‌خورد؛ فقط قیمت خریدشان به‌روز می‌شود.</p>
