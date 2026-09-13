@@ -104,16 +104,16 @@ impl BridgeError {
     pub fn message_fa(&self) -> String {
         use BridgeError::*;
         match self {
-            SupplierUnreachable(d) => format!("اتصال به سایت بارزپخش برقرار نشد ({d}). اینترنت را بررسی کنید."),
-            SupplierBlocked => "سایت بارزپخش این شبکه را مسدود کرده است. پروکسی یا VPN را خاموش کنید.".into(),
+            SupplierUnreachable(_) => "اتصال به سایت بارزپخش برقرار نشد. اینترنت را بررسی کنید و اگر پروکسی یا فیلترشکن روشن است خاموش کنید.".into(),
+            SupplierBlocked => "سایت بارزپخش این شبکه را مسدود کرده است. پروکسی یا فیلترشکن را خاموش کنید.".into(),
             SupplierBadCredentials => "نام کاربری یا کلمه عبور بارزپخش درست نیست.".into(),
             SupplierSessionExpired => "نشست بارزپخش منقضی شد و ورود دوباره هم ناموفق بود.".into(),
             SupplierParse { page, field } => format!("ساختار صفحه «{page}» تغییر کرده است (بخش «{field}» پیدا نشد). به‌روزرسانی برنامه لازم است."),
             NoCurrentPrice { code } => format!("برای کد {code} قیمت روز در بارزپخش پیدا نشد."),
-            LandauUnauthorized => "کلید API لندو نامعتبر یا منقضی است. کلید تازه‌ای در لندو بسازید.".into(),
-            LandauForbidden(d) => format!("لندو این درخواست را مجاز نمی‌داند ({d}). کلید باید از حساب فروشنده و از طریق درگاه لندو باشد."),
-            LandauUnreachable(d) => format!("اتصال به لندو برقرار نشد ({d})."),
-            LandauRejected { status, body } => format!("لندو درخواست را رد کرد (کد {status}): {body}"),
+            LandauUnauthorized => "کلید دسترسی لندو نامعتبر یا منقضی است. کلید تازه‌ای در لندو بسازید.".into(),
+            LandauForbidden(_) => "لندو این درخواست را مجاز نمی‌داند. کلید باید از حساب فروشنده باشد و از طریق درگاه لندو استفاده شود.".into(),
+            LandauUnreachable(_) => "اتصال به لندو برقرار نشد. نشانی درگاه و اینترنت را بررسی کنید.".into(),
+            LandauRejected { status, .. } => format!("لندو درخواست را رد کرد (کد {status}). جزئیات در گزارش خطاها ثبت شد."),
             BusinessNotApproved => "کسب‌وکار شما در لندو هنوز تأیید نشده است.".into(),
             NoStore => "هیچ فروشگاهی برای این حساب در لندو ثبت نشده است.".into(),
             ProductNotApproved(p) => format!("قطعه {p} در فهرست لندو تأیید نشده است."),
@@ -123,8 +123,8 @@ impl BridgeError {
             JobNotFound(id) => format!("عملیات شماره {id} پیدا نشد."),
             JobBusy(w) => format!("عملیات دیگری در حال اجراست: {w}"),
             SettingsIncomplete(w) => format!("تنظیمات ناقص است: {w}"),
-            Db(d) => format!("خطای پایگاه داده: {d}"),
-            KeyringUnavailable(d) => format!("ذخیره‌ساز امن سیستم در دسترس نیست ({d})؛ رمزها در پرونده برنامه نگه داشته می‌شوند."),
+            Db(_) => "خطای پایگاه داده برنامه. جزئیات در گزارش خطاها ثبت شد.".into(),
+            KeyringUnavailable(_) => "ذخیره‌ساز امن سیستم در دسترس نیست؛ رمزها در پرونده برنامه نگه داشته می‌شوند.".into(),
             Other(d) => d.clone(),
         }
     }
@@ -168,18 +168,43 @@ mod tests {
     }
 
     #[test]
-    fn every_variant_has_a_persian_message() {
-        for e in [
+    fn messages_are_persian_and_carry_no_raw_detail() {
+        let cases = [
+            BridgeError::SupplierUnreachable("error sending request for url".into()),
             BridgeError::SupplierBlocked,
             BridgeError::SupplierBadCredentials,
+            BridgeError::SupplierSessionExpired,
             BridgeError::LandauUnauthorized,
+            BridgeError::LandauForbidden("Forbidden resource".into()),
+            BridgeError::LandauUnreachable("connection refused".into()),
+            BridgeError::LandauRejected {
+                status: 400,
+                body: "limit must not be greater than 100".into(),
+            },
+            BridgeError::BusinessNotApproved,
+            BridgeError::NoStore,
+            BridgeError::DuplicateRow,
             BridgeError::MirrorTimeout(3),
-        ] {
+            BridgeError::JobCancelled,
+            BridgeError::Db("no such table: invoices".into()),
+            BridgeError::KeyringUnavailable("Platform secure storage failure".into()),
+        ];
+        for e in cases {
+            let m = e.message_fa();
             assert!(
-                e.message_fa()
-                    .chars()
-                    .any(|c| ('\u{0600}'..='\u{06FF}').contains(&c)),
-                "{}",
+                m.chars().any(|c| ('\u{0600}'..='\u{06FF}').contains(&c)),
+                "{} has no Persian",
+                e.kind()
+            );
+            assert!(
+                !m.chars().any(|c| c.is_ascii_alphabetic()),
+                "{} leaks raw detail: {m}",
+                e.kind()
+            );
+            assert_eq!(
+                serde_json::to_value(&e).unwrap()["detail"],
+                e.to_string(),
+                "{} keeps the raw detail in `detail`",
                 e.kind()
             );
         }

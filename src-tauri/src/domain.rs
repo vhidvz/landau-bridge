@@ -114,9 +114,13 @@ impl ImportMode {
     }
 }
 
-/// `round(list_price × (1 + vat/100))` in whole rials — the decision of spec §1.
+/// `round(list_price × (1 + vat/100))` in whole rials — the decision of spec §1 — computed exactly:
+/// the rate is taken to two decimals (basis points) and the division rounds half up, so no
+/// floating-point representation can move a `.5` boundary.
 pub fn cost_of(list_price: i64, vat_percent: f64) -> i64 {
-    ((list_price as f64) * (1.0 + vat_percent / 100.0)).round() as i64
+    let rate_bp = (vat_percent * 100.0).round() as i64; // 10.0 % → 1000 bp
+    let scaled = list_price as i128 * (10_000 + rate_bp as i128);
+    ((scaled + 5_000) / 10_000) as i64
 }
 
 /// Persian/Arabic digits → ASCII.
@@ -153,6 +157,10 @@ mod tests {
         assert_eq!(cost_of(1_647_000, 10.0), 1_811_700);
         assert_eq!(cost_of(15, 10.0), 17); // 16.5 rounds half away from zero
         assert_eq!(cost_of(0, 10.0), 0);
+        assert_eq!(cost_of(846_259_450, 13.0), 956_273_179); // f64 would answer …178
+        assert_eq!(cost_of(1_000, 0.0), 1_000);
+        assert_eq!(cost_of(999, 9.0), 1_089); // 1088.91 → 1089
+        assert_eq!(cost_of(5, 10.0), 6); // 5.5 rounds half up
     }
 
     #[test]
