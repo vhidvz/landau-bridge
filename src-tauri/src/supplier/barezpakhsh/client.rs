@@ -1,6 +1,9 @@
 //! The Barezpakhsh session (spec §4): anti-forgery login, ledger paging, invoice pages, price
-//! search. Every request logs method, path and status; never the credentials.
+//! search. Transient failures are retried (spec §3) and an expired session triggers one
+//! automatic re-login on every authenticated request. Every request logs method, path and
+//! status; never the credentials.
 
+use std::collections::HashSet;
 use std::time::Duration;
 
 use reqwest::{Client as Http, Url};
@@ -17,6 +20,34 @@ pub const BASE_URL: &str = "https://33314466.ir";
 /// Earliest date the statement form is asked for — "every invoice to date".
 const LEDGER_FROM: &str = "1390/01/01";
 const USER_AGENT: &str = "LandauBridge/0.1 (+https://landau.ir)";
+
+/// Up to 3 attempts total, sleeping 1s then 3s between them; see [`retryable`] for what qualifies.
+const RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(3)];
+
+/// Retry policy for the transport layer (spec §3): a transport error (`None`) and statuses 404,
+/// 408, 429 and any 5xx are retried. A redirect/success is never retried, and neither is a 403 —
+/// a 403 with the block page becomes [`BridgeError::SupplierBlocked`] immediately and any other
+/// 403 is returned as-is; retrying either would not change the outcome.
+pub(crate) fn retryable(status: Option<u16>) -> bool {
+    match status {
+        None => true,
+        Some(404) | Some(408) | Some(429) => true,
+        Some(s) => (500..600).contains(&s),
+    }
+}
+
+/// Keeps the first (oldest, by `date_jalali` then `number`) occurrence of each `(number, kind)`
+/// pair — pages read around a boundary can print the same invoice twice.
+pub(crate) fn dedup_headers(mut headers: Vec<InvoiceHeader>) -> Vec<InvoiceHeader> {
+    headers.sort_by(|a, b| {
+        a.date_jalali
+            .cmp(&b.date_jalali)
+            .then(a.number.cmp(&b.number))
+    });
+    let mut seen: HashSet<(String, &'static str)> = HashSet::new();
+    headers.retain(|h| seen.insert((h.number.clone(), h.kind.as_str())));
+    headers
+}
 
 /// Defaults the price search needs, learned once per session from the «ثبت فاکتور» page.
 #[derive(Debug, Clone)]
@@ -70,13 +101,42 @@ impl Client {
         BridgeError::SupplierUnreachable(e.without_url().to_string())
     }
 
+    /// Sends a request built fresh on each attempt (so a form/JSON body can be resent),
+    /// retrying per [`retryable`]. Never interprets the response itself — block detection,
+    /// session-expiry detection and success handling all stay with the caller.
+    async fn send_with_retry<B>(&self, path: &str, build: B) -> Result<reqwest::Response>
+    where
+        B: Fn() -> reqwest::RequestBuilder,
+    {
+        let mut attempt: usize = 0;
+        loop {
+            attempt += 1;
+            let outcome = build().send().await;
+            let status = outcome.as_ref().ok().map(|r| r.status().as_u16());
+            if attempt <= RETRY_DELAYS.len() && retryable(status) {
+                match &outcome {
+                    Ok(res) => {
+                        tracing::warn!(
+                            path,
+                            attempt,
+                            status = res.status().as_u16(),
+                            "barezpakhsh retrying"
+                        );
+                    }
+                    Err(e) => tracing::warn!(path, attempt, error = %e, "barezpakhsh retrying"),
+                }
+                tokio::time::sleep(RETRY_DELAYS[attempt - 1]).await;
+                continue;
+            }
+            return outcome.map_err(Self::unreachable);
+        }
+    }
+
     async fn get(&self, path: &str) -> Result<(Url, String)> {
+        let req_url = self.url(path)?;
         let res = self
-            .http
-            .get(self.url(path)?)
-            .send()
-            .await
-            .map_err(Self::unreachable)?;
+            .send_with_retry(path, || self.http.get(req_url.clone()))
+            .await?;
         let status = res.status();
         let url = res.url().clone();
         let body = res.text().await.map_err(Self::unreachable)?;
@@ -88,13 +148,10 @@ impl Client {
     }
 
     async fn post_form(&self, path: &str, fields: &[(String, String)]) -> Result<(Url, String)> {
+        let req_url = self.url(path)?;
         let res = self
-            .http
-            .post(self.url(path)?)
-            .form(fields)
-            .send()
-            .await
-            .map_err(Self::unreachable)?;
+            .send_with_retry(path, || self.http.post(req_url.clone()).form(fields))
+            .await?;
         let status = res.status();
         let url = res.url().clone();
         let body = res.text().await.map_err(Self::unreachable)?;
@@ -106,23 +163,27 @@ impl Client {
     }
 
     async fn post_json(&self, path: &str, body: &serde_json::Value) -> Result<String> {
+        let req_url = self.url(path)?;
+        let payload = body.to_string();
         let res = self
-            .http
-            .post(self.url(path)?)
-            .header("content-type", "application/json; charset=utf-8")
-            .header("x-requested-with", "XMLHttpRequest")
-            .body(body.to_string())
-            .send()
-            .await
-            .map_err(Self::unreachable)?;
+            .send_with_retry(path, || {
+                self.http
+                    .post(req_url.clone())
+                    .header("content-type", "application/json; charset=utf-8")
+                    .header("x-requested-with", "XMLHttpRequest")
+                    .body(payload.clone())
+            })
+            .await?;
         let status = res.status();
         tracing::debug!(method = "POST", path, %status, "barezpakhsh json");
         let text = res.text().await.map_err(Self::unreachable)?;
+        if status.as_u16() == 403 && parse::is_blocked_page(&text) {
+            return Err(BridgeError::SupplierBlocked);
+        }
         if !status.is_success() {
-            return Err(BridgeError::SupplierParse {
-                page: path.into(),
-                field: format!("status {status}"),
-            });
+            return Err(BridgeError::SupplierUnreachable(format!(
+                "{path} answered {status}"
+            )));
         }
         Ok(text)
     }
@@ -176,6 +237,46 @@ impl Client {
         Ok(body)
     }
 
+    /// POST an authenticated form; on the login page, log in once more and resubmit the same
+    /// fields (the statement form carries no anti-forgery token, so this is a plain re-post).
+    async fn post_form_authed(&self, path: &str, fields: &[(String, String)]) -> Result<String> {
+        self.ensure_session().await?;
+        let (_, body) = self.post_form(path, fields).await?;
+        if !parse::is_login_page(&body) {
+            return Ok(body);
+        }
+        tracing::warn!("barezpakhsh session expired; logging in again");
+        *self.logged_in.lock().await = false;
+        self.do_login()
+            .await
+            .map_err(|_| BridgeError::SupplierSessionExpired)?;
+        let (_, body) = self.post_form(path, fields).await?;
+        if parse::is_login_page(&body) {
+            return Err(BridgeError::SupplierSessionExpired);
+        }
+        Ok(body)
+    }
+
+    /// POST authenticated JSON; a session that has expired answers with the login page's HTML
+    /// instead of the usual JSON-string body, which `is_login_page` also recognises directly.
+    async fn post_json_authed(&self, path: &str, body: &serde_json::Value) -> Result<String> {
+        self.ensure_session().await?;
+        let text = self.post_json(path, body).await?;
+        if !parse::is_login_page(&text) {
+            return Ok(text);
+        }
+        tracing::warn!("barezpakhsh session expired; logging in again");
+        *self.logged_in.lock().await = false;
+        self.do_login()
+            .await
+            .map_err(|_| BridgeError::SupplierSessionExpired)?;
+        let text = self.post_json(path, body).await?;
+        if parse::is_login_page(&text) {
+            return Err(BridgeError::SupplierSessionExpired);
+        }
+        Ok(text)
+    }
+
     /// Replace (or add) a field value.
     fn set_field(fields: &mut Vec<(String, String)>, name: &str, value: &str) {
         fields.retain(|(n, _)| n != name);
@@ -202,7 +303,7 @@ impl Client {
         Self::set_field(&mut fields, "JustAvailable", "false");
         Self::set_field(&mut fields, "SelectedPageSize", "50");
         Self::set_field(&mut fields, "command", "searchItem");
-        let (_, html) = self.post_form("/Shop/Buy/Index", &fields).await?;
+        let html = self.post_form_authed("/Shop/Buy/Index", &fields).await?;
         let ctx = parse::buy_context(&html)?;
         let session = BuySession {
             ctx,
@@ -232,13 +333,13 @@ impl Supplier for Client {
         Self::set_field(&mut fields, "FromDate", LEDGER_FROM);
         Self::set_field(&mut fields, "ToDate", "");
         Self::set_field(&mut fields, "command", "moein2");
-        let (_, html) = self.post_form("/Shop/Report/Bill", &fields).await?;
+        let html = self.post_form_authed("/Shop/Report/Bill", &fields).await?;
         let ctx = parse::ledger_context(&html)?;
         let pages = ctx.page_count();
         let mut headers = Vec::new();
         for index in 1..=pages {
             let body = self
-                .post_json(
+                .post_json_authed(
                     "/Shop/Share/GradualMoein2Load",
                     &json!({
                         "pageIndex": index,
@@ -257,13 +358,7 @@ impl Supplier for Client {
             progress(index, pages);
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
-        headers.sort_by(|a, b| {
-            a.date_jalali
-                .cmp(&b.date_jalali)
-                .then(a.number.cmp(&b.number))
-        });
-        headers.dedup_by(|a, b| a.number == b.number && a.kind == b.kind);
-        Ok(headers)
+        Ok(dedup_headers(headers))
     }
 
     async fn invoice_lines(&self, url: &str) -> Result<Vec<InvoiceLine>> {
@@ -274,7 +369,7 @@ impl Supplier for Client {
     async fn price_of(&self, code: &str) -> Result<Option<PriceQuote>> {
         let s = self.buy_session().await?;
         let body = self
-            .post_json(
+            .post_json_authed(
                 "/Shop/Share/ItemsSearchGradual",
                 &json!({
                     "selectedGroupCode": s.group,
@@ -292,5 +387,50 @@ impl Supplier for Client {
             .await?;
         let quotes = parse::price_quotes(&body)?;
         Ok(quotes.into_iter().find(|q| q.code == code))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::InvoiceKind;
+
+    fn header(number: &str, kind: InvoiceKind, date: &str) -> InvoiceHeader {
+        InvoiceHeader {
+            number: number.into(),
+            kind,
+            date_jalali: date.into(),
+            date_iso: String::new(),
+            paid: true,
+            url: String::new(),
+        }
+    }
+
+    #[test]
+    fn retry_policy_covers_transport_errors_and_5xx_but_not_403_or_success() {
+        assert!(!retryable(Some(200)));
+        assert!(!retryable(Some(302)));
+        assert!(!retryable(Some(403)));
+        assert!(retryable(Some(404)));
+        assert!(retryable(Some(429)));
+        assert!(retryable(Some(500)));
+        assert!(retryable(None));
+    }
+
+    #[test]
+    fn dedup_headers_keeps_the_first_of_each_number_and_kind() {
+        // A same-numbered RETURN sits between two duplicate SALE rows (the ledger printed the
+        // same sale twice across a page boundary).
+        let headers = vec![
+            header("100", InvoiceKind::Sale, "1401/01/01"),
+            header("100", InvoiceKind::Return, "1401/01/02"),
+            header("100", InvoiceKind::Sale, "1401/01/03"),
+        ];
+        let result = dedup_headers(headers);
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].kind, InvoiceKind::Sale);
+        assert_eq!(result[0].date_jalali, "1401/01/01");
+        assert_eq!(result[1].kind, InvoiceKind::Return);
+        assert_eq!(result[1].date_jalali, "1401/01/02");
     }
 }
