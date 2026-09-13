@@ -108,16 +108,74 @@ impl SecretStore {
     }
 
     fn write_file(&self, map: &BTreeMap<String, String>) -> Result<()> {
-        if let Some(parent) = self.file.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| BridgeError::Other(e.to_string()))?;
-        }
+        use std::io::Write;
+        let parent = self
+            .file
+            .parent()
+            .ok_or_else(|| BridgeError::Other("secrets.json has no parent directory".into()))?;
+        std::fs::create_dir_all(parent).map_err(|e| BridgeError::Other(e.to_string()))?;
         let text = serde_json::to_string_pretty(map)?;
-        std::fs::write(&self.file, text).map_err(|e| BridgeError::Other(e.to_string()))?;
+        let tmp = parent.join("secrets.json.tmp");
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create(true).truncate(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.mode(0o600);
+        }
+        let mut f = options
+            .open(&tmp)
+            .map_err(|e| BridgeError::Other(e.to_string()))?;
+        f.write_all(text.as_bytes())
+            .and_then(|_| f.sync_all())
+            .map_err(|e| BridgeError::Other(e.to_string()))?;
+        drop(f);
+        std::fs::rename(&tmp, &self.file).map_err(|e| BridgeError::Other(e.to_string()))?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             let _ = std::fs::set_permissions(&self.file, std::fs::Permissions::from_mode(0o600));
+            // belt and braces for a pre-existing file
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_store_round_trips_and_is_owner_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SecretStore::file_only(dir.path());
+        assert_eq!(store.backend(), "file");
+        assert_eq!(store.get(SecretKey::LandauToken).unwrap(), None);
+        store.set(SecretKey::LandauToken, "apt-secret").unwrap();
+        store.set(SecretKey::SupplierPassword, "pw").unwrap();
+        assert_eq!(
+            store.get(SecretKey::LandauToken).unwrap().as_deref(),
+            Some("apt-secret")
+        );
+        store.delete(SecretKey::LandauToken).unwrap();
+        assert_eq!(store.get(SecretKey::LandauToken).unwrap(), None);
+        assert_eq!(
+            store.get(SecretKey::SupplierPassword).unwrap().as_deref(),
+            Some("pw")
+        );
+        assert!(
+            !dir.path().join("secrets.json.tmp").exists(),
+            "temp file is renamed away"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dir.path().join("secrets.json"))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600, "secrets.json must be owner-only");
+        }
     }
 }
