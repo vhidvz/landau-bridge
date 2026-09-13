@@ -1,0 +1,28 @@
+{
+  "name": "landau-bridge",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "nuxt dev --port 3000",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "typecheck": "nuxt typecheck",
+    "test": "vitest run",
+    "tauri": "tauri",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@internationalized/date": "^3.12.4",
+    "@nuxt/ui": "^4.11.1",
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/plugin-opener": "^2.5.5",
+    "nuxt": "^4.5.2"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.4",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.0",
+    "vue-tsc": "^3.3.11"
+  }
+}

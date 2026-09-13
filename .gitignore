@@ -1,1 +1,10 @@
 .superpowers/
+
+node_modules
+.nuxt
+.output
+dist
+src-tauri/target
+src-tauri/gen/schemas
+*.log
+.DS_Store
