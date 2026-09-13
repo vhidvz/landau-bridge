@@ -144,6 +144,17 @@ fn n(v: &Value, key: &str) -> Option<i64> {
         .map(|f| f.round() as i64)
 }
 
+/// The seller-facing text of an error reply: `message` when the body is a JSON object, the raw
+/// string when the body is plain text (not JSON-quoted), else the value's own JSON text.
+fn message_of(value: &Value) -> String {
+    value
+        .get("message")
+        .and_then(Value::as_str)
+        .or_else(|| value.as_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| value.to_string())
+}
+
 impl ShelfRow {
     pub fn from_item(item: &Value) -> Option<ShelfRow> {
         let stock = item.get("stock").unwrap_or(item);
@@ -220,11 +231,7 @@ impl LandauClient {
         if status.is_success() {
             return Ok(value);
         }
-        let message = value
-            .get("message")
-            .and_then(|m| m.as_str())
-            .map(str::to_string)
-            .unwrap_or_else(|| value.to_string());
+        let message = message_of(&value);
         Err(match status {
             StatusCode::UNAUTHORIZED => BridgeError::LandauUnauthorized,
             StatusCode::FORBIDDEN => BridgeError::LandauForbidden(message),
@@ -281,8 +288,12 @@ impl LandauClient {
         let mut rows = Vec::new();
         let mut skip = 0usize;
         loop {
-            let path = format!("/career/stocks/shelf?store={store}&limit={SHELF_PAGE}&skip={skip}");
-            let v = self.call(Method::GET, &path, None).await?;
+            let mut url = self.url("career/stocks/shelf")?;
+            url.query_pairs_mut()
+                .append_pair("store", store)
+                .append_pair("limit", &SHELF_PAGE.to_string())
+                .append_pair("skip", &skip.to_string());
+            let v = self.call_url(Method::GET, url, None).await?;
             let page = peel(&v);
             let items = page
                 .get("items")
@@ -514,6 +525,15 @@ mod tests {
         let p = page["items"][0].get("product").unwrap();
         assert_eq!(s(p, "id").as_deref(), Some("p1"));
         assert_eq!(s(p, "brand").as_deref(), Some("امیرنیا"));
+    }
+
+    #[test]
+    fn message_of_reads_plain_text_bodies_without_json_quoting_and_json_message_field() {
+        let plain = Value::String("Service Unavailable".into());
+        assert_eq!(message_of(&plain), "Service Unavailable");
+
+        let enveloped = serde_json::json!({"message": "limit must not be greater than 100"});
+        assert_eq!(message_of(&enveloped), "limit must not be greater than 100");
     }
 
     #[test]
