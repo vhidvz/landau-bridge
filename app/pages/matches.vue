@@ -23,11 +23,28 @@ const search = async () => {
 };
 const pick = async (c: Scored) => {
   if (!editing.value) return;
-  await bridge.matchSet(editing.value.code, c.candidate.id, c.candidate.name, editing.value.name_seen);
-  editing.value = null; await load();
+  error.value = null;
+  try {
+    await bridge.matchSet(editing.value.code, c.candidate.id, c.candidate.name, editing.value.name_seen);
+    editing.value = null; await load();
+  } catch (e) { error.value = e as BridgeError; }
 };
-const setNone = async () => { if (editing.value) { await bridge.matchNone(editing.value.code, editing.value.name_seen); editing.value = null; await load(); } };
-const clear = async () => { if (editing.value) { await bridge.matchClear(editing.value.code); editing.value = null; await load(); } };
+const setNone = async () => {
+  if (!editing.value) return;
+  error.value = null;
+  try {
+    await bridge.matchNone(editing.value.code, editing.value.name_seen);
+    editing.value = null; await load();
+  } catch (e) { error.value = e as BridgeError; }
+};
+const clear = async () => {
+  if (!editing.value) return;
+  error.value = null;
+  try {
+    await bridge.matchClear(editing.value.code);
+    editing.value = null; await load();
+  } catch (e) { error.value = e as BridgeError; }
+};
 </script>
 
 <template>

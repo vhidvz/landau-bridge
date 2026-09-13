@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { BridgeError, SettingsView } from '~/types/bridge';
 
+const toast = useToast();
 const settings = ref<SettingsView | null>(null);
 const error = ref<BridgeError | null>(null);
 const starting = ref(false);
@@ -29,7 +30,12 @@ const start = async () => {
 
 const cancel = async () => {
   if (job.jobId.value == null) return;
-  try { await bridge.jobCancel(job.jobId.value); } catch (e) { error.value = e as BridgeError; } finally { await job.reload(); }
+  error.value = null;
+  try {
+    await bridge.jobCancel(job.jobId.value);
+    toast.add({ title: 'درخواست توقف ثبت شد', color: 'neutral' });
+    await job.reload();
+  } catch (e) { error.value = e as BridgeError; }
 };
 const active = computed(() => job.status.value === 'RUNNING' || job.status.value === 'REVIEW');
 const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLED', 'INTERRUPTED'].includes(job.status.value));

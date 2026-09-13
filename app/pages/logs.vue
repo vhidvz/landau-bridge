@@ -11,15 +11,24 @@ const load = async () => {
   try { [jobs.value, errors.value] = await Promise.all([bridge.jobsList(), bridge.errorsList(300)]); } catch (e) { error.value = e as BridgeError; }
 };
 onMounted(load);
-const open = async (j: JobRow) => { detail.value = await bridge.jobGet(j.id); };
-const kindLabelOf = (j: JobRow) => (j.kind === 'IMPORT' ? `وارد کردن (${j.mode === 'ZERO' ? 'صفر' : `از ${j.since_date}`})` : 'به‌روزرسانی قیمت');
+const open = async (j: JobRow) => {
+  error.value = null;
+  try { detail.value = await bridge.jobGet(j.id); } catch (e) { error.value = e as BridgeError; }
+};
+const openFolder = async () => {
+  error.value = null;
+  try { await bridge.openLogFolder(); } catch (e) { error.value = e as BridgeError; }
+};
+// The Jalali date is a Latin-digit value; keep it out of the Persian label so it can be
+// rendered isolated (`<bdi dir="ltr">`) in the template instead of embedded mid-string.
+const kindLabelOf = (j: JobRow) => (j.kind === 'IMPORT' ? `وارد کردن (${j.mode === 'ZERO' ? 'صفر' : 'با تعداد'})` : 'به‌روزرسانی قیمت');
 </script>
 
 <template>
   <div class="space-y-6">
     <div class="flex items-center justify-between">
       <h2 class="text-2xl font-bold">گزارش و خطاها</h2>
-      <UButton variant="soft" icon="i-lucide-folder-open" @click="bridge.openLogFolder()">باز کردن پوشه لاگ</UButton>
+      <UButton variant="soft" icon="i-lucide-folder-open" @click="openFolder">باز کردن پوشه لاگ</UButton>
     </div>
     <ErrorBanner :error="error" />
     <div class="flex gap-2">
@@ -35,7 +44,7 @@ const kindLabelOf = (j: JobRow) => (j.kind === 'IMPORT' ? `وارد کردن (${
           <tbody>
             <tr v-for="j in jobs" :key="j.id" class="cursor-pointer border-t border-neutral-200 hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-900" :class="detail?.job.id === j.id && 'bg-primary-50 dark:bg-primary-950'" @click="open(j)">
               <td class="p-2 text-center">{{ faNumber(j.id) }}</td>
-              <td class="p-2">{{ kindLabelOf(j) }}</td>
+              <td class="p-2">{{ kindLabelOf(j) }} <bdi v-if="j.kind === 'IMPORT' && j.mode === 'QUANTITY' && j.since_date" dir="ltr" class="text-xs text-neutral-500">{{ j.since_date }}</bdi></td>
               <td class="p-2 text-center">{{ isoToLocal(j.started_at) }}</td>
               <td class="p-2 text-center"><UBadge :color="j.status === 'DONE' ? 'success' : j.status === 'FAILED' ? 'error' : 'neutral'" variant="soft">{{ statusLabel[j.status] ?? j.status }}</UBadge></td>
               <td class="p-2 text-center">{{ phaseLabel[j.phase] ?? j.phase }}</td>
