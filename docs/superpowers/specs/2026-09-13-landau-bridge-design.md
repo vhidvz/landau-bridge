@@ -280,3 +280,10 @@ secrets or tokens) and to the tables above. "Open log folder" on the errors scre
 
 Other suppliers (structure only), pack-size conversion, editing Landau pricing rules from the
 bridge, creating registry definitions, a non-Persian UI, automated UI end-to-end tests.
+
+## 13. Amendments (2026-09-13, while pinning the site for the plan)
+
+- **Return invoices subtract.** Barezpakhsh's ledger carries sales invoices («فاکتور فروش», `DocAliasID` 2), returns («مرجوع از فروش», 6) and receipts («دريافت», 67). Sales add quantity, returns subtract it, receipts are not invoices. A net-negative item is clamped to 0 and reported (`NegativeQuantity`).
+- **VAT is a setting, checked against the site.** The price search exposes each item's VAT rate (`TaxAndTollPercent`, `10.00` today) and whether VAT applies (`HasTaxAndToll`). The ×1.10 decision (§1) is kept as `vat_percent = 10` in settings; when the site's rate differs, a `VatRateMismatch` warning is recorded and the setting is applied. An item without VAT is costed at its list price.
+- **Ledger and price list are JSON-wrapped XML endpoints.** `POST /Shop/Share/GradualMoein2Load` (15 rows per page, page count from the statement page's script) and `POST /Shop/Share/ItemsSearchGradual` (search by code, needs `businessId` and `userGroupId` read from one price-form reply). Both replace the "scroll" mechanics guessed in §2.2.
+- **Fetch cap.** The import job accepts an optional `fetch_limit` (invoices fetched per run; the rest continue next run because invoices are cached). The UI does not expose it; the live end-to-end test uses it.

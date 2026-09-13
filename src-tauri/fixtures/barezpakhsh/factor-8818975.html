@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+    <link rel="icon" href="/Image/Template/comlogo.png" type="image/png" sizes="20x20">
+    <meta name="viewport" content="width=device-width" />
+    <title>Factor</title>
+    <link href="/Content/Style/main-master.css" rel="stylesheet" />
+    <link href="/Content/datepicker/styles/jquery-ui-1.8.14.css" rel="stylesheet" />
+    <link href="/Content/Style/bootstrap-rtl.min1.css" rel="stylesheet"/>
+<link href="/Content/Style/bootstrap-switch-rtl.min1.css" rel="stylesheet"/>
+<link href="/Content/Style/main-master.css" rel="stylesheet"/>
+<link href="/Content/Style/Style.css" rel="stylesheet"/>
+
+    <script src="/Content/Scripts/modernizr-2.5.3.js"></script>
+
+    
+    <script src="/Content/Scripts/jquery.unobtrusive-ajax.js"></script>
+<script src="/Content/Scripts/jquery.validate.js"></script>
+<script src="/Content/Scripts/jquery.validate.unobtrusive.js"></script>
+
+    <script src="/Content/Scripts/bootstrapScripts/jquery-1.12.1.js"></script>
+<script src="/Content/Scripts/bootstrapScripts/bootstrap.js"></script>
+
+    <script src="/Content/Scripts/FreezTableHeader/jquery.floatThead.js"></script>
+
+    <script src="/Content/Scripts/ArpaWeb-0.0.2.js"></script>
+
+    
+    
+</head>
+<body>
+    <div class="container-fluid PrintedSize">
+        <div id="header" class="row hidden-xs NoPrinted">
+    
+    <img src="/Image/Template/samane-forush_06.png" class="img-responsive" />
+</div>
+
+        <div class="row NoPrinted" id="profile">
+    <nav class="navbar navbar-inverse" data-spy="affix" data-offset-top="5">
+        <div class="container-fluid">
+            <div class="navbar-header">
+                <button type="button" class="navbar-toggle visible-xs" data-toggle="collapse" data-target="#myNavbar">
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="/">شرکت بارزپخش کرمان</a>
+            </div>
+            <ul class="nav navbar-nav hidden-xs">
+                
+                <li><a href="/Info/HowToRegister">نحوه ثبت نام</a></li>
+                <li><a href="/Info/AboutUs">درباره ما</a></li>
+                <li><a href="/Info/ContactUs">تماس با ما</a></li>
+                <li><a href="/Info/SiteRuls">قوانین سایت</a></li>
+            </ul>
+                <ul class="nav navbar-nav navbar-right  hidden-xs">
+                    <li class="dropdown">
+                        <a class="dropdown-toggle" data-toggle="dropdown" href="#">
+                            <span class="glyphicon glyphicon-user"></span>
+                                <span>آقاي نمونه خريدار</span>
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a href="/Home/ChangePassword">تغییر رمز</a></li>
+                            <li><a href="/Home/Logout">خروج</a></li>
+                        </ul>
+                    </li>
+                </ul>
+                <div class="collapse navbar-collapse" id="myNavbar">
+                    <ul class="nav navbar-nav visible-xs">
+                        <li><a href="/Shop/Report/Bill">صورتحساب</a></li>
+                        <li><a href="/Shop/Buy/Index">ثبت فاکتور<img src="/Image/Template/sale.png" /></a></li>
+                            <li><a href="/Shop/Settle/Index">تسویه فاکتورها</a></li>
+                                                    <li><a href="/Shop/CreditSupplyTradingApp/Index" style="color: red">مشاهده و تسویه پیش فاکتورهای (جدید)</a></li>
+                                                    <li><a href="/Shop/Gift/Index">انتخاب هدیه<img src="/Image/Template/Gift-Box.png" /></a></li>
+                                                    <li><a href="/Shop/Lottery/Index">قرعه کشی<img src="" /></a></li>
+                                                <li><a href="/Shop/Notifications/Index">برنامه تحویل کالا برای شهرستان</a></li>
+                            <li><a href="/Shop/Ticket/Index">پیام ها (0 پیام جدید)</a></li>
+                        <li class="dropdown">
+                            <a class="dropdown-toggle" data-toggle="dropdown" href="#">
+                                <span class="glyphicon glyphicon-user"></span>
+                                    <span>آقاي نمونه خريدار</span>
+                            </a>
+                            <ul class="dropdown-menu">
+                                <li><a href="/Home/ChangePassword">تغییر رمز</a></li>
+                                <li><a href="/Home/Logout">خروج</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+        </div>
+    </nav>
+</div>
+
+
+
+        <div id="ads" class="row NoPrinted"></div>
+        <div id="urlmap" class="row NoPrinted"></div>
+        <div id="content-wrapper PrintedSize" class="row">
+            <div id="rightSidebar1" class="col-sm-3 sidebar NoPrinted">
+                <div class="panel panel-default">
+                    <div class="panel-heading hidden-xs">
+                        <h4 class="panel-title">
+                            <a data-toggle="collapse" href="#collapse1">عملیات &nbsp&nbsp<span class="glyphicon glyphicon-chevron-down"></span></a>
+                        </h4>
+                    </div>
+                    <div id="collapse1" class="panel-collapse collapse in hidden-xs">
+                        <div class="panel-body">
+                            <ul class="nav nav-sidebar">
+                                    <li><a href="/Shop/Report/Bill">صورتحساب</a></li>    
+                                                                    <li><a href="/Shop/Buy/Index">ثبت فاکتور<img src="/Image/Template/sale.png" /></a></li>
+                                                                    <li><a href="/Shop/Settle/Index">تسویه فاکتورها</a></li>    
+                                                                                                                                     <li><a href="/Shop/CreditSupplyTradingApp/Index"  style="color:red">مشاهده و تسویه پیش فاکتورهای (جدید)</a></li>   
+                                                                    <li><a href="/Shop/Gift/Index">انتخاب هدیه<img src="/Image/Template/Gift-Box.png" /></a></li>
+                                                                    <li><a href="/Shop/Lottery/Index">قرعه کشی<img src="" /></a></li>
+                                                            </ul>
+                        </div>
+                    </div>
+                    <div class="panel-heading hidden-xs">
+                        <h4 class="panel-title">
+                            <a data-toggle="collapse" href="#collapse2">اطلاعیه ها &nbsp&nbsp<span class="glyphicon glyphicon-chevron-down"></span></a>
+                        </h4>
+                    </div>
+                    <div id="collapse2" class="panel-collapse collapse in hidden-xs">
+                        <div class="panel-body">
+                            <ul class="nav nav-sidebar">
+                                    <li><a href="/Shop/Notifications/Index">برنامه تحویل کالا برای شهرستان</a></li>
+                            </ul>
+                            <ul class="nav nav-sidebar">
+                                    <li><a href="/Shop/Ticket/Index">پیام ها (0 پیام جدید)</a></li>
+                            </ul>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+            <div id="content" class="col-sm-9 PrintedSize">
+                
+
+
+
+<div class="panel panel-default PrintedSize" style="font-size:small">
+        <div class="panel-heading NoPrinted">
+            فاکتور شماره: 226456
+            <button class="btn btn-primary glyphicon glyphicon-print printButton" type="button" style="float: left" title="چاپ" onclick="window.print();"></button>
+        </div>
+        <div class="panel-body">
+            <div class="table-responsive">
+                <table class="table table-bordered table-hover">
+                    <thead >
+                        <tr class="paddingTableForPrint">
+                            <th class="paddingTableForPrint" colspan="8" style="font-size: x-large">صورت حساب فروش کالا و خدمات
+                            </th>
+                            <th class="paddingTableForPrint" colspan="3">شماره سریال : 226456
+                                <br />
+                                تاریخ : 1401/10/14
+                            </th>
+                        </tr>
+                        <tr class="paddingTableForPrint ">
+                            <th class="paddingTableForPrint " colspan="6">مشخصات فروشنده 
+                           <br />
+                                نام شخص حقیقی / حقوقی : شرکت بازرگانی بارزپخش کرمان
+                           <br />
+                                نشانی کامل : کرمان خیابان سرباز حدفاصل کوچه شماره 34 و 36
+                            </th>
+                            <th class="paddingTableForPrint " colspan="2">شماره اقتصادی : 4111-5111-8353
+                            <br />
+                                کد پستی : 7616797181
+                            </th>
+                            <th class="paddingTableForPrint " colspan="3">شماره ثبت / شماره ملی : 3634
+                            <br />
+                                شهر : کرمان
+                            <br />
+                                تلفکس : 31333000-33341000
+                            </th>
+                        </tr>
+                        <tr class="paddingTableForPrint ">
+                            <th class="paddingTableForPrint " colspan="6">مشخصات خریدار 
+                           <br />
+                                نام شخص حقیقی / حقوقی : <span style="font-size: x-large">آقاي نمونه خريدار</span>
+                                <br />
+                                نشانی کامل : شهر نمونه - خيابان نمونه
+                            </th>
+                            <th class="paddingTableForPrint " colspan="2">شماره اقتصادی : 
+                            <br />
+                                کد پستی : 
+                            </th>
+                            <th class="paddingTableForPrint " colspan="3">شماره ثبت / شماره ملی : 
+                            <br />
+                                شهر : 
+                            <br />
+                                تلفن : 09120000001
+                                <br />
+                                موبایل : 09120000002
+                            </th>
+                        </tr>
+                        <tr>
+                            <th class="paddingTableForPrint " colspan="11" style="font-size: large">مسئول پخش : نمونه پخش
+                            </th>
+                        </tr>
+                        <tr>
+                            <th class="paddingTableForPrint " colspan="11">مشخصات کالا یا خدمات مورد معامله
+                            </th>
+                        </tr>
+                        <tr class="paddingTableForPrint ">
+                            <th class="" scope="col">ردیف</th>
+                            <th class="" scope="col">کد کالا</th>
+                            <th class="" scope="col">شرح کالا یا خدمات</th>
+                            <th class="" scope="col">تعداد</th>
+                            <th class="" scope="col">واحد اندازه گیری</th>
+                            <th class="" scope="col">مبلغ واحد (ریال)</th>
+                            <th class="" scope="col">مبلغ کل (ریال)</th>
+                            
+                            <th class="" scope="col">مبلغ تخفیف (ریال) </th>
+                            <th class="" scope="col">مبلغ کل پس از تخفیف (ریال)</th>
+                            <th class="" scope="col">جمع مالیات و عوارض (ریال)</th>
+                            <th class="" scope="col">جمع مبلغ کل + جمع مالیات و عوارض (ریال)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">1</td>
+                                <td class="paddingTableForPrint ">3137006</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">لنت جلو پژو 405 عظام* (16)</td>
+                                <td class="paddingTableForPrint ">4</td>
+                                <td class="paddingTableForPrint ">دست</td>
+                                <td class="paddingTableForPrint ">1,647,000</td>
+                                <td class="paddingTableForPrint ">6,588,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">6,588,000</td>
+                                <td class="paddingTableForPrint ">592,920</td>
+                                <td class="paddingTableForPrint ">
+                                    7,180,920
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">2</td>
+                                <td class="paddingTableForPrint ">3124003</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">سه شاخه پلوس 22 خار پژو 405 TPIC عظام (60)</td>
+                                <td class="paddingTableForPrint ">1</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">1,412,000</td>
+                                <td class="paddingTableForPrint ">1,412,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">1,412,000</td>
+                                <td class="paddingTableForPrint ">127,080</td>
+                                <td class="paddingTableForPrint ">
+                                    1,539,080
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">3</td>
+                                <td class="paddingTableForPrint ">1032001010</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">سيبک فرمان پرايد اميرنيا (0631)(48)  (2عددي)</td>
+                                <td class="paddingTableForPrint ">4</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">788,000</td>
+                                <td class="paddingTableForPrint ">3,152,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">3,152,000</td>
+                                <td class="paddingTableForPrint ">283,680</td>
+                                <td class="paddingTableForPrint ">
+                                    3,435,680
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">4</td>
+                                <td class="paddingTableForPrint ">2063001510</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">ميل موجگير پژو 405 اميرنيا (0458) (50)</td>
+                                <td class="paddingTableForPrint ">4</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">765,000</td>
+                                <td class="paddingTableForPrint ">3,060,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">3,060,000</td>
+                                <td class="paddingTableForPrint ">275,400</td>
+                                <td class="paddingTableForPrint ">
+                                    3,335,400
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">5</td>
+                                <td class="paddingTableForPrint ">2023007010</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">دسته موتور گرد (فلزي) پژو 405 اميرنيا (0462) (50عددي)</td>
+                                <td class="paddingTableForPrint ">6</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">668,000</td>
+                                <td class="paddingTableForPrint ">4,008,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">4,008,000</td>
+                                <td class="paddingTableForPrint ">360,720</td>
+                                <td class="paddingTableForPrint ">
+                                    4,368,720
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">6</td>
+                                <td class="paddingTableForPrint ">2023002010</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">بوش  لبه دار پژو 405 اميرنيا (0450)(100) (2عددي)</td>
+                                <td class="paddingTableForPrint ">6</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">377,000</td>
+                                <td class="paddingTableForPrint ">2,262,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">2,262,000</td>
+                                <td class="paddingTableForPrint ">203,580</td>
+                                <td class="paddingTableForPrint ">
+                                    2,465,580
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">7</td>
+                                <td class="paddingTableForPrint ">3124001</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">سه شاخه پلوس 19 خار پرايد TPIC عظام (60)</td>
+                                <td class="paddingTableForPrint ">1</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">899,000</td>
+                                <td class="paddingTableForPrint ">899,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">899,000</td>
+                                <td class="paddingTableForPrint ">80,910</td>
+                                <td class="paddingTableForPrint ">
+                                    979,910
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">8</td>
+                                <td class="paddingTableForPrint ">2023003510</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">لاستيک (بوش) چاکدار (موجگير - قامه) فلزي ناوداني پژو 405 اميرنيا (0453)</td>
+                                <td class="paddingTableForPrint ">1</td>
+                                <td class="paddingTableForPrint ">دست</td>
+                                <td class="paddingTableForPrint ">657,000</td>
+                                <td class="paddingTableForPrint ">657,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">657,000</td>
+                                <td class="paddingTableForPrint ">59,130</td>
+                                <td class="paddingTableForPrint ">
+                                    716,130
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">9</td>
+                                <td class="paddingTableForPrint ">1023002010</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">قرقري فرمان پژو 405 اميرنيا &lt;2&gt;(0421)(40)</td>
+                                <td class="paddingTableForPrint ">6</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">829,000</td>
+                                <td class="paddingTableForPrint ">4,974,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">4,974,000</td>
+                                <td class="paddingTableForPrint ">447,660</td>
+                                <td class="paddingTableForPrint ">
+                                    5,421,660
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">10</td>
+                                <td class="paddingTableForPrint ">1053001010</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">سيبک طبق پژو 405 اميرنيا &lt;2&gt;(0441)(48)</td>
+                                <td class="paddingTableForPrint ">10</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">754,000</td>
+                                <td class="paddingTableForPrint ">7,540,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">7,540,000</td>
+                                <td class="paddingTableForPrint ">678,600</td>
+                                <td class="paddingTableForPrint ">
+                                    8,218,600
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">11</td>
+                                <td class="paddingTableForPrint ">3183036</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">کمک فنر جلو راست پرايد فراوري ساخت عظام (6)</td>
+                                <td class="paddingTableForPrint ">2</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">6,227,000</td>
+                                <td class="paddingTableForPrint ">12,454,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">12,454,000</td>
+                                <td class="paddingTableForPrint ">1,120,860</td>
+                                <td class="paddingTableForPrint ">
+                                    13,574,860
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">12</td>
+                                <td class="paddingTableForPrint ">3183034</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">کمک فنر جلو سمند فراوري ساخت عظام (4)</td>
+                                <td class="paddingTableForPrint ">4</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">8,516,000</td>
+                                <td class="paddingTableForPrint ">34,064,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">34,064,000</td>
+                                <td class="paddingTableForPrint ">3,065,760</td>
+                                <td class="paddingTableForPrint ">
+                                    37,129,760
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">13</td>
+                                <td class="paddingTableForPrint ">3183037</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">کمک فنر جلو چپ پرايد فراوري ساخت عظام (6)</td>
+                                <td class="paddingTableForPrint ">2</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">6,227,000</td>
+                                <td class="paddingTableForPrint ">12,454,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">12,454,000</td>
+                                <td class="paddingTableForPrint ">1,120,860</td>
+                                <td class="paddingTableForPrint ">
+                                    13,574,860
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">14</td>
+                                <td class="paddingTableForPrint ">33102006</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">بلبرينگ (اکسل) ژامبون بزرگ (داخلي - 68934 ) پژو 405 عظام (54) 3154019</td>
+                                <td class="paddingTableForPrint ">2</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">835,000</td>
+                                <td class="paddingTableForPrint ">1,670,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">1,670,000</td>
+                                <td class="paddingTableForPrint ">150,300</td>
+                                <td class="paddingTableForPrint ">
+                                    1,820,300
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">15</td>
+                                <td class="paddingTableForPrint ">33102007</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">بلبرينگ (اکسل) ژامبون کوچک (بيروني - 68933) پژو 405 عظام (54) 3154020</td>
+                                <td class="paddingTableForPrint ">2</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">835,000</td>
+                                <td class="paddingTableForPrint ">1,670,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">1,670,000</td>
+                                <td class="paddingTableForPrint ">150,300</td>
+                                <td class="paddingTableForPrint ">
+                                    1,820,300
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">16</td>
+                                <td class="paddingTableForPrint ">2053004010</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">دسته موتور زير باطري (بيضي) پژو 405 اميرنيا (0464) (50)</td>
+                                <td class="paddingTableForPrint ">5</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">452,000</td>
+                                <td class="paddingTableForPrint ">2,260,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">2,260,000</td>
+                                <td class="paddingTableForPrint ">203,400</td>
+                                <td class="paddingTableForPrint ">
+                                    2,463,400
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">17</td>
+                                <td class="paddingTableForPrint ">2043002010</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">ضربه گير دسته موتور U پژو 405 اميرنيا (0465)</td>
+                                <td class="paddingTableForPrint ">6</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">355,000</td>
+                                <td class="paddingTableForPrint ">2,130,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">2,130,000</td>
+                                <td class="paddingTableForPrint ">191,700</td>
+                                <td class="paddingTableForPrint ">
+                                    2,321,700
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">18</td>
+                                <td class="paddingTableForPrint ">0400800199</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">پيچ چرخ ايساکو پژو 405 &lt;4&gt;</td>
+                                <td class="paddingTableForPrint ">4</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">172,480</td>
+                                <td class="paddingTableForPrint ">689,920</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">689,920</td>
+                                <td class="paddingTableForPrint ">62,092</td>
+                                <td class="paddingTableForPrint ">
+                                    752,012
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">19</td>
+                                <td class="paddingTableForPrint ">1970200199</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">ميل تعادل عقب بلند ايساکو پژو 405</td>
+                                <td class="paddingTableForPrint ">4</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">3,918,880</td>
+                                <td class="paddingTableForPrint ">15,675,520</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">15,675,520</td>
+                                <td class="paddingTableForPrint ">1,410,796</td>
+                                <td class="paddingTableForPrint ">
+                                    17,086,316
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">20</td>
+                                <td class="paddingTableForPrint ">3119004</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">سرپلوس چرخ 20 خار ABS پرايد عظام TPIC (8)</td>
+                                <td class="paddingTableForPrint ">6</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">4,665,000</td>
+                                <td class="paddingTableForPrint ">27,990,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">27,990,000</td>
+                                <td class="paddingTableForPrint ">2,519,100</td>
+                                <td class="paddingTableForPrint ">
+                                    30,509,100
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">21</td>
+                                <td class="paddingTableForPrint ">3022001510</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">سرپلوس 19 خار ABS پرايد اميرنيا (0682)(12)</td>
+                                <td class="paddingTableForPrint ">3</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">4,845,000</td>
+                                <td class="paddingTableForPrint ">14,535,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">14,535,000</td>
+                                <td class="paddingTableForPrint ">1,308,150</td>
+                                <td class="paddingTableForPrint ">
+                                    15,843,150
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">22</td>
+                                <td class="paddingTableForPrint ">3119024</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">سرپلوس چرخ تيبا ABS عظام TPIC (8)</td>
+                                <td class="paddingTableForPrint ">3</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">5,436,000</td>
+                                <td class="paddingTableForPrint ">16,308,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">16,308,000</td>
+                                <td class="paddingTableForPrint ">1,467,720</td>
+                                <td class="paddingTableForPrint ">
+                                    17,775,720
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">23</td>
+                                <td class="paddingTableForPrint ">3023003010</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">سرپلوس 24 خار پژو 405 اميرنيا (0484)</td>
+                                <td class="paddingTableForPrint ">3</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">5,413,000</td>
+                                <td class="paddingTableForPrint ">16,239,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">16,239,000</td>
+                                <td class="paddingTableForPrint ">1,461,510</td>
+                                <td class="paddingTableForPrint ">
+                                    17,700,510
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">24</td>
+                                <td class="paddingTableForPrint ">33101007</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">بلبرينگ چرخ جلو  پژو 405 و 206 تيپ 5 PSN  عظام 3154016 (25)</td>
+                                <td class="paddingTableForPrint ">10</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">2,910,000</td>
+                                <td class="paddingTableForPrint ">29,100,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">29,100,000</td>
+                                <td class="paddingTableForPrint ">2,619,000</td>
+                                <td class="paddingTableForPrint ">
+                                    31,719,000
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">25</td>
+                                <td class="paddingTableForPrint ">3043001510</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">سه شاخ پلوس 24 خار پژو 405 WIA اميرنيا(0497)</td>
+                                <td class="paddingTableForPrint ">3</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">1,571,000</td>
+                                <td class="paddingTableForPrint ">4,713,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">4,713,000</td>
+                                <td class="paddingTableForPrint ">424,170</td>
+                                <td class="paddingTableForPrint ">
+                                    5,137,170
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">26</td>
+                                <td class="paddingTableForPrint ">3042001010</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">سه شاخ پلوس 19 خار پرايد اميرنيا(0696)</td>
+                                <td class="paddingTableForPrint ">3</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">1,162,000</td>
+                                <td class="paddingTableForPrint ">3,486,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">3,486,000</td>
+                                <td class="paddingTableForPrint ">313,740</td>
+                                <td class="paddingTableForPrint ">
+                                    3,799,740
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">27</td>
+                                <td class="paddingTableForPrint ">1803106002</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">لوله ترمز عقب مدل بالا پژو 405 TPCO </td>
+                                <td class="paddingTableForPrint ">2</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">146,000</td>
+                                <td class="paddingTableForPrint ">292,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">292,000</td>
+                                <td class="paddingTableForPrint ">26,280</td>
+                                <td class="paddingTableForPrint ">
+                                    318,280
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">28</td>
+                                <td class="paddingTableForPrint ">1803106012</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">لوله ترمز جلو چپ پژو 405 TPCO</td>
+                                <td class="paddingTableForPrint ">2</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">165,000</td>
+                                <td class="paddingTableForPrint ">330,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">330,000</td>
+                                <td class="paddingTableForPrint ">29,700</td>
+                                <td class="paddingTableForPrint ">
+                                    359,700
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">29</td>
+                                <td class="paddingTableForPrint ">3112020</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">ميل توپي چرخ عقب پژو 405 والا قطعه عظام (30)</td>
+                                <td class="paddingTableForPrint ">2</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">1,500,000</td>
+                                <td class="paddingTableForPrint ">3,000,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">3,000,000</td>
+                                <td class="paddingTableForPrint ">270,000</td>
+                                <td class="paddingTableForPrint ">
+                                    3,270,000
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">30</td>
+                                <td class="paddingTableForPrint ">10500008KEY</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">بلبرينگ چرخ جلو  پژو 405 و 206 تيپ 5  SNR فرانسه </td>
+                                <td class="paddingTableForPrint ">4</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">5,670,000</td>
+                                <td class="paddingTableForPrint ">22,680,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">22,680,000</td>
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">
+                                    22,680,000
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">31</td>
+                                <td class="paddingTableForPrint ">2042004010</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">ضربه گير کمک عقب پرايد اميرنيا (4) (0657)</td>
+                                <td class="paddingTableForPrint ">6</td>
+                                <td class="paddingTableForPrint ">دست</td>
+                                <td class="paddingTableForPrint ">200,000</td>
+                                <td class="paddingTableForPrint ">1,200,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">1,200,000</td>
+                                <td class="paddingTableForPrint ">108,000</td>
+                                <td class="paddingTableForPrint ">
+                                    1,308,000
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">32</td>
+                                <td class="paddingTableForPrint ">1803106011</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">لوله ترمز چرخ جلو راست  XU7 پژو 405  TPCO</td>
+                                <td class="paddingTableForPrint ">2</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">165,000</td>
+                                <td class="paddingTableForPrint ">330,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">330,000</td>
+                                <td class="paddingTableForPrint ">29,700</td>
+                                <td class="paddingTableForPrint ">
+                                    359,700
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">33</td>
+                                <td class="paddingTableForPrint ">AM1407071</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">شيلنگ ترمز چرخ جلو پرايد طرح قديم AMATA</td>
+                                <td class="paddingTableForPrint ">2</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">1,487,000</td>
+                                <td class="paddingTableForPrint ">2,974,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">2,974,000</td>
+                                <td class="paddingTableForPrint ">267,660</td>
+                                <td class="paddingTableForPrint ">
+                                    3,241,660
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">34</td>
+                                <td class="paddingTableForPrint ">AM1103004</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">کاسه نمد پلوس بزرگ پژو 405 AMATA SUPTEX (10)</td>
+                                <td class="paddingTableForPrint ">2</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">621,000</td>
+                                <td class="paddingTableForPrint ">1,242,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">1,242,000</td>
+                                <td class="paddingTableForPrint ">111,780</td>
+                                <td class="paddingTableForPrint ">
+                                    1,353,780
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">35</td>
+                                <td class="paddingTableForPrint ">AM1103007</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">کاسه نمد پلوس کوچک پژو 405  AMATA SUPTEX</td>
+                                <td class="paddingTableForPrint ">2</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">534,000</td>
+                                <td class="paddingTableForPrint ">1,068,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">1,068,000</td>
+                                <td class="paddingTableForPrint ">96,120</td>
+                                <td class="paddingTableForPrint ">
+                                    1,164,120
+                                </td>
+                            </tr>    
+                            <tr class="paddingTableForPrint ">
+                                <td class="paddingTableForPrint ">36</td>
+                                <td class="paddingTableForPrint ">3167247</td>
+                                <td class="paddingTableForPrint " style="white-space: pre-line">گردگير پلاستيکي سرپلوس COFCO  پژو 405 عظام *(16)</td>
+                                <td class="paddingTableForPrint ">6</td>
+                                <td class="paddingTableForPrint ">عدد</td>
+                                <td class="paddingTableForPrint ">363,000</td>
+                                <td class="paddingTableForPrint ">2,178,000</td>
+                                
+                                <td class="paddingTableForPrint ">0</td>
+                                <td class="paddingTableForPrint ">2,178,000</td>
+                                <td class="paddingTableForPrint ">196,020</td>
+                                <td class="paddingTableForPrint ">
+                                    2,374,020
+                                </td>
+                            </tr>    
+                        <tr class="paddingTableForPrint ">
+                            <td class="" align="left" colspan="3">جمع</td>
+                            <td class="paddingTableForPrint ">135</td>
+                            <td class="paddingTableForPrint ">&nbsp;</td>
+                            <td class="paddingTableForPrint ">&nbsp;</td>
+                            <td class="paddingTableForPrint ">265,284,440</td>
+                            
+                            <td class="paddingTableForPrint ">0</td>
+                            <td class="paddingTableForPrint ">265,284,440</td>
+                            <td class="paddingTableForPrint ">21,834,398</td>
+                            <td class="paddingTableForPrint ">287,118,838</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <table border="0" class="table table-bordered ">
+                    <tbody>
+                        <tr class="paddingTableForPrint ">
+                            <td class="paddingTableForPrint ">جمع خالص
+                            </td>
+                            <td class="paddingTableForPrint "><b class="paddingTableForPrint " style="font-size: 14px">265,284,440</b></td>
+                        </tr>
+                        <tr class="paddingTableForPrint ">
+                            <td class="paddingTableForPrint ">تخفیف کالاها
+                            </td>
+                            <td class="paddingTableForPrint "><b class="paddingTableForPrint " style="font-size: 14px">0</b></td>
+                        </tr>
+                        <tr class="paddingTableForPrint ">
+                            <td class="paddingTableForPrint ">تخفیف برگه
+                            </td>
+                            <td class="paddingTableForPrint "><b class="paddingTableForPrint " style="font-size: 14px">0</b></td>
+                        </tr>
+                        <tr class="paddingTableForPrint ">
+                            <td class="paddingTableForPrint ">هزینه حمل
+                            </td>
+                            <td class="paddingTableForPrint "><b class="paddingTableForPrint " style="font-size: 14px">0</b></td>
+                        </tr>
+                        <tr class="paddingTableForPrint ">
+                            <td class="paddingTableForPrint ">جمع کسورات
+                            </td>
+                            <td class="paddingTableForPrint "><b class="paddingTableForPrint " style="font-size: 14px">0</b></td>
+                        </tr>
+                        <tr class="paddingTableForPrint ">
+                            <td class="paddingTableForPrint ">مالیات و عوارض
+                            </td>
+                            <td class="paddingTableForPrint "><b class="paddingTableForPrint " style="font-size: 14px">21,834,398</b></td>
+                        </tr>
+                        <tr class="paddingTableForPrint ">
+                            <td class="paddingTableForPrint ">جمع کل
+                            </td>
+                            <td class="paddingTableForPrint "><b class="paddingTableForPrint " style="font-size: 14px">287,118,838</b></td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <table border="0" class="table table-bordered  ">
+                    <tbody>
+                        <tr class="paddingTableForPrint ">
+                            <td class="paddingTableForPrint ">
+                                    <h4>تاریخ تسویه : 1401/12/20</h4>    
+                                    <br />
+                                
+                            </td>
+                            <td class="">مهر و امضا فروشنده
+                                <br />
+                            </td>
+                            <td class="">
+                                مهر و امضا خریدار
+                                <br />
+                                انبار : هزار
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    <p class="breakhere"></p>
+
+
+            </div>
+        </div>
+        <div id="footer" class="row NoPrinted">
+    <nav class="navbar navbar-default">
+        <div class="container-fluid">
+            <ul class="nav navbar-nav navbar-right">
+                    <li><a href="/Download/Index">دانلود نرم افزار <span class="glyphicon glyphicon-download-alt"></span></a></li>
+                <li><a href="#">info@barezpakhsh.ir <span class="glyphicon glyphicon-envelope"></span></a></li>
+                <li><a href="#">
+                    <img src="/Image/Template/Tell.png" /><span class="glyphicon glyphicon-earphone"></span></a></li>
+                
+            </ul>
+        </div>
+    </nav>
+</div>
+
+    </div>
+</body>
+</html>

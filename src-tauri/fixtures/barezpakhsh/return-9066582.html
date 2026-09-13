@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+    <link rel="icon" href="/Image/Template/comlogo.png" type="image/png" sizes="20x20">
+    <meta name="viewport" content="width=device-width" />
+    <title>Factor</title>
+    <link href="/Content/Style/main-master.css" rel="stylesheet" />
+    <link href="/Content/datepicker/styles/jquery-ui-1.8.14.css" rel="stylesheet" />
+    <link href="/Content/Style/bootstrap-rtl.min1.css" rel="stylesheet"/>
+<link href="/Content/Style/bootstrap-switch-rtl.min1.css" rel="stylesheet"/>
+<link href="/Content/Style/main-master.css" rel="stylesheet"/>
+<link href="/Content/Style/Style.css" rel="stylesheet"/>
+
+    <script src="/Content/Scripts/modernizr-2.5.3.js"></script>
+
+    
+    <script src="/Content/Scripts/jquery.unobtrusive-ajax.js"></script>
+<script src="/Content/Scripts/jquery.validate.js"></script>
+<script src="/Content/Scripts/jquery.validate.unobtrusive.js"></script>
+
+    <script src="/Content/Scripts/bootstrapScripts/jquery-1.12.1.js"></script>
+<script src="/Content/Scripts/bootstrapScripts/bootstrap.js"></script>
+
+    <script src="/Content/Scripts/FreezTableHeader/jquery.floatThead.js"></script>
+
+    <script src="/Content/Scripts/ArpaWeb-0.0.2.js"></script>
+
+    
+    
+</head>
+<body>
+    <div class="container-fluid PrintedSize">
+        <div id="header" class="row hidden-xs NoPrinted">
+    
+    <img src="/Image/Template/samane-forush_06.png" class="img-responsive" />
+</div>
+
+        <div class="row NoPrinted" id="profile">
+    <nav class="navbar navbar-inverse" data-spy="affix" data-offset-top="5">
+        <div class="container-fluid">
+            <div class="navbar-header">
+                <button type="button" class="navbar-toggle visible-xs" data-toggle="collapse" data-target="#myNavbar">
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="/">شرکت بارزپخش کرمان</a>
+            </div>
+            <ul class="nav navbar-nav hidden-xs">
+                
+                <li><a href="/Info/HowToRegister">نحوه ثبت نام</a></li>
+                <li><a href="/Info/AboutUs">درباره ما</a></li>
+                <li><a href="/Info/ContactUs">تماس با ما</a></li>
+                <li><a href="/Info/SiteRuls">قوانین سایت</a></li>
+            </ul>
+                <ul class="nav navbar-nav navbar-right  hidden-xs">
+                    <li class="dropdown">
+                        <a class="dropdown-toggle" data-toggle="dropdown" href="#">
+                            <span class="glyphicon glyphicon-user"></span>
+                                <span>آقاي نمونه خريدار</span>
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a href="/Home/ChangePassword">تغییر رمز</a></li>
+                            <li><a href="/Home/Logout">خروج</a></li>
+                        </ul>
+                    </li>
+                </ul>
+                <div class="collapse navbar-collapse" id="myNavbar">
+                    <ul class="nav navbar-nav visible-xs">
+                        <li><a href="/Shop/Report/Bill">صورتحساب</a></li>
+                        <li><a href="/Shop/Buy/Index">ثبت فاکتور<img src="/Image/Template/sale.png" /></a></li>
+                            <li><a href="/Shop/Settle/Index">تسویه فاکتورها</a></li>
+                                                    <li><a href="/Shop/CreditSupplyTradingApp/Index" style="color: red">مشاهده و تسویه پیش فاکتورهای (جدید)</a></li>
+                                                    <li><a href="/Shop/Gift/Index">انتخاب هدیه<img src="/Image/Template/Gift-Box.png" /></a></li>
+                                                    <li><a href="/Shop/Lottery/Index">قرعه کشی<img src="" /></a></li>
+                                                <li><a href="/Shop/Notifications/Index">برنامه تحویل کالا برای شهرستان</a></li>
+                            <li><a href="/Shop/Ticket/Index">پیام ها (0 پیام جدید)</a></li>
+                        <li class="dropdown">
+                            <a class="dropdown-toggle" data-toggle="dropdown" href="#">
+                                <span class="glyphicon glyphicon-user"></span>
+                                    <span>آقاي نمونه خريدار</span>
+                            </a>
+                            <ul class="dropdown-menu">
+                                <li><a href="/Home/ChangePassword">تغییر رمز</a></li>
+                                <li><a href="/Home/Logout">خروج</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+        </div>
+    </nav>
+</div>
+
+
+
+        <div id="ads" class="row NoPrinted"></div>
+        <div id="urlmap" class="row NoPrinted"></div>
+        <div id="content-wrapper PrintedSize" class="row">
+            <div id="rightSidebar1" class="col-sm-3 sidebar NoPrinted">
+                <div class="panel panel-default">
+                    <div class="panel-heading hidden-xs">
+                        <h4 class="panel-title">
+                            <a data-toggle="collapse" href="#collapse1">عملیات &nbsp&nbsp<span class="glyphicon glyphicon-chevron-down"></span></a>
+                        </h4>
+                    </div>
+                    <div id="collapse1" class="panel-collapse collapse in hidden-xs">
+                        <div class="panel-body">
+                            <ul class="nav nav-sidebar">
+                                    <li><a href="/Shop/Report/Bill">صورتحساب</a></li>    
+                                                                    <li><a href="/Shop/Buy/Index">ثبت فاکتور<img src="/Image/Template/sale.png" /></a></li>
+                                                                    <li><a href="/Shop/Settle/Index">تسویه فاکتورها</a></li>    
+                                                                                                                                     <li><a href="/Shop/CreditSupplyTradingApp/Index"  style="color:red">مشاهده و تسویه پیش فاکتورهای (جدید)</a></li>   
+                                                                    <li><a href="/Shop/Gift/Index">انتخاب هدیه<img src="/Image/Template/Gift-Box.png" /></a></li>
+                                                                    <li><a href="/Shop/Lottery/Index">قرعه کشی<img src="" /></a></li>
+                                                            </ul>
+                        </div>
+                    </div>
+                    <div class="panel-heading hidden-xs">
+                        <h4 class="panel-title">
+                            <a data-toggle="collapse" href="#collapse2">اطلاعیه ها &nbsp&nbsp<span class="glyphicon glyphicon-chevron-down"></span></a>
+                        </h4>
+                    </div>
+                    <div id="collapse2" class="panel-collapse collapse in hidden-xs">
+                        <div class="panel-body">
+                            <ul class="nav nav-sidebar">
+                                    <li><a href="/Shop/Notifications/Index">برنامه تحویل کالا برای شهرستان</a></li>
+                            </ul>
+                            <ul class="nav nav-sidebar">
+                                    <li><a href="/Shop/Ticket/Index">پیام ها (0 پیام جدید)</a></li>
+                            </ul>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+            <div id="content" class="col-sm-9 PrintedSize">
+                
+
+
+    <div class="panel panel-default">
+        <div class="panel-heading NoPrinted">
+            فاکتور شماره: 24402
+            <button class="btn btn-primary glyphicon glyphicon-print printButton" type="button" style="float: left" title="چاپ" onclick="window.print();"></button>
+        </div>
+        <div class="panel-body" id="printSection">
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <tbody>
+                        <tr>
+                                <td>شماره فاکتور مرجوعی:
+                                </td>
+                            <td>
+                                24402
+                            </td>
+                            <td>تاریخ تسویه:
+                            </td>
+                            <td>
+                                
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>تاریخ ثبت:
+                            </td>
+                            <td>
+                                1401/10/26
+                            </td>
+                            <td>وضعیت:
+                            </td>
+                            <td>
+                                پرداخت نشده
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <table class="table table-bordered table-hover">
+                    <tbody>
+                        <tr>
+                            <th class="visible-xs" scope="col">شرح کالا</th>
+                            <th class="hidden-xs" scope="col">ردیف</th>
+                            <th class="hidden-xs" scope="col">کد کالا</th>
+                            <th class="hidden-xs" scope="col">نام کالا</th>
+                            <th scope="col">تعداد</th>
+                            <th class="hidden-xs" scope="col">واحد</th>
+                            <th class="hidden-xs" scope="col">انبار</th>
+                            <th class="hidden-xs" scope="col">فی</th>
+                            <th class="hidden-xs" scope="col">مبلغ</th>
+                            <th class="hidden-xs" scope="col">درصد تخفیف</th>
+                            <th class="hidden-xs" scope="col">تخفیف </th>
+                            <th class="hidden-xs" scope="col">مالیات و عوارض</th>
+                            <th scope="col">قابل پرداخت</th>
+                        </tr>
+                            <tr>
+                                <td class="visible-xs">
+                                    <span>کد کالا : 1023002010</span><br />
+                                    <div style="white-space: pre-wrap">نام کالا : قرقري فرمان پژو 405 اميرنيا &lt;2&gt;(0421)(40)</div>
+                                    <br />
+                                    <span>واحد : عدد</span><br />
+                                    <span>واحد : </span><br />
+                                    <span>فی : 852,000</span><br />
+                                    <span>مبلغ : 6,816,000</span><br />
+                                    <span>درصد تخفیف : 0</span><br />
+                                    <span>تخفیف : 0</span><br />
+                                    <span>مالیات و عوارض : 613,440</span><br />
+                                </td>
+                                <td class="hidden-xs">1</td>
+                                <td class="hidden-xs">1023002010</td>
+                                <td class="hidden-xs">قرقري فرمان پژو 405 اميرنيا &lt;2&gt;(0421)(40)</td>
+                                <td>8</td>
+                                <td class="hidden-xs">عدد</td>
+                                <td class="hidden-xs"></td>
+                                <td class="hidden-xs">852,000</td>
+                                <td class="hidden-xs">6,816,000</td>
+                                <td class="hidden-xs">0</td>
+                                <td class="hidden-xs">0</td>
+                                <td class="hidden-xs">613,440</td>
+                                <td>
+                                    7,429,440
+                                </td>
+                            </tr>    
+                            <tr>
+                                <td class="visible-xs">
+                                    <span>کد کالا : 1023002010</span><br />
+                                    <div style="white-space: pre-wrap">نام کالا : قرقري فرمان پژو 405 اميرنيا &lt;2&gt;(0421)(40)</div>
+                                    <br />
+                                    <span>واحد : عدد</span><br />
+                                    <span>واحد : </span><br />
+                                    <span>فی : 852,000</span><br />
+                                    <span>مبلغ : 6,816,000</span><br />
+                                    <span>درصد تخفیف : 0</span><br />
+                                    <span>تخفیف : 0</span><br />
+                                    <span>مالیات و عوارض : 613,440</span><br />
+                                </td>
+                                <td class="hidden-xs">2</td>
+                                <td class="hidden-xs">1023002010</td>
+                                <td class="hidden-xs">قرقري فرمان پژو 405 اميرنيا &lt;2&gt;(0421)(40)</td>
+                                <td>8</td>
+                                <td class="hidden-xs">عدد</td>
+                                <td class="hidden-xs"></td>
+                                <td class="hidden-xs">852,000</td>
+                                <td class="hidden-xs">6,816,000</td>
+                                <td class="hidden-xs">0</td>
+                                <td class="hidden-xs">0</td>
+                                <td class="hidden-xs">613,440</td>
+                                <td>
+                                    7,429,440
+                                </td>
+                            </tr>    
+                        <tr class="hidden-xs">
+                            <td align="left" colspan="3">جمع</td>
+                            <td>16</td>
+                            <td>&nbsp;</td>
+                            <td>&nbsp;</td>
+                            <td>&nbsp;</td>
+                            <td>13,632,000</td>
+                            <td>&nbsp;</td>
+                            <td>0</td>
+                            <td>0</td>
+                            <td>13,632,000</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <table border="0" class="table table-striped">
+                    <tbody>
+                        <tr>
+                            <td>جمع خالص
+                            </td>
+                            <td>13,632,000</td>
+                        </tr>
+                        <tr>
+                            <td>تخفیف کالاها
+                            </td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>تخفیف برگه
+                            </td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>جمع اضافات
+                            </td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>جمع کسورات
+                            </td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>مالیات و عوارض
+                            </td>
+                            <td>0</td>
+                        </tr>
+                        <tr>
+                            <td>جمع کل
+                            </td>
+                            <td>14,858,880</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+
+
+            </div>
+        </div>
+        <div id="footer" class="row NoPrinted">
+    <nav class="navbar navbar-default">
+        <div class="container-fluid">
+            <ul class="nav navbar-nav navbar-right">
+                    <li><a href="/Download/Index">دانلود نرم افزار <span class="glyphicon glyphicon-download-alt"></span></a></li>
+                <li><a href="#">info@barezpakhsh.ir <span class="glyphicon glyphicon-envelope"></span></a></li>
+                <li><a href="#">
+                    <img src="/Image/Template/Tell.png" /><span class="glyphicon glyphicon-earphone"></span></a></li>
+                
+            </ul>
+        </div>
+    </nav>
+</div>
+
+    </div>
+</body>
+</html>

@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+    <link rel="icon" href="/Image/Template/comlogo.png" type="image/png" sizes="20x20">
+    <meta name="viewport" content="width=device-width" />
+    <title>Index</title>
+    <link href="/Content/Style/main-master.css" rel="stylesheet" />
+    <link href="/Content/datepicker/styles/jquery-ui-1.8.14.css" rel="stylesheet" />
+    <link href="/Content/Style/bootstrap-rtl.min1.css" rel="stylesheet"/>
+<link href="/Content/Style/bootstrap-switch-rtl.min1.css" rel="stylesheet"/>
+<link href="/Content/Style/main-master.css" rel="stylesheet"/>
+<link href="/Content/Style/Style.css" rel="stylesheet"/>
+
+    <script src="/Content/Scripts/modernizr-2.5.3.js"></script>
+
+    
+    <script src="/Content/Scripts/jquery.unobtrusive-ajax.js"></script>
+<script src="/Content/Scripts/jquery.validate.js"></script>
+<script src="/Content/Scripts/jquery.validate.unobtrusive.js"></script>
+
+    <script src="/Content/Scripts/bootstrapScripts/jquery-1.12.1.js"></script>
+<script src="/Content/Scripts/bootstrapScripts/bootstrap.js"></script>
+
+    <script src="/Content/Scripts/FreezTableHeader/jquery.floatThead.js"></script>
+
+    <script src="/Content/Scripts/ArpaWeb-0.0.2.js"></script>
+
+    
+    
+    <script src="/Content/Scripts/ArpaBuyScripts.js?004"></script>
+    <script type="text/javascript">
+        $(document).ready(function () {
+
+            var tmpBusId = '11000';
+            if (tmpBusId != 0) {
+                var basketInfo = '&quot;{}&quot;';
+                if (basketInfo != 'null') {
+                    basketInfo = basketInfo.replace(/&quot;/g, '"');
+                    var objBasketInfoJson = JSON.parse(basketInfo);
+                    var createuserid = '82';
+                    var tehUserid = '189';
+                    if (parseInt(createuserid) == parseInt(tehUserid)) {
+                        OnSuccessGetItemNamesInCookieTeh(objBasketInfoJson);
+                    }
+                    else {
+                        OnSuccessGetItemNamesInCookie(objBasketInfoJson);
+                    }
+                }
+            }
+
+            //GetRecordsSearchItems(pageIndex, pageCount);
+        });
+    </script>
+
+</head>
+<body>
+    <div class="container-fluid PrintedSize">
+        <div id="header" class="row hidden-xs NoPrinted">
+    
+    <img src="/Image/Template/samane-forush_06.png" class="img-responsive" />
+</div>
+
+        <div class="row NoPrinted" id="profile">
+    <nav class="navbar navbar-inverse" data-spy="affix" data-offset-top="5">
+        <div class="container-fluid">
+            <div class="navbar-header">
+                <button type="button" class="navbar-toggle visible-xs" data-toggle="collapse" data-target="#myNavbar">
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="/">شرکت بارزپخش کرمان</a>
+            </div>
+            <ul class="nav navbar-nav hidden-xs">
+                
+                <li><a href="/Info/HowToRegister">نحوه ثبت نام</a></li>
+                <li><a href="/Info/AboutUs">درباره ما</a></li>
+                <li><a href="/Info/ContactUs">تماس با ما</a></li>
+                <li><a href="/Info/SiteRuls">قوانین سایت</a></li>
+            </ul>
+                <ul class="nav navbar-nav navbar-right  hidden-xs">
+                    <li class="dropdown">
+                        <a class="dropdown-toggle" data-toggle="dropdown" href="#">
+                            <span class="glyphicon glyphicon-user"></span>
+                                <span>آقاي نمونه خريدار</span>
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a href="/Home/ChangePassword">تغییر رمز</a></li>
+                            <li><a href="/Home/Logout">خروج</a></li>
+                        </ul>
+                    </li>
+                </ul>
+                <div class="collapse navbar-collapse" id="myNavbar">
+                    <ul class="nav navbar-nav visible-xs">
+                        <li><a href="/Shop/Report/Bill">صورتحساب</a></li>
+                        <li><a href="/Shop/Buy/Index">ثبت فاکتور<img src="/Image/Template/sale.png" /></a></li>
+                            <li><a href="/Shop/Settle/Index">تسویه فاکتورها</a></li>
+                                                    <li><a href="/Shop/CreditSupplyTradingApp/Index" style="color: red">مشاهده و تسویه پیش فاکتورهای (جدید)</a></li>
+                                                    <li><a href="/Shop/Gift/Index">انتخاب هدیه<img src="/Image/Template/Gift-Box.png" /></a></li>
+                                                    <li><a href="/Shop/Lottery/Index">قرعه کشی<img src="" /></a></li>
+                                                <li><a href="/Shop/Notifications/Index">برنامه تحویل کالا برای شهرستان</a></li>
+                            <li><a href="/Shop/Ticket/Index">پیام ها (0 پیام جدید)</a></li>
+                        <li class="dropdown">
+                            <a class="dropdown-toggle" data-toggle="dropdown" href="#">
+                                <span class="glyphicon glyphicon-user"></span>
+                                    <span>آقاي نمونه خريدار</span>
+                            </a>
+                            <ul class="dropdown-menu">
+                                <li><a href="/Home/ChangePassword">تغییر رمز</a></li>
+                                <li><a href="/Home/Logout">خروج</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+        </div>
+    </nav>
+</div>
+
+
+
+        <div id="ads" class="row NoPrinted"></div>
+        <div id="urlmap" class="row NoPrinted"></div>
+        <div id="content-wrapper PrintedSize" class="row">
+            <div id="rightSidebar1" class="col-sm-3 sidebar NoPrinted">
+                <div class="panel panel-default">
+                    <div class="panel-heading hidden-xs">
+                        <h4 class="panel-title">
+                            <a data-toggle="collapse" href="#collapse1">عملیات &nbsp&nbsp<span class="glyphicon glyphicon-chevron-down"></span></a>
+                        </h4>
+                    </div>
+                    <div id="collapse1" class="panel-collapse collapse in hidden-xs">
+                        <div class="panel-body">
+                            <ul class="nav nav-sidebar">
+                                    <li><a href="/Shop/Report/Bill">صورتحساب</a></li>    
+                                                                    <li><a href="/Shop/Buy/Index">ثبت فاکتور<img src="/Image/Template/sale.png" /></a></li>
+                                                                    <li><a href="/Shop/Settle/Index">تسویه فاکتورها</a></li>    
+                                                                                                                                     <li><a href="/Shop/CreditSupplyTradingApp/Index"  style="color:red">مشاهده و تسویه پیش فاکتورهای (جدید)</a></li>   
+                                                                    <li><a href="/Shop/Gift/Index">انتخاب هدیه<img src="/Image/Template/Gift-Box.png" /></a></li>
+                                                                    <li><a href="/Shop/Lottery/Index">قرعه کشی<img src="" /></a></li>
+                                                            </ul>
+                        </div>
+                    </div>
+                    <div class="panel-heading hidden-xs">
+                        <h4 class="panel-title">
+                            <a data-toggle="collapse" href="#collapse2">اطلاعیه ها &nbsp&nbsp<span class="glyphicon glyphicon-chevron-down"></span></a>
+                        </h4>
+                    </div>
+                    <div id="collapse2" class="panel-collapse collapse in hidden-xs">
+                        <div class="panel-body">
+                            <ul class="nav nav-sidebar">
+                                    <li><a href="/Shop/Notifications/Index">برنامه تحویل کالا برای شهرستان</a></li>
+                            </ul>
+                            <ul class="nav nav-sidebar">
+                                    <li><a href="/Shop/Ticket/Index">پیام ها (0 پیام جدید)</a></li>
+                            </ul>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+            <div id="content" class="col-sm-9 PrintedSize">
+                
+
+<div>
+    <input type="hidden" id="hidGoodsItemCode" />
+    <input type="hidden" id="hidGoodsItemQty">
+    <input type="hidden" id="hidGoodsName" />
+    <input type="hidden" id="hidGoodsPrice">
+    <input type="hidden" id="hidGoodsStep">
+    <input type="hidden" id="hidGoodsInBox">
+
+    <input type="hidden" id="hidGoodsDefaultDiscountPercent">
+    <input type="hidden" id="hidGoodsItemsA">
+    <input type="hidden" id="hidGoodsItemsB">
+    <input type="hidden" id="hidGoodsTaxAndTollPercent">
+    <input type="hidden" id="hidGoodsMaxSaleNumber">
+</div>
+
+<div class="panel panel-default">
+    <div class="panel-heading">ثبت فاکتور</div>
+    <div class="panel-body">
+        <div class="row">
+            <div class="col-sm-4"></div>
+            <div class="col-sm-4"></div>
+            <div class="col-sm-4">
+                
+            </div>
+        </div>
+        <div class="wrapper" id="wrapperDIV">
+            <div class="table-responsive" style="max-height: 500px; overflow: scroll">
+                <table id="tblBasket" class="table table-bordered BaskettblForButtonDynamic">
+                    <thead>
+                        <tr class="info">
+                            <th class="visible-xs" style="white-space: pre-wrap">شرح کالا</th>
+                            <th class="hidden-xs">کد کالا</th>
+                            <th class="hidden-xs">نام کالا</th>
+                            <th class="hidden-xs">قیمت واحد</th>
+                            <th class="hidden-xs" style="min-width: 50px"></th>
+                            <th style="white-space: pre-wrap; max-width: 100px">تعداد درخواستی</th>
+                            <th class="hidden-xs" style="min-width: 50px"></th>
+                            <th class="hidden-xs" style="min-width: 100px">مبلغ</th>
+                            <th class="hidden-xs">تخفیف</th>
+                            <th class="hidden-xs">مالیات</th>
+                            <th class="hidden-xs" style="white-space: pre-wrap">قیمت تمام شده هر واحد</th>
+                            <th class="hidden-xs"></th>
+                            <th class="hidden">DefaultDiscontPercent</th>
+                            <th class="hidden">LinearDiscount_a</th>
+                            <th class="hidden">LinearDiscount_b</th>
+                            <th class="hidden">TaxAndTollPercent</th>
+                            <th class="hidden">MaxSaleNumber</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                    <tfoot></tfoot>
+                </table>
+            </div>
+            <div class="table-responsive">
+                <table id="tblBasketSummery" class="table table-bordered hidden">
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+<form action="/Shop/Buy/Index" method="post"><input name="__RequestVerificationToken" type="hidden" value="TOKEN-FIXTURE" />            <button class="btn btn-primary" type="submit" id="btnAcceptBasket" name="command" value="confirmBasket" style="display: none;" onclick="updateServerSideBasket()">ثبت سفارش</button>
+<input data-val="true" data-val-number="The field BusinessId must be a number." data-val-required="The BusinessId field is required." id="hidBusId" name="BusinessId" style="width:0; visibility:hidden;" type="hidden" value="11000" />
+<input id="hidRelatedUserId" name="RelatedUser.UserId" style="width:0; visibility:hidden;" type="hidden" value="82" />
+<input data-val="true" data-val-number="The field SaleVolume_a must be a number." data-val-required="The SaleVolume_a field is required." id="hidBusinessSaleVolume_a" name="SaleVolume_a" style="width:0; visibility:hidden;" type="hidden" value="0" />
+<input data-val="true" data-val-number="The field SaleVolume_b must be a number." data-val-required="The SaleVolume_b field is required." id="hidBusinessSaleVolume_b" name="SaleVolume_b" style="width:0; visibility:hidden;" type="hidden" value="0" />
+<input data-val="true" data-val-number="The field MinSaleMablagh must be a number." data-val-required="The MinSaleMablagh field is required." id="hidBusinessMinSale" name="MinSaleMablagh" style="width:0; visibility:hidden;" type="hidden" value="0" />
+<input data-val="true" data-val-number="The field MaxSaleMablagh must be a number." data-val-required="The MaxSaleMablagh field is required." id="hidBusinessMaxSale" name="MaxSaleMablagh" style="width:0; visibility:hidden;" type="hidden" value="0" />
+<input data-val="true" data-val-number="The field DefaultDiscountPercent must be a number." data-val-required="The DefaultDiscountPercent field is required." id="hidBusinessDefaultDiscountPercent" name="DefaultDiscountPercent" style="width:0; visibility:hidden;" type="hidden" value="0" />
+    <span id="spCustomer_1">نام و نام خانوادگی</span>
+    <br />
+<label for="BusinessName">آقاي نمونه خريدار</label><input data-val="true" data-val-required="مشتری را انتخاب کنید" id="txtBusCode" name="BusinessCode" style="width:0; visibility:hidden;" type="text" value="97100000" />
+<script type="text/javascript">
+    $(document).ready(function () {
+        InitSearchCustomers('divSearchResult', 'txtSearchTerm', 'spCustomer', onRowClick);
+
+        function onRowClick(row) {
+            var id = $(row).find('td.id').text();
+
+            var SaleVolume_a = $(row).find('td.SaleVolume_a').text();
+            var SaleVolume_b = $(row).find('td.SaleVolume_b').text();
+            var DefaultDiscountPercent = $(row).find('td.DefaultDiscountPercent').text();
+            var MinSaleMablagh = $(row).find('td.MinSaleMablagh').text();
+            var MaxSaleMablagh = $(row).find('td.MaxSaleMablagh').text();
+
+            var code = $(row).find('td.code').text();
+            var name = $(row).find('td.name').text();
+
+            $('#txtSearchTerm').val(name);
+            $('#txtBusCode').val(code);
+            $('#hidBusId').val(id);
+
+            $('#divSearchResult').hide();
+
+            $('#hidBusinessSaleVolume_a').val(SaleVolume_a);
+            $('#hidBusinessSaleVolume_b').val(SaleVolume_b);
+            $('#hidBusinessDefaultDiscountPercent').val(DefaultDiscountPercent);
+            $('#hidBusinessMinSale').val(MinSaleMablagh);
+            $('#hidBusinessMaxSale').val(MaxSaleMablagh);
+        }
+    });
+</script>
+<div class="row">
+    <div class="col-sm-4">
+        <span>خودرو:</span>
+        <br />
+        <select id="ddlCar" name="SelectedCarCode"><option value="2">---</option>
+<option value="125">پيکان</option>
+<option value="126">پرايد</option>
+<option value="127">پژو 405</option>
+<option value="128">پژو پارس</option>
+<option value="129">سمند</option>
+<option value="130">پژو 206</option>
+<option value="131">پژو RD</option>
+<option value="132">پژو ROA</option>
+<option value="133">ال 90</option>
+<option value="134">ريو</option>
+<option value="135">تيبا</option>
+<option value="136">رانا</option>
+<option value="137">مزدا</option>
+<option value="171">زانتيا</option>
+<option value="321">آريسان</option>
+<option value="323">پاترول</option>
+<option value="325">نيسان Z24</option>
+<option value="331">MVM</option>
+<option value="332">دنا</option>
+<option value="335">EF7</option>
+<option value="336">مشترک</option>
+<option value="337">پژو 207</option>
+<option value="338">پژو 407</option>
+<option value="393">مگان</option>
+<option value="394">ساينا</option>
+<option value="397">سوزوکي</option>
+<option value="400">هايما</option>
+<option value="406">ساندرو</option>
+<option value="408">وانت کارا</option>
+<option value="419">دانگ فنگ</option>
+<option value="690">برليانس</option>
+<option value="725">آريو</option>
+<option value="747">استپ وي</option>
+<option value="796">کوئيک</option>
+<option value="853">سراتو 2000</option>
+<option value="854">سراتو 1600</option>
+<option value="864">چانگان</option>
+<option value="892">تويوتا</option>
+<option value="896">جک</option>
+<option value="994">تارا</option>
+<option value="996">شاهين </option>
+<option value="1004">کاپرا</option>
+<option value="1009">سيوان</option>
+<option value="1010">ماکسيما</option>
+<option value="1027">رنو</option>
+<option value="1028">پارس تندر</option>
+<option value="1679">کيا سراتو</option>
+<option value="1718">H30 Cross</option>
+<option value="1719">سانتافه</option>
+<option value="1826">موتور سيکلت</option>
+<option value="1840">وانت پيکاپ </option>
+<option value="1841">بنز </option>
+<option value="1856">اطلس</option>
+<option value="1857">سهند</option>
+<option value="1939">هيوندا</option>
+<option value="2023">ليفان</option>
+</select>
+    </div>
+    <div class="col-sm-4">
+        <span>برند:</span>
+        <br />
+        <select id="ddlBrand" name="SelectedBrandCode"><option value="10">---</option>
+<option value="11">ياتاقان IBBC</option>
+<option value="12">عظام  پلوس  TPIC</option>
+<option value="14">STYN</option>
+<option value="17">VALEO</option>
+<option value="19">لاهيجان</option>
+<option value="20">اميرنيا</option>
+<option value="23">خاکي</option>
+<option value="28">عظام  پيستون  IPMC</option>
+<option value="34">ايران مارپيج </option>
+<option value="35">STYM</option>
+<option value="36">ايساكو</option>
+<option value="38">RIK</option>
+<option value="40">ببر پمپ</option>
+<option value="43">اکمي</option>
+<option value="44">ابري</option>
+<option value="53">MBC</option>
+<option value="61">TP ژاپن</option>
+<option value="66">جمع ساز</option>
+<option value="84">عظام  استام صنعت</option>
+<option value="86">TAMA ژاپن</option>
+<option value="87">عظام  پايا کلاچ</option>
+<option value="88">عظام  فراوري ساخت</option>
+<option value="91">عظام  فراکلون</option>
+<option value="92">عظام  بلبرينگ  PSN</option>
+<option value="94">قائم</option>
+<option value="97">کوشش</option>
+<option value="140">عظام  والا قطعه</option>
+<option value="142">عظام  سازه پويش</option>
+<option value="146">اتحاد موتور (EMCO)</option>
+<option value="147">مجد</option>
+<option value="148">HPC</option>
+<option value="149">فرانتک</option>
+<option value="150">الدورا-ELDORA</option>
+<option value="151">پولاسا</option>
+<option value="152">NGK</option>
+<option value="153">کروز</option>
+<option value="154">AKS</option>
+<option value="155">گسترش آسيا</option>
+<option value="156">آريو پارت</option>
+<option value="157">TAGA</option>
+<option value="158">عظام  ستاره</option>
+<option value="159">طوس</option>
+<option value="162">TAIHO</option>
+<option value="163">الپا</option>
+<option value="164">ABESTA (ابستا)</option>
+<option value="165">سوپار</option>
+<option value="166">RKP</option>
+<option value="167">BANDO</option>
+<option value="168">HART</option>
+<option value="169">جي اتو پارتس</option>
+<option value="170">بي ني سي</option>
+<option value="265">پارتک</option>
+<option value="267">HARD</option>
+<option value="268">فولاد خراسان</option>
+<option value="269">فولاد شيد</option>
+<option value="270">KING-QUEEN</option>
+<option value="271">فلنور</option>
+<option value="279">ساير</option>
+<option value="280">سرو صنعت</option>
+<option value="282">آرماشين</option>
+<option value="283">ايفا</option>
+<option value="284">سايپا رينگ</option>
+<option value="286">برند سنتر</option>
+<option value="287">ام تي تامسون</option>
+<option value="288">سانسبز</option>
+<option value="289">ايران گداخت</option>
+<option value="290">مهرخواه</option>
+<option value="293">مدرن</option>
+<option value="300">عظام  طه</option>
+<option value="302">يوژه پارت (UPACO)</option>
+<option value="303">LON-X</option>
+<option value="304">MEG ترکيه</option>
+<option value="307">SACHS آلمان</option>
+<option value="308">TRW</option>
+<option value="309">SM (آلمان)</option>
+<option value="310">ISPCO</option>
+<option value="312">لوک</option>
+<option value="314">MESSMER (مسمر)</option>
+<option value="315">INA</option>
+<option value="316">FAG</option>
+<option value="355">کوش آور</option>
+<option value="356">مژده وصل</option>
+<option value="361">متحد</option>
+<option value="362">فدرال موتور</option>
+<option value="363">MIRAGE</option>
+<option value="364">UPDATE</option>
+<option value="366">ژاپني</option>
+<option value="378">KYB</option>
+<option value="379">آرمکو</option>
+<option value="380">آذين پارت</option>
+<option value="381">همگام</option>
+<option value="382">پايا کارنو</option>
+<option value="384">GMB</option>
+<option value="385">CHERY ژاپن</option>
+<option value="386">HIGH LENT</option>
+<option value="388">CTR</option>
+<option value="390">اورجينال</option>
+<option value="391">جهان پارت</option>
+<option value="392">دينا پارت</option>
+<option value="395">ايمن تک</option>
+<option value="398">سرکان</option>
+<option value="403">سينا فن</option>
+<option value="410">ماد پارت</option>
+<option value="420">ايمن سازان انديشه</option>
+<option value="422">سارال يدک</option>
+<option value="423">کارماتک</option>
+<option value="425">EKS</option>
+<option value="427">سامان</option>
+<option value="431">آکسون</option>
+<option value="432">پرشين قطعه</option>
+<option value="433">BFA</option>
+<option value="434">FGP</option>
+<option value="436">سهند رادياتور</option>
+<option value="437">GISP</option>
+<option value="438">کونکس</option>
+<option value="439">وجودي</option>
+<option value="440">ماهسان</option>
+<option value="441">TPCO</option>
+<option value="442">هاچينسون</option>
+<option value="444">تکنوکار</option>
+<option value="445">GRC (لاستيک گيلان)</option>
+<option value="446">ايده نگر</option>
+<option value="448">بهرام الکترونيک </option>
+<option value="450">ايران کاربراتور</option>
+<option value="451">RAYKALTON</option>
+<option value="456">AMT</option>
+<option value="460">ASMCO</option>
+<option value="463">AXISGOLD</option>
+<option value="473">DESHLI</option>
+<option value="474">DHB</option>
+<option value="475">EAGLE</option>
+<option value="480">FPC</option>
+<option value="481">FRANCE MOTOR </option>
+<option value="482">FRASSLI</option>
+<option value="484">GAT</option>
+<option value="485">GAUTOPARTS</option>
+<option value="486">GOODYEAR</option>
+<option value="491">KIK</option>
+<option value="492">KOPARS</option>
+<option value="493">MAHELE</option>
+<option value="494">MBP</option>
+<option value="496">MITANA</option>
+<option value="497">MWH</option>
+<option value="498">nezam</option>
+<option value="499">NTK</option>
+<option value="501">OEM</option>
+<option value="502">OPTIBELT</option>
+<option value="505">PLASTEX</option>
+<option value="509">remax</option>
+<option value="511">SAM-TZF-SDH</option>
+<option value="512">SANACO</option>
+<option value="516">SMS</option>
+<option value="518">SONIC</option>
+<option value="519">star</option>
+<option value="520">SUMMER</option>
+<option value="521">SUPAR</option>
+<option value="524">TMS</option>
+<option value="528">WRT</option>
+<option value="529">yuni</option>
+<option value="530">اتو موتور</option>
+<option value="531">اتواسپرت</option>
+<option value="532">اتوبيکو</option>
+<option value="533">آذين تنه</option>
+<option value="534">ارادکاوه</option>
+<option value="536">افتخار</option>
+<option value="540">آربان</option>
+<option value="541">باياتوس</option>
+<option value="544">پارت ايران</option>
+<option value="546">پاسارگاد</option>
+<option value="547">پروا</option>
+<option value="548">پگاه</option>
+<option value="550">پيشگامان</option>
+<option value="552">تکنو پارت</option>
+<option value="554">تيناکو</option>
+<option value="556">جوپار</option>
+<option value="557">حامد</option>
+<option value="558">خورشيد موتور</option>
+<option value="559">دليتکس</option>
+<option value="561">دوستان</option>
+<option value="562">راديکال</option>
+<option value="563">رفلکس</option>
+<option value="568">سپاهان</option>
+<option value="569">سلپيک</option>
+<option value="570">سنجش</option>
+<option value="571">سوپر فرانس</option>
+<option value="572">سهند</option>
+<option value="573">سيال نيرو صنعت</option>
+<option value="576">شتاب کار</option>
+<option value="577">مکانيک</option>
+<option value="579">شيفتن</option>
+<option value="580">عطار يدک</option>
+<option value="583">فقاني</option>
+<option value="587">کاپ</option>
+<option value="589">کلد پاور</option>
+<option value="591">کوپر</option>
+<option value="592">کيهان</option>
+<option value="593">لاتکس</option>
+<option value="595">مرسده</option>
+<option value="597">مستر موتور</option>
+<option value="598">مشهد واشر</option>
+<option value="599">مهرکو</option>
+<option value="600">مهسا موتور</option>
+<option value="602">نصيري</option>
+<option value="603">نفيس پارت</option>
+<option value="606">نورگستر</option>
+<option value="607">نوين پارت</option>
+<option value="610">وست مونت</option>
+<option value="612">هايبراستار</option>
+<option value="613">هکمتانه</option>
+<option value="614">هيتکا</option>
+<option value="615">هيوا</option>
+<option value="637">کاسپين</option>
+<option value="638">پارس نيکان</option>
+<option value="639">بهران</option>
+<option value="640">AISIN - آيسين </option>
+<option value="641">ايرانول</option>
+<option value="642">اسپيدي</option>
+<option value="648">ماهان</option>
+<option value="649">شرکتي</option>
+<option value="650">تزيين خودرو</option>
+<option value="651">VAN</option>
+<option value="652">کاوج</option>
+<option value="654">سانا</option>
+<option value="657">ونسونگ</option>
+<option value="658">I.G.CO</option>
+<option value="688">GOetez</option>
+<option value="692">مبتکران</option>
+<option value="695">اسپاس</option>
+<option value="696">پلي تک</option>
+<option value="697">کلاکسکار</option>
+<option value="698">گوهر قطعه</option>
+<option value="699">DSA</option>
+<option value="700">غفاري</option>
+<option value="701">استارلايت</option>
+<option value="702">آترود</option>
+<option value="704">گتسان</option>
+<option value="705">استار</option>
+<option value="706">کريتر</option>
+<option value="707">زيپر</option>
+<option value="708">هراز</option>
+<option value="710">نيکوپخش</option>
+<option value="711">فيلتر بهران</option>
+<option value="712">هانتر</option>
+<option value="718">مارشال</option>
+<option value="719">اسپادانا</option>
+<option value="720">NE آلمان</option>
+<option value="721">IMA ايتاليا</option>
+<option value="722">رازي</option>
+<option value="723">SNR فرانسه</option>
+<option value="724">جک اسميت</option>
+<option value="726">آنکو</option>
+<option value="735">کراپ</option>
+<option value="736">تلدا</option>
+<option value="737">ساوه</option>
+<option value="743">ارو</option>
+<option value="744">AP ايتاليا</option>
+<option value="745">عقاب</option>
+<option value="746">دايکو</option>
+<option value="748">پروسيل</option>
+<option value="749">k2</option>
+<option value="750">کوشاوران</option>
+<option value="751">کروز ( ايسکرا )</option>
+<option value="752">رضا مشهد (KEM)</option>
+<option value="753">GSK</option>
+<option value="755">ريکو REECO</option>
+<option value="756">ديسکي لنت</option>
+<option value="757">راين (برندسنتر)</option>
+<option value="758">کمک فنر ايندامين</option>
+<option value="759">GOLD</option>
+<option value="760">پرفلکس</option>
+<option value="761">ويژن</option>
+<option value="763">برازش صنعت</option>
+<option value="764">KOK-JAP</option>
+<option value="766">صبا باتري</option>
+<option value="767">ليکومولي</option>
+<option value="768">رادياتور ايران</option>
+<option value="770">بلورک</option>
+<option value="771">شايان صنعت</option>
+<option value="772">دناکو</option>
+<option value="773">ELMA 7</option>
+<option value="774">آبتين</option>
+<option value="775">GP</option>
+<option value="776">DELSAH</option>
+<option value="777">بهتام</option>
+<option value="778">صنعتگر</option>
+<option value="780">بختيار</option>
+<option value="781">ATC</option>
+<option value="783">کروز (تسلا)</option>
+<option value="784">شيد پارت</option>
+<option value="785">پوياکار</option>
+<option value="786">سبحان</option>
+<option value="788">مهرساز</option>
+<option value="789">آرتين</option>
+<option value="790">AISIN کره</option>
+<option value="791">GSR</option>
+<option value="793">تهران فام</option>
+<option value="794">MOBIS</option>
+<option value="797">کاسترول</option>
+<option value="798">کاکتوس</option>
+<option value="799">S4T</option>
+<option value="800">TK</option>
+<option value="802">بابا پارت (علمي ساز)</option>
+<option value="822">KAWE</option>
+<option value="823">GSP</option>
+<option value="824">هرينگتون</option>
+<option value="825">SNT</option>
+<option value="826">سوخت آما</option>
+<option value="827">خاور</option>
+<option value="837">آراز گستر</option>
+<option value="838">فولاد توس </option>
+<option value="839">جهان کلاچ</option>
+<option value="840">فرانس موتور </option>
+<option value="842">Moto Power</option>
+<option value="843">MITSUBA ژاپن</option>
+<option value="844">پيشرفت</option>
+<option value="856">AMATA</option>
+<option value="857">پارسه - مايکل </option>
+<option value="859">سايپا يدک</option>
+<option value="860">آپادانا</option>
+<option value="861">ال ف</option>
+<option value="862">terzoo</option>
+<option value="863">OK</option>
+<option value="865">مايکل ( MICHEL )</option>
+<option value="871">فلش</option>
+<option value="872">آراد پارت</option>
+<option value="873">طوس يدک</option>
+<option value="874">آساساز </option>
+<option value="875">سمن شيمي</option>
+<option value="876">سامفر</option>
+<option value="878">عظام  رينگ TP ژاپن</option>
+<option value="879">چارچار</option>
+<option value="880">موبيس MOBIS A</option>
+<option value="881">توتال (TOTAL)</option>
+<option value="882">ولور - WOLVER</option>
+<option value="883">ROULANT</option>
+<option value="884">فولاد فام</option>
+<option value="885">VIKRAM</option>
+<option value="888">KAVEH</option>
+<option value="889">METEC</option>
+<option value="890">تسلا TESLA - چسب</option>
+<option value="891">GOLDEN</option>
+<option value="893">SECO</option>
+<option value="894">HAMED</option>
+<option value="897">FYCO</option>
+<option value="898">تکلان توس</option>
+<option value="899">مافاکو</option>
+<option value="900">نورسازان</option>
+<option value="901">CCC</option>
+<option value="902">جهان لنت</option>
+<option value="929">VALEO-PHC</option>
+<option value="930">اوکي OK</option>
+<option value="931">ماورکس</option>
+<option value="932">لوکومبيل</option>
+<option value="933">ماهان ( آب رادياتور )</option>
+<option value="935">دلتا</option>
+<option value="937">نفت پارس</option>
+<option value="940">MKA</option>
+<option value="963">بنيان صنعت</option>
+<option value="965">دنا بهريز</option>
+<option value="974">SOBER</option>
+<option value="978">آب بان</option>
+<option value="979">اتو هاب</option>
+<option value="981">SRV</option>
+<option value="982">EGP</option>
+<option value="983">رايژن پارت</option>
+<option value="985">حکيمي</option>
+<option value="986">لوکس</option>
+<option value="987">دورنيکا</option>
+<option value="988">اتومکس</option>
+<option value="989">کاردگس</option>
+<option value="991">هامر</option>
+<option value="992">فن آوران</option>
+<option value="993">PAK PIK</option>
+<option value="995">يکتا صنعت</option>
+<option value="997">اميد ران شيمي</option>
+<option value="999">SYNAPSE</option>
+<option value="1000">دانگيل</option>
+<option value="1001">سپاهان شيمي </option>
+<option value="1002">نيکو صنعت</option>
+<option value="1003">سبزوار</option>
+<option value="1011">ONAL</option>
+<option value="1014">اونال ONAL</option>
+<option value="1015">آيدميتسو IDEMITSU</option>
+<option value="1016">BARION</option>
+<option value="1017">P.T.F</option>
+<option value="1018">APEX</option>
+<option value="1019">شوبرت</option>
+<option value="1020">اتوسل</option>
+<option value="1021">جزيره</option>
+<option value="1022">کيانکوه</option>
+<option value="1025">BAST</option>
+<option value="1026">عظام  سپر</option>
+<option value="1029">موکسي MOXIE</option>
+<option value="1030">فنرلول ايران</option>
+<option value="1089">فنام </option>
+<option value="1090">ولفار</option>
+<option value="1091">پادما-PADMA</option>
+<option value="1503">بريفا</option>
+<option value="1510">پيوند مشهد</option>
+<option value="1511">تکسين TEKSIN</option>
+<option value="1512">PAG</option>
+<option value="1513">اطلس يدک</option>
+<option value="1574">عظام  موتوري</option>
+<option value="1576">VERGER</option>
+<option value="1577">عظام  پيستون  کارتک</option>
+<option value="1578">تيلدا</option>
+<option value="1580">FKL</option>
+<option value="1581">توان قطعه ابتکار </option>
+<option value="1582">کارمانو</option>
+<option value="1583">ايسکرا</option>
+<option value="1584">آروپارت</option>
+<option value="1585">دايکن</option>
+<option value="1586">گلدن</option>
+<option value="1587">MPSAN</option>
+<option value="1657">ثمين پارت </option>
+<option value="1675">آفورتيس-AFORTIS</option>
+<option value="1676">اميد فنر</option>
+<option value="1678">لنت پارس</option>
+<option value="1680">ژيان </option>
+<option value="1681">يکتا رسا سازه صنعت</option>
+<option value="1682">APCO</option>
+<option value="1683">گلپا-GOLPAMOTOR </option>
+<option value="1684">توان قطعه TSP</option>
+<option value="1686">حاصل چين-HCH</option>
+<option value="1687">MONAVARI-منوري</option>
+<option value="1688">آسيا لنت</option>
+<option value="1689">فابريک پارت</option>
+<option value="1690">پايا پارت نوين</option>
+<option value="1699">پارس البرز</option>
+<option value="1700">دستکو</option>
+<option value="1702">ايران دلکو</option>
+<option value="1703">BRL</option>
+<option value="1704">فاز اراک</option>
+<option value="1705">ايران </option>
+<option value="1706">KIWANI</option>
+<option value="1707">ستاره جنوب</option>
+<option value="1708">FARSHBAF</option>
+<option value="1709">فدک قطعه</option>
+<option value="1710">حداد</option>
+<option value="1711">ملک</option>
+<option value="1712">سايان يدک</option>
+<option value="1713">اصفهان</option>
+<option value="1714">IPNC</option>
+<option value="1721">فيلتر اعتماد</option>
+<option value="1724">اکوپلاس</option>
+<option value="1725">بوش</option>
+<option value="1729">HONT</option>
+<option value="1730">چسب هل HEL</option>
+<option value="1732">CLICK PART</option>
+<option value="1733">HAFNER </option>
+<option value="1734">MASHITA</option>
+<option value="1738">TECHIE</option>
+<option value="1739">ورنت</option>
+<option value="1740">TASOUKI</option>
+<option value="1743">شهاب شمس</option>
+<option value="1744">COCO</option>
+<option value="1751">شايگان-SHAYEGAN</option>
+<option value="1752">قطعه کاران</option>
+<option value="1753">پلاسکو کار</option>
+<option value="1776">تيون آپ (بالين تک)</option>
+<option value="1777">مزدا پخش</option>
+<option value="1781">ساتل SATEL </option>
+<option value="1790">پويا نيستانک</option>
+<option value="1791">کژال يدک</option>
+<option value="1806">وي پارت</option>
+<option value="1807">تپش صنعت</option>
+<option value="1809">والافن</option>
+<option value="1819">IBC-تبريز</option>
+<option value="1820">هربي HERBIE</option>
+<option value="1823">APEX (کوشا پارت)</option>
+<option value="1825">داياريتون تسمه</option>
+<option value="1827">گلد پارت GOLD PART</option>
+<option value="1830">کارا ايمن </option>
+<option value="1839">پارسيلون</option>
+<option value="1842">Bosch</option>
+<option value="1843">TORCH</option>
+<option value="1844">خيام</option>
+<option value="1845">کالا تبليغاتي - روغن</option>
+<option value="1847">بيولايت BIOLIGHT</option>
+<option value="1853">گاموت </option>
+<option value="1854">ZLDF</option>
+<option value="1855">KOYO</option>
+<option value="1861">پترن PATTERN</option>
+<option value="1862">TOPAL</option>
+<option value="1863">UFO</option>
+<option value="1866">هيوندا (Hyundai )</option>
+<option value="1873">STAREX</option>
+<option value="1874">NSK ژاپن</option>
+<option value="1875">NTN ژاپن</option>
+<option value="1876">MRK ژاپن</option>
+<option value="1877">GT ژاپن</option>
+<option value="1878">MITSUBOSHI ژاپن</option>
+<option value="1879">نور</option>
+<option value="1890">555 ژاپن</option>
+<option value="1891">ART ژاپن</option>
+<option value="1892">VISIUN</option>
+<option value="1895">اتحاد موتور (EMCO) تسمه</option>
+<option value="1897">پويا تاب </option>
+<option value="1901">آرتا تک</option>
+<option value="1902">رسکو</option>
+<option value="1903">پارس ماشين</option>
+<option value="1905">FARAMOBIL </option>
+<option value="1907">عظام  پيستون  IPMC با رينگ TP</option>
+<option value="1925">سوپاپ DOKURO</option>
+<option value="1927">تابکم</option>
+<option value="1928">سه گل</option>
+<option value="1932">HTC - اچ تي سي </option>
+<option value="1933">FARSAM PART</option>
+<option value="1937">ويگارد VGUARD </option>
+<option value="1938">SANACO سناکو</option>
+<option value="1940">تورن پلاس</option>
+<option value="1941">ADVICS</option>
+<option value="1944">رلوکس</option>
+<option value="1950">عظام طلايي</option>
+<option value="1951">تيغه AISIN</option>
+<option value="1952">ZIC زيک</option>
+<option value="1953">ونيز VENIZ</option>
+<option value="1954">لوکيني LOOKINI</option>
+<option value="1955">رينگ سازي مشهد</option>
+<option value="1956">پرسيکا-PERSIKA</option>
+<option value="1957">پولاد گران</option>
+<option value="1958">پژهان کوشا</option>
+<option value="1960">Cichi</option>
+<option value="1961">NBS</option>
+<option value="1962">لگراند</option>
+<option value="1963">رويال </option>
+<option value="1979">ماد پارت پلاس</option>
+<option value="1987">قائم پلاس</option>
+<option value="1988">KIK پلاس</option>
+<option value="1989">اتحاد پلاس</option>
+<option value="1990">کروز پلاس</option>
+<option value="2010">نوراکو</option>
+<option value="2011">ضايعات</option>
+<option value="2012">PBM</option>
+<option value="2013">البرز يدک</option>
+<option value="2014">MAR MOT-مارموت</option>
+<option value="2015">پارس يدک سپاهان</option>
+<option value="2016">مدرن تنديس-MODERN TANDIS</option>
+<option value="2017">کارلند-CARLAND</option>
+<option value="2019">مکس-MAX</option>
+<option value="2020">F.F.P.CO</option>
+<option value="2021">اوج</option>
+<option value="2022">EPS</option>
+</select>
+    </div>
+    <div class="col-sm-4">
+        <span>گروه:</span>
+        <br />
+        <select id="ddlGroup" name="SelectedGroupCode"><option value="---">---</option>
+<option value="سرسيلندر">سرسيلندر</option>
+<option value="پيستون">پيستون</option>
+<option value="واشر - اورينگ">واشر - اورينگ</option>
+<option value="کاسه نمد">کاسه نمد</option>
+<option value="بلبرينگ">بلبرينگ</option>
+<option value="تسمه">تسمه</option>
+<option value="رادياتور">رادياتور</option>
+<option value="چراغ">چراغ</option>
+<option value="آينه">آينه</option>
+<option value="شيشه بالابر">شيشه بالابر</option>
+<option value="سنسور">سنسور</option>
+<option value="ديسک و صفحه">ديسک و صفحه</option>
+<option value="نوار">نوار</option>
+<option value="استارت-دينام">استارت-دينام</option>
+<option value="ياتاقان">ياتاقان</option>
+<option value="برف پاکن">برف پاکن</option>
+<option value="ديسک و کاسه چرخ و توپي">ديسک و کاسه چرخ و توپي </option>
+<option value="ايربگ-ECU">ايربگ-ECU</option>
+<option value="تزئينات داخلي">تزئينات داخلي</option>
+<option value="سوخت رساني">سوخت رساني</option>
+<option value="پيچ-خار">پيچ-خار</option>
+<option value="سپر">سپر</option>
+<option value="بدنه فلزي">بدنه فلزي</option>
+<option value="بدنه پليمري">بدنه پليمري</option>
+<option value="کمک فنر">کمک فنر</option>
+<option value="پلوس">پلوس</option>
+<option value="هرزگرد و سفت کن">هرزگرد و سفت کن</option>
+<option value="گيربکس - کلاچ - ديفرانسيل">گيربکس - کلاچ - ديفرانسيل</option>
+<option value="واير-کويل">واير-کويل</option>
+<option value="شيلنگ - لوله">شيلنگ - لوله</option>
+<option value="فشنگي">فشنگي</option>
+<option value="رينگ چرخ-قالپاق">رينگ چرخ-قالپاق</option>
+<option value="کابل">کابل</option>
+<option value="نمد-کفپوش">نمد-کفپوش</option>
+<option value="گردگير">گردگير</option>
+<option value="اگزوز">اگزوز</option>
+<option value="دسته سيم">دسته سيم</option>
+<option value="بوق-رله-فيوز">بوق-رله-فيوز</option>
+<option value="فيلتر-هواکش">فيلتر-هواکش</option>
+<option value="موتورفن">موتورفن</option>
+<option value="سيستم فرمان">سيستم فرمان</option>
+<option value="جانبي موتور">جانبي موتور</option>
+<option value="برق و الکترونيک">برق و الکترونيک</option>
+<option value="جلو بندي - تعليق">جلوبندي - تعليق</option>
+<option value="طبق">طبق</option>
+<option value="ترموستات">ترموستات</option>
+<option value="لنت ترمز">لنت ترمز</option>
+<option value="اويل پمپ">اويل پمپ</option>
+<option value="استپر موتور">استپرموتور</option>
+<option value="سوپاپ-شاتون-ميل سوپاپ">سوپاپ-شاتون-ميل سوپاپ</option>
+<option value="بخاري-کولر">بخاري-کولر</option>
+<option value="سيالات">سيالات</option>
+<option value="انژکتور">انژکتور</option>
+<option value="قفل - سوئيچ">قفل - سوئيچ</option>
+<option value="قطعات جانبي">قطعات جانبي</option>
+<option value="90/1/2">روانکار يدکي</option>
+<option value="متفرقه">متفرقه</option>
+<option value="باتري">باتري</option>
+<option value="پمپ بنزين">پمپ بنزين</option>
+<option value="شمع">شمع</option>
+<option value="بوستر و پمپ و سيلندر و لوازم جانبي ترمز">بوستر و پمپ و سيلندر و لوازم جانبي ترمز</option>
+<option value="لامپ">لامپ</option>
+<option value="90/1/3">روانکار مشترک</option>
+<option value="رينگ موتور">رينگ موتور</option>
+<option value="ميلنگ">ميلنگ</option>
+<option value="واتر پمپ">واتر پمپ</option>
+</select>
+    </div>
+</div>
+<div class="row">
+    <div class="col-sm-4">
+        <span>عبارت جستجو:</span>
+        <input id="txtSearchTermItem" name="SearchTerm" placeholder="عبارت جستجو" type="text" value="" />
+    </div>
+    <div class="col-sm-6">
+        <input checked="checked" data-val="true" data-val-required="The JustAvailable field is required." id="JustAvailable" name="JustAvailable" style="visibility:hidden" type="checkbox" value="true" /><input name="JustAvailable" type="hidden" value="false" />
+        <div class="col-sm-3" style="text-align: right">
+            <br />
+            <span>کالاهای موجود</span>
+        </div>
+        <div class="col-sm-3" style="text-align: right">
+            <br />
+            <label class="switch">
+                <input type="checkbox" id="JustAvailable1" checked="checked" onclick="CheckBoxClick();">
+                <div class="slider round"></div>
+            </label>
+        </div>
+        <div class="col-sm-3" style="text-align: right">
+            <br />
+            <span>تعداد نمایش کالا</span>
+        </div>
+        <div class="col-sm-3" style="text-align: right">
+            <select id="ddlPageSize" name="SelectedPageSize"><option selected="selected" value="10">10</option>
+<option value="20">20</option>
+<option value="30">30</option>
+<option value="40">40</option>
+<option value="50">50</option>
+</select>
+        </div>
+    </div>
+    <div class="col-sm-1">
+        <br />
+        <button class="btn btn-primary" type="submit" name="command" value="searchItem" style="border-width: 0px;">جستجو</button>
+    </div>
+    
+</div>
+
+<script type="text/javascript">
+    function CheckBoxClick() {
+        if ($("#JustAvailable1").prop('checked') == true)
+            $("#JustAvailable").prop('checked', true);
+        else
+            $("#JustAvailable").prop('checked', false);
+    }
+</script>
+</form>
+        
+        
+    </div>
+
+</div>
+
+
+            </div>
+        </div>
+        <div id="footer" class="row NoPrinted">
+    <nav class="navbar navbar-default">
+        <div class="container-fluid">
+            <ul class="nav navbar-nav navbar-right">
+                    <li><a href="/Download/Index">دانلود نرم افزار <span class="glyphicon glyphicon-download-alt"></span></a></li>
+                <li><a href="#">info@barezpakhsh.ir <span class="glyphicon glyphicon-envelope"></span></a></li>
+                <li><a href="#">
+                    <img src="/Image/Template/Tell.png" /><span class="glyphicon glyphicon-earphone"></span></a></li>
+                
+            </ul>
+        </div>
+    </nav>
+</div>
+
+    </div>
+</body>
+</html>

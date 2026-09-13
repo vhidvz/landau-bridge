@@ -1,0 +1,800 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+    <link rel="icon" href="/Image/Template/comlogo.png" type="image/png" sizes="20x20">
+    <meta name="viewport" content="width=device-width" />
+    <title>صورتحساب</title>
+    <link href="/Content/Style/main-master.css" rel="stylesheet" />
+    <link href="/Content/datepicker/styles/jquery-ui-1.8.14.css" rel="stylesheet" />
+    <link href="/Content/Style/bootstrap-rtl.min1.css" rel="stylesheet"/>
+<link href="/Content/Style/bootstrap-switch-rtl.min1.css" rel="stylesheet"/>
+<link href="/Content/Style/main-master.css" rel="stylesheet"/>
+<link href="/Content/Style/Style.css" rel="stylesheet"/>
+
+    <script src="/Content/Scripts/modernizr-2.5.3.js"></script>
+
+    
+    <script src="/Content/Scripts/jquery.unobtrusive-ajax.js"></script>
+<script src="/Content/Scripts/jquery.validate.js"></script>
+<script src="/Content/Scripts/jquery.validate.unobtrusive.js"></script>
+
+    <script src="/Content/Scripts/bootstrapScripts/jquery-1.12.1.js"></script>
+<script src="/Content/Scripts/bootstrapScripts/bootstrap.js"></script>
+
+    <script src="/Content/Scripts/FreezTableHeader/jquery.floatThead.js"></script>
+
+    <script src="/Content/Scripts/ArpaWeb-0.0.2.js"></script>
+
+    
+                <link href="/Content/datepicker/styles/jquery-ui-1.8.14.css" rel="stylesheet" />
+            
+    
+
+                <script src="/Content/ajaxq.js"></script>
+                <script type="text/javascript">
+                    function showCreditDetails() {
+                        $('#tblMoeinDetails').css({ "display": "none" });
+
+                    }
+                </script>
+
+                
+
+                <script src="/Content/datepicker/scripts/jquery-1.6.2.min.js"></script>
+                <script src="/Content/datepicker/scripts/jquery.ui.datepicker-cc.all.min.js"></script>
+
+                <script type="text/javascript">
+                    $('document').ready(function () {
+
+                        var t = '';
+                        if (t != null) {
+                            ;
+                        }
+
+                        $('#txtFromDate').datepicker({
+                            showWeek: true,
+                            dateFormat: "yy/mm/dd"
+                        });
+
+                        $('#txtToDate').datepicker({
+                            showWeek: true,
+                            dateFormat: "yy/mm/dd"
+                        });
+                    });
+                </script>
+            
+</head>
+<body>
+    <div class="container-fluid PrintedSize">
+        <div id="header" class="row hidden-xs NoPrinted">
+    
+    <img src="/Image/Template/samane-forush_06.png" class="img-responsive" />
+</div>
+
+        <div class="row NoPrinted" id="profile">
+    <nav class="navbar navbar-inverse" data-spy="affix" data-offset-top="5">
+        <div class="container-fluid">
+            <div class="navbar-header">
+                <button type="button" class="navbar-toggle visible-xs" data-toggle="collapse" data-target="#myNavbar">
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="/">شرکت بارزپخش کرمان</a>
+            </div>
+            <ul class="nav navbar-nav hidden-xs">
+                
+                <li><a href="/Info/HowToRegister">نحوه ثبت نام</a></li>
+                <li><a href="/Info/AboutUs">درباره ما</a></li>
+                <li><a href="/Info/ContactUs">تماس با ما</a></li>
+                <li><a href="/Info/SiteRuls">قوانین سایت</a></li>
+            </ul>
+                <ul class="nav navbar-nav navbar-right  hidden-xs">
+                    <li class="dropdown">
+                        <a class="dropdown-toggle" data-toggle="dropdown" href="#">
+                            <span class="glyphicon glyphicon-user"></span>
+                                <span>آقاي نمونه خريدار</span>
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a href="/Home/ChangePassword">تغییر رمز</a></li>
+                            <li><a href="/Home/Logout">خروج</a></li>
+                        </ul>
+                    </li>
+                </ul>
+                <div class="collapse navbar-collapse" id="myNavbar">
+                    <ul class="nav navbar-nav visible-xs">
+                        <li><a href="/Shop/Report/Bill">صورتحساب</a></li>
+                        <li><a href="/Shop/Buy/Index">ثبت فاکتور<img src="/Image/Template/sale.png" /></a></li>
+                            <li><a href="/Shop/Settle/Index">تسویه فاکتورها</a></li>
+                                                    <li><a href="/Shop/CreditSupplyTradingApp/Index" style="color: red">مشاهده و تسویه پیش فاکتورهای (جدید)</a></li>
+                                                    <li><a href="/Shop/Gift/Index">انتخاب هدیه<img src="/Image/Template/Gift-Box.png" /></a></li>
+                                                    <li><a href="/Shop/Lottery/Index">قرعه کشی<img src="" /></a></li>
+                                                <li><a href="/Shop/Notifications/Index">برنامه تحویل کالا برای شهرستان</a></li>
+                            <li><a href="/Shop/Ticket/Index">پیام ها (0 پیام جدید)</a></li>
+                        <li class="dropdown">
+                            <a class="dropdown-toggle" data-toggle="dropdown" href="#">
+                                <span class="glyphicon glyphicon-user"></span>
+                                    <span>آقاي نمونه خريدار</span>
+                            </a>
+                            <ul class="dropdown-menu">
+                                <li><a href="/Home/ChangePassword">تغییر رمز</a></li>
+                                <li><a href="/Home/Logout">خروج</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+        </div>
+    </nav>
+</div>
+
+
+
+        <div id="ads" class="row NoPrinted"></div>
+        <div id="urlmap" class="row NoPrinted"></div>
+        <div id="content-wrapper PrintedSize" class="row">
+            <div id="rightSidebar1" class="col-sm-3 sidebar NoPrinted">
+                <div class="panel panel-default">
+                    <div class="panel-heading hidden-xs">
+                        <h4 class="panel-title">
+                            <a data-toggle="collapse" href="#collapse1">عملیات &nbsp&nbsp<span class="glyphicon glyphicon-chevron-down"></span></a>
+                        </h4>
+                    </div>
+                    <div id="collapse1" class="panel-collapse collapse in hidden-xs">
+                        <div class="panel-body">
+                            <ul class="nav nav-sidebar">
+                                    <li><a href="/Shop/Report/Bill">صورتحساب</a></li>    
+                                                                    <li><a href="/Shop/Buy/Index">ثبت فاکتور<img src="/Image/Template/sale.png" /></a></li>
+                                                                    <li><a href="/Shop/Settle/Index">تسویه فاکتورها</a></li>    
+                                                                                                                                     <li><a href="/Shop/CreditSupplyTradingApp/Index"  style="color:red">مشاهده و تسویه پیش فاکتورهای (جدید)</a></li>   
+                                                                    <li><a href="/Shop/Gift/Index">انتخاب هدیه<img src="/Image/Template/Gift-Box.png" /></a></li>
+                                                                    <li><a href="/Shop/Lottery/Index">قرعه کشی<img src="" /></a></li>
+                                                            </ul>
+                        </div>
+                    </div>
+                    <div class="panel-heading hidden-xs">
+                        <h4 class="panel-title">
+                            <a data-toggle="collapse" href="#collapse2">اطلاعیه ها &nbsp&nbsp<span class="glyphicon glyphicon-chevron-down"></span></a>
+                        </h4>
+                    </div>
+                    <div id="collapse2" class="panel-collapse collapse in hidden-xs">
+                        <div class="panel-body">
+                            <ul class="nav nav-sidebar">
+                                    <li><a href="/Shop/Notifications/Index">برنامه تحویل کالا برای شهرستان</a></li>
+                            </ul>
+                            <ul class="nav nav-sidebar">
+                                    <li><a href="/Shop/Ticket/Index">پیام ها (0 پیام جدید)</a></li>
+                            </ul>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+            <div id="content" class="col-sm-9 PrintedSize">
+                
+
+
+<form action="/Shop/Report/Bill" method="post">    <div class="panel panel-default">
+        <div class="panel-heading">صورتحساب</div>
+        <div class="panel-body">
+
+            <div class="row">
+
+                <div class="col-sm-4">
+                    <input data-val="true" data-val-number="The field BusinessId must be a number." data-val-required="The BusinessId field is required." id="hidBusId" name="BusinessId" style="width:0; visibility:hidden;" type="hidden" value="11000" />
+<input id="hidRelatedUserId" name="RelatedUser.UserId" style="width:0; visibility:hidden;" type="hidden" value="82" />
+<input data-val="true" data-val-number="The field SaleVolume_a must be a number." data-val-required="The SaleVolume_a field is required." id="hidBusinessSaleVolume_a" name="SaleVolume_a" style="width:0; visibility:hidden;" type="hidden" value="0" />
+<input data-val="true" data-val-number="The field SaleVolume_b must be a number." data-val-required="The SaleVolume_b field is required." id="hidBusinessSaleVolume_b" name="SaleVolume_b" style="width:0; visibility:hidden;" type="hidden" value="0" />
+<input data-val="true" data-val-number="The field MinSaleMablagh must be a number." data-val-required="The MinSaleMablagh field is required." id="hidBusinessMinSale" name="MinSaleMablagh" style="width:0; visibility:hidden;" type="hidden" value="0" />
+<input data-val="true" data-val-number="The field MaxSaleMablagh must be a number." data-val-required="The MaxSaleMablagh field is required." id="hidBusinessMaxSale" name="MaxSaleMablagh" style="width:0; visibility:hidden;" type="hidden" value="0" />
+<input data-val="true" data-val-number="The field DefaultDiscountPercent must be a number." data-val-required="The DefaultDiscountPercent field is required." id="hidBusinessDefaultDiscountPercent" name="DefaultDiscountPercent" style="width:0; visibility:hidden;" type="hidden" value="0" />
+    <span id="spCustomer_1">نام و نام خانوادگی</span>
+    <br />
+<label for="BusinessName">آقاي نمونه خريدار</label><input data-val="true" data-val-required="مشتری را انتخاب کنید" id="txtBusCode" name="BusinessCode" style="width:0; visibility:hidden;" type="text" value="97100000" />
+<script type="text/javascript">
+    $(document).ready(function () {
+        InitSearchCustomers('divSearchResult', 'txtSearchTerm', 'spCustomer', onRowClick);
+
+        function onRowClick(row) {
+            var id = $(row).find('td.id').text();
+
+            var SaleVolume_a = $(row).find('td.SaleVolume_a').text();
+            var SaleVolume_b = $(row).find('td.SaleVolume_b').text();
+            var DefaultDiscountPercent = $(row).find('td.DefaultDiscountPercent').text();
+            var MinSaleMablagh = $(row).find('td.MinSaleMablagh').text();
+            var MaxSaleMablagh = $(row).find('td.MaxSaleMablagh').text();
+
+            var code = $(row).find('td.code').text();
+            var name = $(row).find('td.name').text();
+
+            $('#txtSearchTerm').val(name);
+            $('#txtBusCode').val(code);
+            $('#hidBusId').val(id);
+
+            $('#divSearchResult').hide();
+
+            $('#hidBusinessSaleVolume_a').val(SaleVolume_a);
+            $('#hidBusinessSaleVolume_b').val(SaleVolume_b);
+            $('#hidBusinessDefaultDiscountPercent').val(DefaultDiscountPercent);
+            $('#hidBusinessMinSale').val(MinSaleMablagh);
+            $('#hidBusinessMaxSale').val(MaxSaleMablagh);
+        }
+    });
+</script>
+
+                </div>
+
+                <div class="col-sm-3">
+
+                    <span>از تاریخ</span>
+                    <input autocomplete="off" id="txtFromDate" name="FromDate" placeholder="--/--/----" style="width: 100%" type="text" value="1390/01/01" />
+
+                </div>
+                <div class="col-sm-3">
+
+
+                    <span>تا تاریخ</span>
+                    <input autocomplete="off" id="txtToDate" name="ToDate" placeholder="--/--/----" style="width: 100%" type="text" value="" />
+
+                </div>
+                <div class="col-sm-2 hidden">
+
+
+                    <span>سال مالی</span>
+                    <select data-val="true" data-val-number="The field fiscalYearID must be a number." data-val-required="The fiscalYearID field is required." id="ddlFiscalYearID" name="SelectedFiscalYear.fiscalYearID"><option selected="selected" value="0">همه دوره های مالی</option>
+</select>
+
+                </div>
+            </div>
+
+            <div class="row" style="text-align: left; padding: 20px">
+
+                <button class="btn btn-primary" type="submit" name="command" value="total">مشاهده</button>
+
+            </div>
+
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <tr>
+                            <th>عنوان حساب</th>
+                            <th class="hidden-xs">بدهکار</th>
+                            <th class="hidden-xs">بستانکار</th>
+                            <th>مانده</th>
+                            <th>عملیات</th>
+                        </tr>
+                        <tr>
+                            <td style="text-align: right !important;">معین فاکتور</td>
+                            <td class="hidden-xs">28,311,798,857</td>
+                            <td class="hidden-xs">28,312,252,933</td>
+                            <td>454,076-</td>
+                            <td>
+                                <button class="btn btn-primary" type="submit" name="command" value="moein2">جزییات...</button>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="text-align: right !important;">کیف پول
+                        <input class="btn btn-primary" type="button" value="افزایش" onclick="$('#rowIncreasePishdaryaft').css('display', 'inherit');" /></td>
+                            <td class="hidden-xs">0</td>
+                            <td class="hidden-xs">0</td>
+                            <td>0</td>
+                            <td>
+                                <button class="btn btn-primary" type="submit" name="command" value="pishdaryaft">جزییات...</button></td>
+                        </tr>
+
+                        <tr id="rowIncreasePishdaryaft" class="temp" style="display: none;">
+                            <td>
+                                <div id="divIncreasePish">
+                                    مبلغ:
+                                <input id="PishdaryaftIncreaseValue" name="PishdaryaftIncreaseValue" onkeypress="return isNumberKey(event);" onkeyup="setValueWithComma(this)" type="text" value="" />
+                                    
+<div>
+    انتخاب درگاه پرداخت :
+        <select id="ddlBankType" name="dargahBankTypeID"><option value="1">سداد</option>
+<option selected="selected" value="0">به پرداخت ملت</option>
+<option value="3">صادرات</option>
+</select>
+</div>
+
+                                    <button class="btn btn-primary" name="command" value="pishdaryaftIncrease" type="submit">پرداخت</button>
+                                    <input class="btn btn-primary" type="button" value="انصراف" id="btnCancelIncPish" onclick="$('#rowIncreasePishdaryaft').css('display', 'none');" />
+                                </div>
+                            </td>
+                        </tr>
+                        
+                            <tr style="color: #DC143C; font-weight: bolder">
+                                <td style="text-align: right !important;">امتیاز</td>
+                                <td class="hidden-xs">2,091,224</td>
+                                <td class="hidden-xs">2,130,229</td>
+                                <td>39,005</td>
+                                <td>
+                                    <button class="btn btn-primary" type="submit" name="command" value="bonus">جزییات...</button></td>
+                            </tr>
+                    </table>
+                </div>
+
+
+
+        </div>
+    </div>
+    <div class="panel panel-default">
+        <div class="panel-heading">
+            جزییات معین
+        </div>
+        <div class="panel-body">
+            <div class="table-responsive">
+                    <button class="btn btn-primary" type="submit" name="command" value="SaleItemPerUser">لیست کالاهای خریداری شده</button>
+                    <table id="tblMoeinDetails" class="table table-bordered table-hover">
+                        <tr>
+                            <th class="visible-xs">شرح برگه</th>
+                            <th class="hidden-xs">ردیف</th>
+                            <th class="hidden-xs">نام برگه</th>
+                            <th class="hidden-xs">تاریخ</th>
+                            <th class="hidden-xs">بدهکار</th>
+                            <th class="hidden-xs">بستانکار</th>
+                            <th>مانده</th>
+                            <th class="hidden-xs">شرح</th>
+                            <th class="hidden-xs">وضعیت</th>
+                            <th>جزییات</th>
+                        </tr>
+                        
+                            <tr class='success' title='پرداخت شده' onclick='location.href = &#39;/Shop/Preview/Factor/8632718/11000&#39;'>
+                                <td class="visible-xs">
+                                    <div style="white-space: pre-wrap">نام برگه : فاکتور فروش 219212</div>
+                                    <div>تاریخ برگه : 1401/10/5</div>
+                                    <div>مبلغ بدهکار : 32,560,000</div>
+                                    <div>مبلغ بستانکار : 0</div>
+                                    <div>وضعیت : پرداخت شده</div>
+                                </td>
+                                <td class="hidden-xs">1</td>
+                                <td class="hidden-xs">
+                                    <div style="white-space: pre-wrap">فاکتور فروش 219212</div>
+                                </td>
+                                <td class="hidden-xs">1401/10/5</td>
+                                <td class="hidden-xs">32,560,000</td>
+                                <td class="hidden-xs">0</td>
+                                <td>32,560,000</td>
+                                <td class="hidden-xs">بابت فاکتور فروش 219212 </td>
+                                <td class="hidden-xs">پرداخت شده</td>
+                                <td>
+<a href="/Shop/Preview/Factor/8632718/11000">جزییات</a>                                </td>
+                            </tr>
+                            <tr class='' title='' onclick='location.href = &#39;/Shop/Preview/Factor/8632791/11000&#39;'>
+                                <td class="visible-xs">
+                                    <div style="white-space: pre-wrap">نام برگه : دريافت 74505</div>
+                                    <div>تاریخ برگه : 1401/10/5</div>
+                                    <div>مبلغ بدهکار : 0</div>
+                                    <div>مبلغ بستانکار : 32,560,000</div>
+                                    <div>وضعیت : -</div>
+                                </td>
+                                <td class="hidden-xs">2</td>
+                                <td class="hidden-xs">
+                                    <div style="white-space: pre-wrap">دريافت 74505</div>
+                                </td>
+                                <td class="hidden-xs">1401/10/5</td>
+                                <td class="hidden-xs">0</td>
+                                <td class="hidden-xs">32,560,000</td>
+                                <td>0</td>
+                                <td class="hidden-xs">دريافت  نقدي بابت تسويه  فاکتور فروش (مرکزي) </td>
+                                <td class="hidden-xs">-</td>
+                                <td>
+<a href="/Shop/Preview/Factor/8632791/11000">جزییات</a>                                </td>
+                            </tr>
+                            <tr class='' title='' onclick='location.href = &#39;/Shop/Preview/Factor/8676776/11000&#39;'>
+                                <td class="visible-xs">
+                                    <div style="white-space: pre-wrap">نام برگه : دريافت 74882</div>
+                                    <div>تاریخ برگه : 1401/10/5</div>
+                                    <div>مبلغ بدهکار : 0</div>
+                                    <div>مبلغ بستانکار : 278,818,565</div>
+                                    <div>وضعیت : -</div>
+                                </td>
+                                <td class="hidden-xs">3</td>
+                                <td class="hidden-xs">
+                                    <div style="white-space: pre-wrap">دريافت 74882</div>
+                                </td>
+                                <td class="hidden-xs">1401/10/5</td>
+                                <td class="hidden-xs">0</td>
+                                <td class="hidden-xs">278,818,565</td>
+                                <td>278,818,565-</td>
+                                <td class="hidden-xs"></td>
+                                <td class="hidden-xs">-</td>
+                                <td>
+<a href="/Shop/Preview/Factor/8676776/11000">جزییات</a>                                </td>
+                            </tr>
+                            <tr class='' title='' onclick='location.href = &#39;/Shop/Preview/Factor/8676790/11000&#39;'>
+                                <td class="visible-xs">
+                                    <div style="white-space: pre-wrap">نام برگه : دريافت 74884</div>
+                                    <div>تاریخ برگه : 1401/10/5</div>
+                                    <div>مبلغ بدهکار : 0</div>
+                                    <div>مبلغ بستانکار : 220,824,303</div>
+                                    <div>وضعیت : -</div>
+                                </td>
+                                <td class="hidden-xs">4</td>
+                                <td class="hidden-xs">
+                                    <div style="white-space: pre-wrap">دريافت 74884</div>
+                                </td>
+                                <td class="hidden-xs">1401/10/5</td>
+                                <td class="hidden-xs">0</td>
+                                <td class="hidden-xs">220,824,303</td>
+                                <td>499,642,868-</td>
+                                <td class="hidden-xs"></td>
+                                <td class="hidden-xs">-</td>
+                                <td>
+<a href="/Shop/Preview/Factor/8676790/11000">جزییات</a>                                </td>
+                            </tr>
+                            <tr class='success' title='پرداخت شده' onclick='location.href = &#39;/Shop/Preview/Factor/8646327/11000&#39;'>
+                                <td class="visible-xs">
+                                    <div style="white-space: pre-wrap">نام برگه : فاکتور فروش 219913</div>
+                                    <div>تاریخ برگه : 1401/10/6</div>
+                                    <div>مبلغ بدهکار : 336,579,278</div>
+                                    <div>مبلغ بستانکار : 0</div>
+                                    <div>وضعیت : پرداخت شده</div>
+                                </td>
+                                <td class="hidden-xs">5</td>
+                                <td class="hidden-xs">
+                                    <div style="white-space: pre-wrap">فاکتور فروش 219913</div>
+                                </td>
+                                <td class="hidden-xs">1401/10/6</td>
+                                <td class="hidden-xs">336,579,278</td>
+                                <td class="hidden-xs">0</td>
+                                <td>163,063,590-</td>
+                                <td class="hidden-xs">بابت فاکتور فروش 219913 </td>
+                                <td class="hidden-xs">پرداخت شده</td>
+                                <td>
+<a href="/Shop/Preview/Factor/8646327/11000">جزییات</a>                                </td>
+                            </tr>
+                            <tr class='success' title='پرداخت شده' onclick='location.href = &#39;/Shop/Preview/Factor/8646328/11000&#39;'>
+                                <td class="visible-xs">
+                                    <div style="white-space: pre-wrap">نام برگه : فاکتور فروش 219914</div>
+                                    <div>تاریخ برگه : 1401/10/6</div>
+                                    <div>مبلغ بدهکار : 150,567,205</div>
+                                    <div>مبلغ بستانکار : 0</div>
+                                    <div>وضعیت : پرداخت شده</div>
+                                </td>
+                                <td class="hidden-xs">6</td>
+                                <td class="hidden-xs">
+                                    <div style="white-space: pre-wrap">فاکتور فروش 219914</div>
+                                </td>
+                                <td class="hidden-xs">1401/10/6</td>
+                                <td class="hidden-xs">150,567,205</td>
+                                <td class="hidden-xs">0</td>
+                                <td>12,496,385-</td>
+                                <td class="hidden-xs">بابت فاکتور فروش 219914 </td>
+                                <td class="hidden-xs">پرداخت شده</td>
+                                <td>
+<a href="/Shop/Preview/Factor/8646328/11000">جزییات</a>                                </td>
+                            </tr>
+                            <tr class='success' title='پرداخت شده' onclick='location.href = &#39;/Shop/Preview/Factor/8646329/11000&#39;'>
+                                <td class="visible-xs">
+                                    <div style="white-space: pre-wrap">نام برگه : فاکتور فروش 219915</div>
+                                    <div>تاریخ برگه : 1401/10/6</div>
+                                    <div>مبلغ بدهکار : 12,622,200</div>
+                                    <div>مبلغ بستانکار : 0</div>
+                                    <div>وضعیت : پرداخت شده</div>
+                                </td>
+                                <td class="hidden-xs">7</td>
+                                <td class="hidden-xs">
+                                    <div style="white-space: pre-wrap">فاکتور فروش 219915</div>
+                                </td>
+                                <td class="hidden-xs">1401/10/6</td>
+                                <td class="hidden-xs">12,622,200</td>
+                                <td class="hidden-xs">0</td>
+                                <td>125,815</td>
+                                <td class="hidden-xs">بابت فاکتور فروش 219915 </td>
+                                <td class="hidden-xs">پرداخت شده</td>
+                                <td>
+<a href="/Shop/Preview/Factor/8646329/11000">جزییات</a>                                </td>
+                            </tr>
+                            <tr class='success' title='پرداخت شده' onclick='location.href = &#39;/Shop/Preview/Factor/8679142/11000&#39;'>
+                                <td class="visible-xs">
+                                    <div style="white-space: pre-wrap">نام برگه : فاکتور فروش 220255</div>
+                                    <div>تاریخ برگه : 1401/10/7</div>
+                                    <div>مبلغ بدهکار : 105,817,024</div>
+                                    <div>مبلغ بستانکار : 0</div>
+                                    <div>وضعیت : پرداخت شده</div>
+                                </td>
+                                <td class="hidden-xs">8</td>
+                                <td class="hidden-xs">
+                                    <div style="white-space: pre-wrap">فاکتور فروش 220255</div>
+                                </td>
+                                <td class="hidden-xs">1401/10/7</td>
+                                <td class="hidden-xs">105,817,024</td>
+                                <td class="hidden-xs">0</td>
+                                <td>105,942,839</td>
+                                <td class="hidden-xs">بابت فاکتور فروش 220255 </td>
+                                <td class="hidden-xs">پرداخت شده</td>
+                                <td>
+<a href="/Shop/Preview/Factor/8679142/11000">جزییات</a>                                </td>
+                            </tr>
+                            <tr class='success' title='پرداخت شده' onclick='location.href = &#39;/Shop/Preview/Factor/8679143/11000&#39;'>
+                                <td class="visible-xs">
+                                    <div style="white-space: pre-wrap">نام برگه : فاکتور فروش 220256</div>
+                                    <div>تاریخ برگه : 1401/10/7</div>
+                                    <div>مبلغ بدهکار : 28,428,130</div>
+                                    <div>مبلغ بستانکار : 0</div>
+                                    <div>وضعیت : پرداخت شده</div>
+                                </td>
+                                <td class="hidden-xs">9</td>
+                                <td class="hidden-xs">
+                                    <div style="white-space: pre-wrap">فاکتور فروش 220256</div>
+                                </td>
+                                <td class="hidden-xs">1401/10/7</td>
+                                <td class="hidden-xs">28,428,130</td>
+                                <td class="hidden-xs">0</td>
+                                <td>134,370,969</td>
+                                <td class="hidden-xs">بابت فاکتور فروش 220256 </td>
+                                <td class="hidden-xs">پرداخت شده</td>
+                                <td>
+<a href="/Shop/Preview/Factor/8679143/11000">جزییات</a>                                </td>
+                            </tr>
+                            <tr class='success' title='پرداخت شده' onclick='location.href = &#39;/Shop/Preview/Factor/8679145/11000&#39;'>
+                                <td class="visible-xs">
+                                    <div style="white-space: pre-wrap">نام برگه : فاکتور فروش 220257</div>
+                                    <div>تاریخ برگه : 1401/10/7</div>
+                                    <div>مبلغ بدهکار : 22,981,630</div>
+                                    <div>مبلغ بستانکار : 0</div>
+                                    <div>وضعیت : پرداخت شده</div>
+                                </td>
+                                <td class="hidden-xs">10</td>
+                                <td class="hidden-xs">
+                                    <div style="white-space: pre-wrap">فاکتور فروش 220257</div>
+                                </td>
+                                <td class="hidden-xs">1401/10/7</td>
+                                <td class="hidden-xs">22,981,630</td>
+                                <td class="hidden-xs">0</td>
+                                <td>157,352,599</td>
+                                <td class="hidden-xs">بابت فاکتور فروش 220257 </td>
+                                <td class="hidden-xs">پرداخت شده</td>
+                                <td>
+<a href="/Shop/Preview/Factor/8679145/11000">جزییات</a>                                </td>
+                            </tr>
+                            <tr class='' title='' onclick='location.href = &#39;/Shop/Preview/Factor/8679146/11000&#39;'>
+                                <td class="visible-xs">
+                                    <div style="white-space: pre-wrap">نام برگه : دريافت 75034</div>
+                                    <div>تاریخ برگه : 1401/10/7</div>
+                                    <div>مبلغ بدهکار : 0</div>
+                                    <div>مبلغ بستانکار : 157,226,784</div>
+                                    <div>وضعیت : -</div>
+                                </td>
+                                <td class="hidden-xs">11</td>
+                                <td class="hidden-xs">
+                                    <div style="white-space: pre-wrap">دريافت 75034</div>
+                                </td>
+                                <td class="hidden-xs">1401/10/7</td>
+                                <td class="hidden-xs">0</td>
+                                <td class="hidden-xs">157,226,784</td>
+                                <td>125,815</td>
+                                <td class="hidden-xs"></td>
+                                <td class="hidden-xs">-</td>
+                                <td>
+<a href="/Shop/Preview/Factor/8679146/11000">جزییات</a>                                </td>
+                            </tr>
+                            <tr class='success' title='پرداخت شده' onclick='location.href = &#39;/Shop/Preview/Factor/8681933/11000&#39;'>
+                                <td class="visible-xs">
+                                    <div style="white-space: pre-wrap">نام برگه : فاکتور فروش 220491</div>
+                                    <div>تاریخ برگه : 1401/10/7</div>
+                                    <div>مبلغ بدهکار : 30,024,355</div>
+                                    <div>مبلغ بستانکار : 0</div>
+                                    <div>وضعیت : پرداخت شده</div>
+                                </td>
+                                <td class="hidden-xs">12</td>
+                                <td class="hidden-xs">
+                                    <div style="white-space: pre-wrap">فاکتور فروش 220491</div>
+                                </td>
+                                <td class="hidden-xs">1401/10/7</td>
+                                <td class="hidden-xs">30,024,355</td>
+                                <td class="hidden-xs">0</td>
+                                <td>30,150,170</td>
+                                <td class="hidden-xs">بابت فاکتور فروش 220491 </td>
+                                <td class="hidden-xs">پرداخت شده</td>
+                                <td>
+<a href="/Shop/Preview/Factor/8681933/11000">جزییات</a>                                </td>
+                            </tr>
+                            <tr class='' title='' onclick='location.href = &#39;/Shop/Preview/Factor/8681934/11000&#39;'>
+                                <td class="visible-xs">
+                                    <div style="white-space: pre-wrap">نام برگه : دريافت 75122</div>
+                                    <div>تاریخ برگه : 1401/10/7</div>
+                                    <div>مبلغ بدهکار : 0</div>
+                                    <div>مبلغ بستانکار : 30,024,355</div>
+                                    <div>وضعیت : -</div>
+                                </td>
+                                <td class="hidden-xs">13</td>
+                                <td class="hidden-xs">
+                                    <div style="white-space: pre-wrap">دريافت 75122</div>
+                                </td>
+                                <td class="hidden-xs">1401/10/7</td>
+                                <td class="hidden-xs">0</td>
+                                <td class="hidden-xs">30,024,355</td>
+                                <td>125,815</td>
+                                <td class="hidden-xs"></td>
+                                <td class="hidden-xs">-</td>
+                                <td>
+<a href="/Shop/Preview/Factor/8681934/11000">جزییات</a>                                </td>
+                            </tr>
+                            <tr class='' title='' onclick='location.href = &#39;/Shop/Preview/Factor/8682032/11000&#39;'>
+                                <td class="visible-xs">
+                                    <div style="white-space: pre-wrap">نام برگه : دريافت 75124</div>
+                                    <div>تاریخ برگه : 1401/10/7</div>
+                                    <div>مبلغ بدهکار : 0</div>
+                                    <div>مبلغ بستانکار : 125,815</div>
+                                    <div>وضعیت : -</div>
+                                </td>
+                                <td class="hidden-xs">14</td>
+                                <td class="hidden-xs">
+                                    <div style="white-space: pre-wrap">دريافت 75124</div>
+                                </td>
+                                <td class="hidden-xs">1401/10/7</td>
+                                <td class="hidden-xs">0</td>
+                                <td class="hidden-xs">125,815</td>
+                                <td>0</td>
+                                <td class="hidden-xs"></td>
+                                <td class="hidden-xs">-</td>
+                                <td>
+<a href="/Shop/Preview/Factor/8682032/11000">جزییات</a>                                </td>
+                            </tr>
+                            <tr class='success' title='پرداخت شده' onclick='location.href = &#39;/Shop/Preview/Factor/8730056/11000&#39;'>
+                                <td class="visible-xs">
+                                    <div style="white-space: pre-wrap">نام برگه : مرجوع از فروش 22532</div>
+                                    <div>تاریخ برگه : 1401/10/10</div>
+                                    <div>مبلغ بدهکار : 0</div>
+                                    <div>مبلغ بستانکار : 3,259,100</div>
+                                    <div>وضعیت : پرداخت شده</div>
+                                </td>
+                                <td class="hidden-xs">15</td>
+                                <td class="hidden-xs">
+                                    <div style="white-space: pre-wrap">مرجوع از فروش 22532</div>
+                                </td>
+                                <td class="hidden-xs">1401/10/10</td>
+                                <td class="hidden-xs">0</td>
+                                <td class="hidden-xs">3,259,100</td>
+                                <td>3,259,100-</td>
+                                <td class="hidden-xs">بابت مرجوع از فروش 22532 </td>
+                                <td class="hidden-xs">پرداخت شده</td>
+                                <td>
+<a href="/Shop/Preview/Factor/8730056/11000">جزییات</a>                                </td>
+                            </tr>
+                    </table>
+            </div>
+
+            <script type="text/javascript">
+
+                var pageIndex = 2;
+                var tmpPageSize = '15';
+                var tmp = '3107';
+                var pageCount = parseInt(tmp) / parseInt(tmpPageSize);
+                pageCount = Math.ceil(pageCount);
+
+                $(document).ready(function () {
+
+
+
+                    //var timerId = setInterval(function () {
+                    //    GetRecords(pageIndex, pageCount);
+                    //    pageIndex = pageIndex + 1;
+                    //    if (pageIndex > pageCount) {
+                    //        clearInterval(timerId);
+                    //    }
+                    //}, parseInt(tmpInterval));;
+
+                    GetRecords(pageIndex, pageCount);
+
+                });
+
+                function GetRecords(pageIndex, pageCount) {
+
+                    var tmpYearId = '0';
+                    var tmpBusCode = '97100000';
+
+                    if (pageIndex <= pageCount) {
+
+                        var data = { pageIndex: pageIndex, yearId: parseInt(tmpYearId), businessCode: tmpBusCode, fromDate: '1390/01/01', toDate: '' };
+                        var sdata = JSON.stringify(data);
+
+                        $.ajax({
+                            type: "POST",
+                            url: '/Shop/Share/GradualMoein2Load',
+                            data: sdata,
+                            contentType: "application/json; charset=utf-8",
+                            dataType: "json",
+                            success: OnSuccessDetails,
+                            failure: function (response) {
+                                //alert(response.d);
+                                alert('failure');
+                            },
+                            error: function (jqXHR, textStatus, errorThrown) {
+                                alert(jqXHR);
+                                alert(textStatus);
+                                alert(errorThrown);
+                            }
+                        });
+                    }
+                }
+
+                //Function to recieve XML response append rows to GridView
+                function OnSuccessDetails(response) {
+                    var x = $.parseXML(response);
+                    var xml = $(x);
+                    var items = xml.find("result");
+                    items.each(function () {
+                        var item = $(this);
+                        var DocAliasDescription = item.find("DocAliasDescription").text() + " " + item.find("TransNumber").text();
+                        var voucherDate = item.find("VoucherDate").text();
+                        var id = item.find("ID_").text();
+                        var BedTotalSum = item.find("LineMablaghBed").text();
+                        BedTotalSum = numberWithCommas(BedTotalSum);
+                        var BesTotalSum = item.find("LineMablaghBes").text();
+                        BesTotalSum = numberWithCommas(BesTotalSum);
+                        var Remain = item.find("Remain").text();
+                        Remain = numberWithCommas(Remain);
+                        var dscp = item.find("VoucherDescription").text();
+                        var Status = item.find("status").text();
+                        var docAliasId = item.find("DocAliasID").text();
+                        var transactionId = item.find("TransactionID").text();
+                        var businessid = item.find("BusinessID").text();
+                        if (docAliasId == '2' || docAliasId == '6' || docAliasId == '67' || docAliasId == '1') {
+                            var statusclass = '';
+                            if (docAliasId == '67') {
+                                statusclass = '-'
+                            }
+                            if (Status == 'پرداخت نشده') {
+                                statusclass = 'danger';
+                            }
+                            else if (Status == 'پرداخت شده') {
+                                statusclass = 'success';
+                            }
+                            var _onclickRowEvent = '\'' + '/shop/Preview/Factor/' + transactionId + '/' + businessid + '\'';
+                            $('#tblMoeinDetails').append('<tr class=' + statusclass + ' onclick="location.href = ' + _onclickRowEvent + '"><td>' + id + '</td><td>' + DocAliasDescription + '</td><td>' + voucherDate + '</td><td>' + BedTotalSum + '</td><td>' + BesTotalSum + '</td><td>' + Remain + '</td><td>' + dscp + '</td><td>' + Status + '</td><td>' + '<a href="/shop/Preview/Factor/' + transactionId + '/' + businessid + '">جزییات</a>' + '</td></tr>');
+                        }
+                        else {
+                            $('#tblMoeinDetails').append('<tr><td>' + id + '</td><td>' + DocAliasDescription + '</td><td>' + voucherDate + '</td><td>' + BedTotalSum + '</td><td>' + BesTotalSum + '</td><td>' + Remain + '</td><td>' + dscp + '</td><td>' + Status + '</td><td>' + '<a href="/">-</a>' + '</td></tr>');
+                        }
+                    });
+                    //$('#divSearchResult').show();
+                    //$('#divSearchResult table').find('tr').each(function () {
+                    //    $(this).mouseover(function () {
+                    //        $(this).css({ 'background-color': 'blue', 'color': 'white' });
+                    //    });
+
+                    //    $(this).mouseout(function () {
+                    //        $(this).css({ 'background-color': 'white', 'color': 'black' });
+                    //    });
+
+                    //    $(this).click(function () {
+                    //        var code = $(this).find('td').eq(0).text();
+                    //        var name = $(this).find('td').eq(1).text();
+                    //        $('#txtSearchTerm').val(name);
+                    //        $('#txtBusCode').val(code);
+                    //        $('#divSearchResult').hide();
+                    //    });
+                    //});
+
+                    pageIndex = pageIndex + 1;
+                    if (pageIndex <= pageCount) {
+                        GetRecords(pageIndex, pageCount);
+                    }
+                }
+            </script>
+        </div>
+    </div>
+</form>
+
+
+
+            </div>
+        </div>
+        <div id="footer" class="row NoPrinted">
+    <nav class="navbar navbar-default">
+        <div class="container-fluid">
+            <ul class="nav navbar-nav navbar-right">
+                    <li><a href="/Download/Index">دانلود نرم افزار <span class="glyphicon glyphicon-download-alt"></span></a></li>
+                <li><a href="#">info@barezpakhsh.ir <span class="glyphicon glyphicon-envelope"></span></a></li>
+                <li><a href="#">
+                    <img src="/Image/Template/Tell.png" /><span class="glyphicon glyphicon-earphone"></span></a></li>
+                
+            </ul>
+        </div>
+    </nav>
+</div>
+
+    </div>
+</body>
+</html>

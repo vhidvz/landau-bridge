@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+    <link rel="icon" href="/Image/Template/comlogo.png" type="image/png" sizes="20x20">
+    <meta name="viewport" content="width=device-width" />
+    <title>صورتحساب</title>
+    <link href="/Content/Style/main-master.css" rel="stylesheet" />
+    <link href="/Content/datepicker/styles/jquery-ui-1.8.14.css" rel="stylesheet" />
+    <link href="/Content/Style/bootstrap-rtl.min1.css" rel="stylesheet"/>
+<link href="/Content/Style/bootstrap-switch-rtl.min1.css" rel="stylesheet"/>
+<link href="/Content/Style/main-master.css" rel="stylesheet"/>
+<link href="/Content/Style/Style.css" rel="stylesheet"/>
+
+    <script src="/Content/Scripts/modernizr-2.5.3.js"></script>
+
+    
+    <script src="/Content/Scripts/jquery.unobtrusive-ajax.js"></script>
+<script src="/Content/Scripts/jquery.validate.js"></script>
+<script src="/Content/Scripts/jquery.validate.unobtrusive.js"></script>
+
+    <script src="/Content/Scripts/bootstrapScripts/jquery-1.12.1.js"></script>
+<script src="/Content/Scripts/bootstrapScripts/bootstrap.js"></script>
+
+    <script src="/Content/Scripts/FreezTableHeader/jquery.floatThead.js"></script>
+
+    <script src="/Content/Scripts/ArpaWeb-0.0.2.js"></script>
+
+    
+                <link href="/Content/datepicker/styles/jquery-ui-1.8.14.css" rel="stylesheet" />
+            
+    
+
+                <script src="/Content/ajaxq.js"></script>
+                <script type="text/javascript">
+                    function showCreditDetails() {
+                        $('#tblMoeinDetails').css({ "display": "none" });
+
+                    }
+                </script>
+
+                
+
+                <script src="/Content/datepicker/scripts/jquery-1.6.2.min.js"></script>
+                <script src="/Content/datepicker/scripts/jquery.ui.datepicker-cc.all.min.js"></script>
+
+                <script type="text/javascript">
+                    $('document').ready(function () {
+
+                        var t = '';
+                        if (t != null) {
+                            ;
+                        }
+
+                        $('#txtFromDate').datepicker({
+                            showWeek: true,
+                            dateFormat: "yy/mm/dd"
+                        });
+
+                        $('#txtToDate').datepicker({
+                            showWeek: true,
+                            dateFormat: "yy/mm/dd"
+                        });
+                    });
+                </script>
+            
+</head>
+<body>
+    <div class="container-fluid PrintedSize">
+        <div id="header" class="row hidden-xs NoPrinted">
+    
+    <img src="/Image/Template/samane-forush_06.png" class="img-responsive" />
+</div>
+
+        <div class="row NoPrinted" id="profile">
+    <nav class="navbar navbar-inverse" data-spy="affix" data-offset-top="5">
+        <div class="container-fluid">
+            <div class="navbar-header">
+                <button type="button" class="navbar-toggle visible-xs" data-toggle="collapse" data-target="#myNavbar">
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="/">شرکت بارزپخش کرمان</a>
+            </div>
+            <ul class="nav navbar-nav hidden-xs">
+                
+                <li><a href="/Info/HowToRegister">نحوه ثبت نام</a></li>
+                <li><a href="/Info/AboutUs">درباره ما</a></li>
+                <li><a href="/Info/ContactUs">تماس با ما</a></li>
+                <li><a href="/Info/SiteRuls">قوانین سایت</a></li>
+            </ul>
+                <ul class="nav navbar-nav navbar-right  hidden-xs">
+                    <li class="dropdown">
+                        <a class="dropdown-toggle" data-toggle="dropdown" href="#">
+                            <span class="glyphicon glyphicon-user"></span>
+                                <span>آقاي نمونه خريدار</span>
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a href="/Home/ChangePassword">تغییر رمز</a></li>
+                            <li><a href="/Home/Logout">خروج</a></li>
+                        </ul>
+                    </li>
+                </ul>
+                <div class="collapse navbar-collapse" id="myNavbar">
+                    <ul class="nav navbar-nav visible-xs">
+                        <li><a href="/Shop/Report/Bill">صورتحساب</a></li>
+                        <li><a href="/Shop/Buy/Index">ثبت فاکتور<img src="/Image/Template/sale.png" /></a></li>
+                            <li><a href="/Shop/Settle/Index">تسویه فاکتورها</a></li>
+                                                    <li><a href="/Shop/CreditSupplyTradingApp/Index" style="color: red">مشاهده و تسویه پیش فاکتورهای (جدید)</a></li>
+                                                    <li><a href="/Shop/Gift/Index">انتخاب هدیه<img src="/Image/Template/Gift-Box.png" /></a></li>
+                                                    <li><a href="/Shop/Lottery/Index">قرعه کشی<img src="" /></a></li>
+                                                <li><a href="/Shop/Notifications/Index">برنامه تحویل کالا برای شهرستان</a></li>
+                            <li><a href="/Shop/Ticket/Index">پیام ها (0 پیام جدید)</a></li>
+                        <li class="dropdown">
+                            <a class="dropdown-toggle" data-toggle="dropdown" href="#">
+                                <span class="glyphicon glyphicon-user"></span>
+                                    <span>آقاي نمونه خريدار</span>
+                            </a>
+                            <ul class="dropdown-menu">
+                                <li><a href="/Home/ChangePassword">تغییر رمز</a></li>
+                                <li><a href="/Home/Logout">خروج</a></li>
+                            </ul>
+                        </li>
+                    </ul>
+                </div>
+        </div>
+    </nav>
+</div>
+
+
+
+        <div id="ads" class="row NoPrinted"></div>
+        <div id="urlmap" class="row NoPrinted"></div>
+        <div id="content-wrapper PrintedSize" class="row">
+            <div id="rightSidebar1" class="col-sm-3 sidebar NoPrinted">
+                <div class="panel panel-default">
+                    <div class="panel-heading hidden-xs">
+                        <h4 class="panel-title">
+                            <a data-toggle="collapse" href="#collapse1">عملیات &nbsp&nbsp<span class="glyphicon glyphicon-chevron-down"></span></a>
+                        </h4>
+                    </div>
+                    <div id="collapse1" class="panel-collapse collapse in hidden-xs">
+                        <div class="panel-body">
+                            <ul class="nav nav-sidebar">
+                                    <li><a href="/Shop/Report/Bill">صورتحساب</a></li>    
+                                                                    <li><a href="/Shop/Buy/Index">ثبت فاکتور<img src="/Image/Template/sale.png" /></a></li>
+                                                                    <li><a href="/Shop/Settle/Index">تسویه فاکتورها</a></li>    
+                                                                                                                                     <li><a href="/Shop/CreditSupplyTradingApp/Index"  style="color:red">مشاهده و تسویه پیش فاکتورهای (جدید)</a></li>   
+                                                                    <li><a href="/Shop/Gift/Index">انتخاب هدیه<img src="/Image/Template/Gift-Box.png" /></a></li>
+                                                                    <li><a href="/Shop/Lottery/Index">قرعه کشی<img src="" /></a></li>
+                                                            </ul>
+                        </div>
+                    </div>
+                    <div class="panel-heading hidden-xs">
+                        <h4 class="panel-title">
+                            <a data-toggle="collapse" href="#collapse2">اطلاعیه ها &nbsp&nbsp<span class="glyphicon glyphicon-chevron-down"></span></a>
+                        </h4>
+                    </div>
+                    <div id="collapse2" class="panel-collapse collapse in hidden-xs">
+                        <div class="panel-body">
+                            <ul class="nav nav-sidebar">
+                                    <li><a href="/Shop/Notifications/Index">برنامه تحویل کالا برای شهرستان</a></li>
+                            </ul>
+                            <ul class="nav nav-sidebar">
+                                    <li><a href="/Shop/Ticket/Index">پیام ها (0 پیام جدید)</a></li>
+                            </ul>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+            <div id="content" class="col-sm-9 PrintedSize">
+                
+
+
+<form action="/Shop/Report/Bill" method="post">    <div class="panel panel-default">
+        <div class="panel-heading">صورتحساب</div>
+        <div class="panel-body">
+
+            <div class="row">
+
+                <div class="col-sm-4">
+                    <input data-val="true" data-val-number="The field BusinessId must be a number." data-val-required="The BusinessId field is required." id="hidBusId" name="BusinessId" style="width:0; visibility:hidden;" type="hidden" value="11000" />
+<input id="hidRelatedUserId" name="RelatedUser.UserId" style="width:0; visibility:hidden;" type="hidden" value="82" />
+<input data-val="true" data-val-number="The field SaleVolume_a must be a number." data-val-required="The SaleVolume_a field is required." id="hidBusinessSaleVolume_a" name="SaleVolume_a" style="width:0; visibility:hidden;" type="hidden" value="0" />
+<input data-val="true" data-val-number="The field SaleVolume_b must be a number." data-val-required="The SaleVolume_b field is required." id="hidBusinessSaleVolume_b" name="SaleVolume_b" style="width:0; visibility:hidden;" type="hidden" value="0" />
+<input data-val="true" data-val-number="The field MinSaleMablagh must be a number." data-val-required="The MinSaleMablagh field is required." id="hidBusinessMinSale" name="MinSaleMablagh" style="width:0; visibility:hidden;" type="hidden" value="0" />
+<input data-val="true" data-val-number="The field MaxSaleMablagh must be a number." data-val-required="The MaxSaleMablagh field is required." id="hidBusinessMaxSale" name="MaxSaleMablagh" style="width:0; visibility:hidden;" type="hidden" value="0" />
+<input data-val="true" data-val-number="The field DefaultDiscountPercent must be a number." data-val-required="The DefaultDiscountPercent field is required." id="hidBusinessDefaultDiscountPercent" name="DefaultDiscountPercent" style="width:0; visibility:hidden;" type="hidden" value="0" />
+    <span id="spCustomer_1">نام و نام خانوادگی</span>
+    <br />
+<label for="BusinessName">آقاي نمونه خريدار</label><input data-val="true" data-val-required="مشتری را انتخاب کنید" id="txtBusCode" name="BusinessCode" style="width:0; visibility:hidden;" type="text" value="97100000" />
+<script type="text/javascript">
+    $(document).ready(function () {
+        InitSearchCustomers('divSearchResult', 'txtSearchTerm', 'spCustomer', onRowClick);
+
+        function onRowClick(row) {
+            var id = $(row).find('td.id').text();
+
+            var SaleVolume_a = $(row).find('td.SaleVolume_a').text();
+            var SaleVolume_b = $(row).find('td.SaleVolume_b').text();
+            var DefaultDiscountPercent = $(row).find('td.DefaultDiscountPercent').text();
+            var MinSaleMablagh = $(row).find('td.MinSaleMablagh').text();
+            var MaxSaleMablagh = $(row).find('td.MaxSaleMablagh').text();
+
+            var code = $(row).find('td.code').text();
+            var name = $(row).find('td.name').text();
+
+            $('#txtSearchTerm').val(name);
+            $('#txtBusCode').val(code);
+            $('#hidBusId').val(id);
+
+            $('#divSearchResult').hide();
+
+            $('#hidBusinessSaleVolume_a').val(SaleVolume_a);
+            $('#hidBusinessSaleVolume_b').val(SaleVolume_b);
+            $('#hidBusinessDefaultDiscountPercent').val(DefaultDiscountPercent);
+            $('#hidBusinessMinSale').val(MinSaleMablagh);
+            $('#hidBusinessMaxSale').val(MaxSaleMablagh);
+        }
+    });
+</script>
+
+                </div>
+
+                <div class="col-sm-3">
+
+                    <span>از تاریخ</span>
+                    <input autocomplete="off" id="txtFromDate" name="FromDate" placeholder="--/--/----" style="width: 100%" type="text" value="1405/4/24" />
+
+                </div>
+                <div class="col-sm-3">
+
+
+                    <span>تا تاریخ</span>
+                    <input autocomplete="off" id="txtToDate" name="ToDate" placeholder="--/--/----" style="width: 100%" type="text" value="" />
+
+                </div>
+                <div class="col-sm-2 hidden">
+
+
+                    <span>سال مالی</span>
+                    <select data-val="true" data-val-number="The field fiscalYearID must be a number." data-val-required="The fiscalYearID field is required." id="ddlFiscalYearID" name="SelectedFiscalYear.fiscalYearID"><option selected="selected" value="0">همه دوره های مالی</option>
+</select>
+
+                </div>
+            </div>
+
+            <div class="row" style="text-align: left; padding: 20px">
+
+                <button class="btn btn-primary" type="submit" name="command" value="total">مشاهده</button>
+
+            </div>
+
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <tr>
+                            <th>عنوان حساب</th>
+                            <th class="hidden-xs">بدهکار</th>
+                            <th class="hidden-xs">بستانکار</th>
+                            <th>مانده</th>
+                            <th>عملیات</th>
+                        </tr>
+                        <tr>
+                            <td style="text-align: right !important;">معین فاکتور</td>
+                            <td class="hidden-xs">116,165,483</td>
+                            <td class="hidden-xs">116,619,559</td>
+                            <td>454,076-</td>
+                            <td>
+                                <button class="btn btn-primary" type="submit" name="command" value="moein2">جزییات...</button>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="text-align: right !important;">کیف پول
+                        <input class="btn btn-primary" type="button" value="افزایش" onclick="$('#rowIncreasePishdaryaft').css('display', 'inherit');" /></td>
+                            <td class="hidden-xs">0</td>
+                            <td class="hidden-xs">0</td>
+                            <td>0</td>
+                            <td>
+                                <button class="btn btn-primary" type="submit" name="command" value="pishdaryaft">جزییات...</button></td>
+                        </tr>
+
+                        <tr id="rowIncreasePishdaryaft" class="temp" style="display: none;">
+                            <td>
+                                <div id="divIncreasePish">
+                                    مبلغ:
+                                <input id="PishdaryaftIncreaseValue" name="PishdaryaftIncreaseValue" onkeypress="return isNumberKey(event);" onkeyup="setValueWithComma(this)" type="text" value="" />
+                                    
+<div>
+    انتخاب درگاه پرداخت :
+        <select id="ddlBankType" name="dargahBankTypeID"><option value="0">به پرداخت ملت</option>
+<option value="3">صادرات</option>
+<option value="1">سداد</option>
+</select>
+</div>
+
+                                    <button class="btn btn-primary" name="command" value="pishdaryaftIncrease" type="submit">پرداخت</button>
+                                    <input class="btn btn-primary" type="button" value="انصراف" id="btnCancelIncPish" onclick="$('#rowIncreasePishdaryaft').css('display', 'none');" />
+                                </div>
+                            </td>
+                        </tr>
+                        
+                            <tr style="color: #DC143C; font-weight: bolder">
+                                <td style="text-align: right !important;">امتیاز</td>
+                                <td class="hidden-xs">2,091,224</td>
+                                <td class="hidden-xs">2,130,229</td>
+                                <td>39,005</td>
+                                <td>
+                                    <button class="btn btn-primary" type="submit" name="command" value="bonus">جزییات...</button></td>
+                            </tr>
+                    </table>
+                </div>
+
+
+
+        </div>
+    </div>
+</form>
+
+
+
+            </div>
+        </div>
+        <div id="footer" class="row NoPrinted">
+    <nav class="navbar navbar-default">
+        <div class="container-fluid">
+            <ul class="nav navbar-nav navbar-right">
+                    <li><a href="/Download/Index">دانلود نرم افزار <span class="glyphicon glyphicon-download-alt"></span></a></li>
+                <li><a href="#">info@barezpakhsh.ir <span class="glyphicon glyphicon-envelope"></span></a></li>
+                <li><a href="#">
+                    <img src="/Image/Template/Tell.png" /><span class="glyphicon glyphicon-earphone"></span></a></li>
+                
+            </ul>
+        </div>
+    </nav>
+</div>
+
+    </div>
+</body>
+</html>

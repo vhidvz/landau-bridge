@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+
+<html>
+<head>
+    <link rel="icon" href="/Image/Template/comlogo.png" type="image/png" sizes="16x16">
+    <link rel="apple-touch-icon" href="/Image/Template/comlogo.png" sizes="16x16">
+    <meta name="viewport" content="width=device-width" />
+    <title>Login</title>
+    <link href="/Content/Style/main-master.css" rel="stylesheet" />
+    <link href="/Content/Style/bootstrap-rtl.min1.css" rel="stylesheet"/>
+<link href="/Content/Style/bootstrap-switch-rtl.min1.css" rel="stylesheet"/>
+<link href="/Content/Style/main-master.css" rel="stylesheet"/>
+<link href="/Content/Style/Style.css" rel="stylesheet"/>
+
+    <script src="/Content/Scripts/modernizr-2.5.3.js"></script>
+
+    
+    <script src="/Content/Scripts/bootstrapScripts/jquery-1.12.1.js"></script>
+<script src="/Content/Scripts/bootstrapScripts/bootstrap.js"></script>
+
+    
+    <script src="/Content/Scripts/jquery.unobtrusive-ajax.js"></script>
+<script src="/Content/Scripts/jquery.validate.js"></script>
+<script src="/Content/Scripts/jquery.validate.unobtrusive.js"></script>
+
+
+</head>
+<body>
+    <div class="container-fluid">
+        <div id="header" class="row hidden-xs NoPrinted">
+    
+    <img src="/Image/Template/samane-forush_06.png" class="img-responsive" />
+</div>
+
+        <div class="row NoPrinted" id="profile">
+    <nav class="navbar navbar-inverse" data-spy="affix" data-offset-top="5">
+        <div class="container-fluid">
+            <div class="navbar-header">
+                <button type="button" class="navbar-toggle visible-xs" data-toggle="collapse" data-target="#myNavbar">
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                    <span class="icon-bar"></span>
+                </button>
+                <a class="navbar-brand" href="/">شرکت بارزپخش کرمان</a>
+            </div>
+            <ul class="nav navbar-nav hidden-xs">
+                
+                <li><a href="/Info/HowToRegister">نحوه ثبت نام</a></li>
+                <li><a href="/Info/AboutUs">درباره ما</a></li>
+                <li><a href="/Info/ContactUs">تماس با ما</a></li>
+                <li><a href="/Info/SiteRuls">قوانین سایت</a></li>
+            </ul>
+        </div>
+    </nav>
+</div>
+
+
+
+        <div id="ads" class="row"></div>
+        <div id="urlmap" class="row"></div>
+        <div style="text-align: center; padding: 10px;" class="row">
+            
+
+
+    <div class="row">
+        <div class="col-sm-4">
+            
+        </div>
+        <div class="col-sm-4">
+<form action="/Home/Login" method="post"><input name="__RequestVerificationToken" type="hidden" value="TOKEN-FIXTURE" />                <div id="login">
+
+                    <div class="jumbotron hidden-xs">
+                        
+                    </div>
+
+                    <div class="form-group">
+                        <input class="form-control placeholder-no-fix" data-val="true" data-val-required="نام کاربری را وارد کنید." id="username" name="Username" placeholder="نام کاربری" type="text" value="00000000000" />
+                        <span class="field-validation-valid" data-valmsg-for="Username" data-valmsg-replace="true"></span>
+                    </div>
+
+                    <div class="form-group">
+                        <input class="form-control placeholder-no-fix" data-val="true" data-val-required="کلمه عبور را وارد کنید." id="password" name="Password" placeholder="کلمه عبور" type="password" value="wrong" />
+                        <span class="field-validation-valid" data-valmsg-for="Password" data-valmsg-replace="true"></span>
+                    </div>
+
+                    <div>
+                        <button type="submit" class="btn btn-info" id="btnlogin">ورود</button>
+                    </div>
+
+                    <div>
+                        <br />
+                        <span class="glyphicon glyphicon-lock"></span>
+                        <a href="/Home/Forgot">رمز خود را فراموش کرده ام</a>
+                    </div>
+                    <div>
+                        <br />
+                        <span class="glyphicon glyphicon-registration-mark"></span>
+                        
+                        <a href="/Register/RegisterWithMobile">درخواست ثبت نام</a>
+                    </div>
+                </div>
+</form>
+                <p style="color: red"></p>
+        </div>
+        <div class="col-sm-4">
+            
+            
+        </div>
+    </div>
+    <div class="row">
+        <div class="alert alert-info">
+            
+            <p style="text-align: right">
+                <strong>بازدید کننده گرامی
+                            <br />
+                    به سایت فروش شرکت بارزپخش کرمان خوش آمدید
+ به نکات زیر توجه فرمائید:
+                </strong>
+                <br />
+                <br />
+                - فعالیت در این سایت تنها برای افرادی که پروانه کسب و کار از صنف لوازم یدکی دارند
+            اماکن پذیر است
+            <br />
+                <br />
+                - آدرس محل کسب شما باید در محدوده جغرافیایی جنوب شرق کشور باشد. (استان های کرمان
+            – هرمزگان – سیستان و بلوچستان)
+            <br />
+                <br />
+                - برای دریافت یوزر و پسورد در روزهای کاری با همراه داشتن پروانه کسب خود و مدارک
+            شناسایی به محل شرکت مراجعه فرمایید.
+            <br />
+                <br />
+                -چنانچه ثبت نام کرده اید، نام کاربری و کلمه عبور خود را وارد کنید و بر روی دکمه ورود کلیک نمایید
+                        <br />
+                <br />
+                - برای ثبت نام دکمه درخواست ثبت نام را کلیک نمایید
+        </div>
+    </div>
+
+
+<script type="text/javascript">
+    function lgi() {
+        alert('ok');
+    }
+</script>
+
+        </div>
+        <div id="footer" class="row NoPrinted">
+    <nav class="navbar navbar-default">
+        <div class="container-fluid">
+            <ul class="nav navbar-nav navbar-right">
+                <li><a href="#">info@barezpakhsh.ir <span class="glyphicon glyphicon-envelope"></span></a></li>
+                <li><a href="#">
+                    <img src="/Image/Template/Tell.png" /><span class="glyphicon glyphicon-earphone"></span></a></li>
+                
+            </ul>
+        </div>
+    </nav>
+</div>
+
+        <div class="col-sm-2"></div>
+        <div class="col-sm-2"></div>
+        <div class="col-sm-2"></div>
+        <div class="col-sm-2"></div>
+        <div class="col-sm-2">
+            <img src="/Image/Template/logoEcunion.png" alt="" onclick="window.open('https://ecunion.ir/verify/33314466.ir?token=63267045ce1100f0c4b1', 'Popup','toolbar=no, location=no, statusbar=no, menubar=no, scrollbars=1, resizable=0, width=580, height=600, top=30')" style="cursor:pointer">
+        </div>
+        <div class="col-sm-2">
+            <img id='brgwsguinbpexlap' style='cursor: pointer' onclick='window.open("https://trustseal.enamad.ir/?id=6023&code=gfimWhBJJJWpgBmJbRvucFIH0uaBIvCC", "Popup","toolbar=no, location=no, statusbar=no, menubar=no, scrollbars=1, resizable=0, width=580, height=600, top=30")' alt='' src='https://trustseal.enamad.ir/logo.aspx?id=6023&p=kzoegthvqesgvjym' />
+        </div>
+    </div>
+</body>
+</html>
