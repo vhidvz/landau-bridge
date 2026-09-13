@@ -169,12 +169,32 @@ pub async fn dashboard_get(state: State<'_, AppState>) -> Result<Dashboard> {
 
 // ------------------------------------------------------------ jobs
 
+/// One job at a time (spec §7.3): a job paused in REVIEW still counts as active and must be
+/// continued or cancelled before another can start.
+fn assert_no_active_job(db: &Db) -> Result<()> {
+    if let Some(running) = db.running_job()? {
+        return Err(BridgeError::JobBusy(format!("#{}", running.id)));
+    }
+    Ok(())
+}
+
 fn spawn<F, Fut>(app: AppHandle, state: &AppState, job_id: i64, run: F) -> Result<()>
 where
     F: FnOnce(JobCtx, Services) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = Result<()>> + Send,
 {
-    let cancel = state.jobs.begin(job_id)?;
+    // `begin` can lose a start race between two concurrent `*_start` calls that both passed
+    // `assert_no_active_job`; the row it already created must not become an orphan RUNNING row.
+    let cancel = match state.jobs.begin(job_id) {
+        Ok(c) => c,
+        Err(e) => {
+            state.db.set_job_status(job_id, "FAILED", "PREFLIGHT")?;
+            state
+                .db
+                .record_error(Some(job_id), e.kind(), &e.message_fa(), None)?;
+            return Err(e);
+        }
+    };
     let ctx = JobCtx {
         db: state.db.clone(),
         app: Some(app),
@@ -218,6 +238,7 @@ pub async fn import_start(
             "تاریخ شروع فاکتورها (مثلاً ۱۴۰۳/۰۱/۰۱)".into(),
         ));
     }
+    assert_no_active_job(&state.db)?;
     let job_id = state.db.create_job(
         "IMPORT",
         Some(mode.as_str()),
@@ -276,6 +297,11 @@ pub async fn review_decide(state: State<'_, AppState>, decision: ReviewDecision)
         .db
         .job_item(decision.item_id)?
         .ok_or(BridgeError::JobNotFound(decision.item_id))?;
+    if item.status != "REVIEW" {
+        return Err(BridgeError::Other(
+            "این قلم دیگر در انتظار تصمیم نیست.".into(),
+        ));
+    }
     let s = settings(&state)?;
     let matcher = Matcher::new(state.db.clone(), SUPPLIER_ID, s.threshold);
     if decision.later {
@@ -370,6 +396,7 @@ pub async fn refresh_start(app: AppHandle, state: State<'_, AppState>) -> Result
     let s = settings(&state)?;
     let (_, _, store) = s.require_landau()?;
     s.require_supplier()?;
+    assert_no_active_job(&state.db)?;
     let job_id = state
         .db
         .create_job("REFRESH", None, None, store, s.overwrite_manual)?;
@@ -389,8 +416,31 @@ pub async fn refresh_start(app: AppHandle, state: State<'_, AppState>) -> Result
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn job_cancel(state: State<'_, AppState>, job_id: i64) -> Result<bool> {
-    Ok(state.jobs.cancel(job_id))
+pub async fn job_cancel(app: AppHandle, state: State<'_, AppState>, job_id: i64) -> Result<bool> {
+    if state.jobs.cancel(job_id) {
+        return Ok(true);
+    }
+    // No registry entry for a job paused in REVIEW; cancel its row directly.
+    let Some(job) = state.db.job(job_id)? else {
+        return Ok(false);
+    };
+    if job.status != "REVIEW" {
+        return Ok(false);
+    }
+    state.db.set_job_status(job_id, "CANCELLED", &job.phase)?;
+    state.db.add_job_event(
+        job_id,
+        "INFO",
+        &job.phase,
+        "عملیات به درخواست شما متوقف شد",
+        None,
+    )?;
+    jobs::emit_event(
+        &Some(app),
+        jobs::EVENT_DONE,
+        serde_json::json!({"job_id": job_id, "status": "CANCELLED"}),
+    );
+    Ok(true)
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -456,4 +506,23 @@ pub async fn open_log_folder(app: AppHandle, state: State<'_, AppState>) -> Resu
     app.opener()
         .open_path(dir.display().to_string(), None::<&str>)
         .map_err(|e| BridgeError::Other(e.to_string()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn assert_no_active_job_rejects_a_job_paused_in_review() {
+        let db = Db::in_memory().unwrap();
+        assert!(assert_no_active_job(&db).is_ok());
+        let job_id = db
+            .create_job("IMPORT", Some("ZERO"), None, "store1", false)
+            .unwrap();
+        db.set_job_status(job_id, "REVIEW", "MATCH").unwrap();
+        assert!(matches!(
+            assert_no_active_job(&db).unwrap_err(),
+            BridgeError::JobBusy(_)
+        ));
+    }
 }
