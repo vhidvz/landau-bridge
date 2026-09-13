@@ -188,7 +188,7 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
         "rows": all.len(),
         "linked": all.iter().filter(|i| !i.code.is_empty()).count(),
         "patched": all.iter().filter(|i| i.action.as_deref() == Some("PATCH")).count(),
-        "unchanged": all.iter().filter(|i| i.action.as_deref() == Some("SKIP") && i.status == "WRITTEN").count(),
+        "unchanged": all.iter().filter(|i| i.action.as_deref() == Some("SKIP") && i.status == "DONE").count(),
         "repriced": all.iter().filter(|i| i.reprice_verdict.as_deref().map(|v| v.starts_with("REPRICED:")).unwrap_or(false)).count(),
         "skipped": all.iter().filter(|i| i.status == "SKIPPED").count(),
         "failed": all.iter().filter(|i| i.status == "FAILED").count(),

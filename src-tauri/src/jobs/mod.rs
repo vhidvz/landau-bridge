@@ -387,6 +387,9 @@ pub async fn readback(
     items: &[(i64, String)],
 ) -> Result<()> {
     ctx.phase("REPORT")?;
+    if items.is_empty() {
+        return Ok(());
+    }
     tokio::time::sleep(Duration::from_secs(2)).await;
     let shelf = svc.landau.shelf(store).await?;
     for (item_id, stock_id) in items {

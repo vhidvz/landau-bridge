@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use serde_json::json;
 
-use super::planner::{aggregate, find_row, find_row_index, plan_write, WriteAction};
+use super::planner::{aggregate, find_row, plan_write, WriteAction};
 use super::{cost_for, fatal, i, opt_i, preflight, readback, reprice_items, t, JobCtx, Services};
 use crate::domain::{Authenticity, ImportMode};
 use crate::errors::{kinds, BridgeError, Result};
@@ -359,8 +359,7 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
             .as_deref()
             .and_then(Authenticity::parse)
             .unwrap_or(svc.settings.default_authenticity);
-        let idx = find_row_index(&shelf, &product, authenticity.as_str());
-        let existing = idx.map(|pos| &shelf[pos]);
+        let existing = find_row(&shelf, &product, authenticity.as_str());
         let action = plan_write(existing, item.qty, mode);
         // stock_id, qty_before, qty_after, price_before, action verb
         #[allow(clippy::type_complexity)]
@@ -449,6 +448,18 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                         shelf[pos].cost = Some(cost);
                     }
                 }
+                // the transfer guard is written first, before the item is stamped WRITTEN: if
+                // the process dies between the two SQLite writes, the guard alone is enough to
+                // stop a re-aggregation from double-adding this (invoice, code) pair next run —
+                // an orphaned guard only loses this item's report status, never inventory.
+                if mode == ImportMode::Quantity {
+                    let lines: Vec<(i64, String)> = item
+                        .invoice_ids
+                        .iter()
+                        .map(|invoice_id| (*invoice_id, item.code.clone()))
+                        .collect();
+                    ctx.db.mark_lines_imported(&lines, ctx.job_id)?;
+                }
                 ctx.item(
                     item.id,
                     &[
@@ -462,16 +473,6 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                     ],
                 )?;
                 written.push((item.id, stock_id));
-                // the transfer guard is written as each item is written, not deferred to the
-                // report step, so a failure or cancel after this point cannot double-add.
-                if mode == ImportMode::Quantity {
-                    let lines: Vec<(i64, String)> = item
-                        .invoice_ids
-                        .iter()
-                        .map(|invoice_id| (*invoice_id, item.code.clone()))
-                        .collect();
-                    ctx.db.mark_lines_imported(&lines, ctx.job_id)?;
-                }
             }
             Err(e) if fatal(&e) => return Err(e),
             Err(e) => {
