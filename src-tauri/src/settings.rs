@@ -8,8 +8,8 @@ use crate::errors::{BridgeError, Result};
 use crate::secrets::{SecretKey, SecretStore};
 use crate::supplier::Credentials;
 
-/// Replaced by the calibrated value in Task 10 (docs/matching-threshold.md).
-pub const DEFAULT_THRESHOLD: u8 = 80;
+/// Calibrated 2026-09-13 — see docs/matching-threshold.md.
+pub const DEFAULT_THRESHOLD: u8 = 85;
 pub const DEFAULT_VAT_PERCENT: f64 = 10.0;
 pub const SUPPLIER_ID: &str = "barezpakhsh";
 

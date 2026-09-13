@@ -15,7 +15,7 @@ use crate::db::Db;
 use crate::errors::Result;
 use crate::landau::{Candidate, RegistryPage};
 use normalize::{key_text, search_term};
-use similarity::token_set_ratio;
+use similarity::token_jaccard;
 
 /// Candidates shown on the review screen.
 pub const CANDIDATES: usize = 10;
@@ -49,12 +49,21 @@ pub enum Decision {
     Review(Vec<Scored>),
 }
 
-/// Best of the candidate's name and each `" | "`-separated alias.
+/// Best token-set Jaccard of the term against the name, the name with its brand, and each alias
+/// (with and without the brand) — the brand often appears in the invoice name and not in the
+/// registry name.
 pub fn similarity_of(term: &str, c: &Candidate) -> u8 {
-    let mut best = token_set_ratio(term, &c.name);
+    let brand = c.brand.as_deref().filter(|b| !b.is_empty());
+    let mut best = token_jaccard(term, &c.name);
+    if let Some(brand) = brand {
+        best = best.max(token_jaccard(term, &format!("{} {brand}", c.name)));
+    }
     if let Some(alias) = &c.alias {
         for a in alias.split('|').map(str::trim).filter(|a| !a.is_empty()) {
-            best = best.max(token_set_ratio(term, a));
+            best = best.max(token_jaccard(term, a));
+            if let Some(brand) = brand {
+                best = best.max(token_jaccard(term, &format!("{a} {brand}")));
+            }
         }
     }
     best
@@ -196,8 +205,11 @@ impl Matcher {
         let term = search_term(name, code);
         let hits = candidates(search, &term).await?;
         let scored = score(&term, &hits);
+        let tied = scored.len() >= 2
+            && scored[1].similarity == scored[0].similarity
+            && scored[1].candidate.id != scored[0].candidate.id;
         if let Some(top) = scored.first() {
-            if top.similarity >= self.threshold {
+            if top.similarity >= self.threshold && !tied {
                 self.db.set_match(
                     &self.supplier,
                     code,
@@ -290,7 +302,8 @@ mod tests {
         let scored = score("لنت جلو پراید", &hits);
         assert_eq!(scored[0].candidate.id, "b");
         assert_eq!(scored[0].similarity, 100);
-        assert!(scored[1].similarity >= 80);
+        // "c"'s alias «لنت جلو پراید ABS» shares 3 of the union's 4 tokens with the term (Jaccard).
+        assert_eq!(scored[1].similarity, 75);
         assert_eq!(scored[2].candidate.id, "a");
     }
 
@@ -407,6 +420,43 @@ mod tests {
         let d2 = m.decide(&search, "111", "anything").await.unwrap();
         assert!(matches!(d2, Decision::Matched { .. }));
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), first);
+    }
+
+    #[tokio::test]
+    async fn a_tie_between_two_candidates_goes_to_review() {
+        // Same name under two brands; the invoice names no brand, so nothing breaks the tie.
+        let db = Db::in_memory().unwrap();
+        let m = Matcher::new(db, "barezpakhsh", 90);
+        let search = |q: String, _: usize, _: usize| {
+            let items = if q == "لنت جلو پراید" {
+                vec![
+                    Candidate {
+                        id: "p1".into(),
+                        name: "لنت جلو پراید".into(),
+                        alias: None,
+                        brand: Some("برند الف".into()),
+                        score: 0.0,
+                    },
+                    Candidate {
+                        id: "p2".into(),
+                        name: "لنت جلو پراید".into(),
+                        alias: None,
+                        brand: Some("برند ب".into()),
+                        score: 0.0,
+                    },
+                ]
+            } else {
+                Vec::new()
+            };
+            let total = items.len();
+            std::future::ready(Ok(RegistryPage { total, items }))
+        };
+        let d = m.decide(&search, "444", "لنت جلو پراید").await.unwrap();
+        let Decision::Review(scored) = d else {
+            panic!("expected review, both candidates tie at 100")
+        };
+        assert_eq!(scored[0].similarity, 100);
+        assert_eq!(scored[1].similarity, 100);
     }
 
     #[tokio::test]
