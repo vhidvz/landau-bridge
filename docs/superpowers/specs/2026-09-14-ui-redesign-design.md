@@ -53,7 +53,7 @@ Semantic surfaces (`--ui-*` overrides; Nuxt UI's `bg-default` is the **surface**
 | `--ui-text` (body) | `#27404D` petrol-800 | `#E6EEF2` |
 | `--ui-text-muted` | `#5B6B74` petrol-600 | `#8FA3AE` petrol-400 |
 | `--ui-primary` (button fill, link) | firoozeh-600 | firoozeh-400 (with dark text) |
-| `--ui-success` / `--ui-warning` / `--ui-error` / `--ui-neutral` (badge text) | sabz-700 / zaferan-800 / sorkh-600 / petrol-600 | sabz-400 / zaferan-300 / sorkh-400 / petrol-400 |
+| `--ui-success` / `--ui-warning` / `--ui-error` / `--ui-neutral` (badge text) | sabz-700 / zaferan-800 / sorkh-600 / petrol-600 | sabz-400 / zaferan-300 / sorkh-300 / petrol-400 |
 
 The 500 stops are the brand hues; the shades Nuxt UI uses for text and fills are shifted as above
 so every pair clears 4.5:1 (white on firoozeh-500 alone is 4.0:1).

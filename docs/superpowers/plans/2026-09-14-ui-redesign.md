@@ -180,7 +180,7 @@ describe('palette', () => {
     atLeast(firoozeh['400']!, DARK.surface, 4.5);
     atLeast(zaferan['300']!, DARK.surface, 4.5);
     atLeast(sabz['400']!, DARK.surface, 4.5);
-    atLeast(sorkh['400']!, DARK.surface, 4.5);
+    atLeast(sorkh['300']!, DARK.surface, 4.5);
     // borders against both pages
     atLeast(petrol['200']!, LIGHT.page, 1.2);
     atLeast(petrol['800']!, DARK.page, 1.2);
@@ -322,7 +322,7 @@ Expected: FAIL — scales have 0 stops (main.css has no `--color-firoozeh-*` yet
   --ui-success: var(--ui-color-success-400);
   --ui-info: var(--ui-color-info-400);
   --ui-warning: var(--ui-color-warning-300);
-  --ui-error: var(--ui-color-error-400);
+  --ui-error: var(--ui-color-error-300);
   --ui-neutral: var(--ui-color-neutral-400);
 }
 
