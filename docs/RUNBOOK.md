@@ -28,6 +28,9 @@
 - Data: `~/.local/share/ir.landau.bridge/` (Linux) — `bridge.sqlite`, `logs/bridge.log.<date>`, `secrets.json` only when no keyring.
 - If the app was run before a schema change, delete `bridge.sqlite*` in the data dir (`bridge.sqlite`, `-wal`, `-shm`) — the app recreates it on next launch. A database created after the final schema needs no such reset.
 
+## Design review without Tauri
+To look at the pages without Tauri: `pnpm dev`, open `http://localhost:3210/?state=done&mode=dark` (`state` = `empty|running|review|done`; fixtures in `app/dev/mockBridge.ts`); `scripts/shots.sh OUT_DIR` screenshots every page in both modes.
+
 ## Facts worth knowing before debugging
 - A fresh apt answers `401` for a few seconds until the CDC watcher lands it.
 - Shelf reads lag writes by ~1 s (mirror); the jobs wait up to 15 s before repricing.
