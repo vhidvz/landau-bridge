@@ -35,8 +35,10 @@ Three scales, 50–950, defined once as hex (Tailwind names in parentheses):
 - **petrol** (`neutral`; a blue-tinted grey, never pure grey): 50 `#F2F5F7`, 100 `#E9EEF1`, 200 `#D5DDE2`,
   300 `#B4C2CA`, 400 `#8FA3AE`, 500 `#6B808B`, 600 `#5B6B74`, 700 `#3C4C55`, 800 `#27404D`, 900 `#152530`,
   950 `#0E1B24`.
-- `success`: Tailwind `emerald` re-based on `#2E9E6B` at 500 (own scale, same 11 stops). `error`: own scale
-  around `#D14343`.
+- **success**: 50 `#E9F7F0`, 100 `#CDEEDD`, 200 `#9FDDBE`, 300 `#6CC79A`, 400 `#45B37F`, 500 `#2E9E6B`,
+  600 `#248257`, 700 `#1C6745`, 800 `#154F35`, 900 `#0F3A27`, 950 `#082418`.
+- **error**: 50 `#FCEDED`, 100 `#F8D6D6`, 200 `#F1ACAC`, 300 `#E77E7E`, 400 `#DD5C5C`, 500 `#D14343`,
+  600 `#B13333`, 700 `#8E2828`, 800 `#6C1F1F`, 900 `#4C1616`, 950 `#2E0D0D`.
 
 Semantic surfaces (`--ui-*` overrides):
 
@@ -199,7 +201,8 @@ REPRICE, REPORT (`src-tauri/src/jobs/refresh.rs`, `jobs/mod.rs`). Today all nine
 
 - Header, `#actions` = «باز کردن پوشه لاگ» + «تازه‌سازی».
 - `UTabs` with two tabs «عملیات‌ها (N)» / «خطاها و هشدارها (N)».
-- Jobs tab: list (left column in LTR terms = end side) and a detail panel; the selected job row is
+- Jobs tab: the jobs list on the start side and the detail panel on the end side (two columns ≥ 1024 px,
+  stacked below); the selected job row is
   highlighted with firoozeh-50/900 + start border 3 px firoozeh-500. Detail: summary in a collapsed
   `<details>` («خلاصهٔ خام»), events list with a level dot (INFO petrol-400, WARN zaferan-500, ERROR
   error-500), then `ReportTable`.
