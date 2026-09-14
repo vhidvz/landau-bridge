@@ -101,6 +101,21 @@ impl Client {
         BridgeError::SupplierUnreachable(e.without_url().to_string())
     }
 
+    /// The status reqwest ends on after following redirects. Anything but a 2xx that survived
+    /// the retries (a 401, a 403 without the block page, a 5xx on the last attempt) is the site
+    /// failing to answer, not a page to parse. The login flow keeps reading the *final URL* to
+    /// tell a successful login (redirected to `/Shop`) from a 200 login page (bad credentials);
+    /// both are 2xx and pass here.
+    fn check_status(path: &str, status: reqwest::StatusCode) -> Result<()> {
+        if status.is_success() {
+            Ok(())
+        } else {
+            Err(BridgeError::SupplierUnreachable(format!(
+                "{path} answered {status}"
+            )))
+        }
+    }
+
     /// Sends a request built fresh on each attempt (so a form/JSON body can be resent),
     /// retrying per [`retryable`]. Never interprets the response itself — block detection,
     /// session-expiry detection and success handling all stay with the caller.
@@ -144,6 +159,7 @@ impl Client {
         if status.as_u16() == 403 && parse::is_blocked_page(&body) {
             return Err(BridgeError::SupplierBlocked);
         }
+        Self::check_status(path, status)?;
         Ok((url, body))
     }
 
@@ -159,6 +175,7 @@ impl Client {
         if status.as_u16() == 403 && parse::is_blocked_page(&body) {
             return Err(BridgeError::SupplierBlocked);
         }
+        Self::check_status(path, status)?;
         Ok((url, body))
     }
 
@@ -180,11 +197,7 @@ impl Client {
         if status.as_u16() == 403 && parse::is_blocked_page(&text) {
             return Err(BridgeError::SupplierBlocked);
         }
-        if !status.is_success() {
-            return Err(BridgeError::SupplierUnreachable(format!(
-                "{path} answered {status}"
-            )));
-        }
+        Self::check_status(path, status)?;
         Ok(text)
     }
 
@@ -403,6 +416,28 @@ mod tests {
             date_iso: String::new(),
             paid: true,
             url: String::new(),
+        }
+    }
+
+    #[test]
+    fn a_non_2xx_final_status_is_unreachable_and_a_2xx_passes() {
+        use reqwest::StatusCode;
+        assert!(Client::check_status("/x", StatusCode::OK).is_ok());
+        assert!(Client::check_status("/x", StatusCode::NO_CONTENT).is_ok());
+        for code in [
+            StatusCode::UNAUTHORIZED,
+            StatusCode::FORBIDDEN,
+            StatusCode::NOT_FOUND,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::BAD_GATEWAY,
+        ] {
+            match Client::check_status("/Shop/Report/Bill", code) {
+                Err(BridgeError::SupplierUnreachable(detail)) => {
+                    assert!(detail.contains("/Shop/Report/Bill"), "{detail}");
+                    assert!(detail.contains(&code.as_u16().to_string()), "{detail}");
+                }
+                other => panic!("{code}: {other:?}"),
+            }
         }
     }
 
