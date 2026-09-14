@@ -34,7 +34,7 @@
 - Modify: `app/assets/css/main.css`
 - Create: `app/app.config.ts`
 - Modify: `nuxt.config.ts`
-- Modify: `src-tauri/tauri.conf.json`
+- Modify: `src-tauri/tauri.conf.json`, `package.json` (add `@types/node` devDependency)
 - Create: `app/utils/color.ts`, `app/utils/color.spec.ts`, `app/utils/palette.spec.ts`
 
 **Interfaces:**
@@ -108,9 +108,12 @@ Expected: PASS (3 tests).
 
 - [ ] **Step 5: Write the failing palette test**
 
-`app/utils/palette.spec.ts` reads the real stylesheet so the numbers in the spec are enforced, not copied:
+`app/utils/palette.spec.ts` reads the real stylesheet so the numbers in the spec are enforced, not copied.
+`nuxt typecheck` covers spec files with `types: []`, so a spec that uses `node:` modules needs
+`@types/node` (`pnpm add -D @types/node`) and a triple-slash reference — never `@ts-nocheck`:
 
 ```ts
+/// <reference types="node" />
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -181,7 +184,10 @@ describe('palette', () => {
     atLeast(zaferan['300']!, DARK.surface, 4.5);
     atLeast(sabz['400']!, DARK.surface, 4.5);
     atLeast(sorkh['300']!, DARK.surface, 4.5);
-    // borders against both pages
+    // control outlines (--ui-border-accented) must identify the control: WCAG 1.4.11
+    atLeast(petrol['500']!, LIGHT.surface, 3);
+    atLeast(petrol['500']!, DARK.surface, 3);
+    // decorative dividers only need to be visible; the surface fill does the separating
     atLeast(petrol['200']!, LIGHT.page, 1.2);
     atLeast(petrol['800']!, DARK.page, 1.2);
   });
@@ -285,7 +291,7 @@ Expected: FAIL — scales have 0 stops (main.css has no `--color-firoozeh-*` yet
   --ui-bg-inverted: var(--color-petrol-900);
   --ui-border: var(--color-petrol-200);
   --ui-border-muted: var(--color-petrol-100);
-  --ui-border-accented: var(--color-petrol-300);
+  --ui-border-accented: var(--color-petrol-500);
   --ui-text-highlighted: #13232C;
   --ui-text: var(--color-petrol-800);
   --ui-text-toned: var(--color-petrol-700);
@@ -311,7 +317,7 @@ Expected: FAIL — scales have 0 stops (main.css has no `--color-firoozeh-*` yet
   --ui-bg-inverted: #F3F7F9;
   --ui-border: var(--color-petrol-800);
   --ui-border-muted: #1F3440;
-  --ui-border-accented: var(--color-petrol-700);
+  --ui-border-accented: var(--color-petrol-500);
   --ui-text-highlighted: #F3F7F9;
   --ui-text: #E6EEF2;
   --ui-text-toned: #C6D4DB;
@@ -366,8 +372,8 @@ code, pre, kbd { font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Me
   .segmented-btn:hover { color: var(--ui-text-highlighted); }
   .segmented-btn[aria-checked="true"] { background: var(--ui-bg); color: var(--ui-text-highlighted); box-shadow: 0 1px 2px rgb(11 24 32 / 0.12); }
 
-  .ticket { position: relative; display: block; cursor: pointer; padding: 1.25rem; padding-inline-end: 3rem; border-radius: var(--radius-surface); background: var(--ui-bg); border: 1px solid var(--ui-border); transition: border-color 150ms, box-shadow 150ms; }
-  .ticket:hover { border-color: var(--ui-border-accented); }
+  .ticket { position: relative; display: block; cursor: pointer; padding: 1.25rem; padding-inline-end: 3rem; border-radius: var(--radius-surface); background: var(--ui-bg); border: 1px solid var(--ui-border-accented); transition: border-color 150ms, box-shadow 150ms; }
+  .ticket:hover { border-color: var(--color-firoozeh-400); }
   .ticket[data-selected="true"] { border-color: var(--color-firoozeh-500); box-shadow: inset 0 0 0 1px var(--color-firoozeh-500); }
   .ticket:has(input:focus-visible) { outline: 2px solid var(--color-zaferan-400); outline-offset: 2px; }
   .ticket-check { position: absolute; top: 1.25rem; inset-inline-end: 1.25rem; color: var(--color-firoozeh-500); }
@@ -1234,6 +1240,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 `app/utils/phases.spec.ts`:
 
 ```ts
+/// <reference types="node" />
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';

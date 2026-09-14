@@ -48,7 +48,8 @@ Semantic surfaces (`--ui-*` overrides; Nuxt UI's `bg-default` is the **surface**
 | `--ui-bg-muted` (page) | `#F2F5F7` petrol-50 | `#0E1B24` petrol-950 |
 | `--ui-bg` (surface / card) | `#FFFFFF` | `#152530` petrol-900 |
 | `--ui-bg-elevated` (table header, wells) | `#E9EEF1` petrol-100 | `#1C2F3B` |
-| `--ui-border` | `#D5DDE2` petrol-200 | `#27404D` petrol-800 |
+| `--ui-border` (decorative) | `#D5DDE2` petrol-200 | `#27404D` petrol-800 |
+| `--ui-border-accented` (control outlines) | `#6B808B` petrol-500 | `#6B808B` petrol-500 |
 | `--ui-text-highlighted` (headings) | `#13232C` | `#F3F7F9` |
 | `--ui-text` (body) | `#27404D` petrol-800 | `#E6EEF2` |
 | `--ui-text-muted` | `#5B6B74` petrol-600 | `#8FA3AE` petrol-400 |
@@ -63,7 +64,10 @@ pattern (inline SVG, 6 % white); text `#C6D4DB`; hover `rgba(255,255,255,.08)`; 
 firoozeh-600 `#0C7383` (contrast 6.1:1). Saffron appears only in: the logo dots, the hero arch, the
 current pier of the progress stepper, and `warning` semantics.
 
-Contrast floor: 4.5:1 for all text, 3:1 for large text and UI borders. Every page must be checked in
+Contrast floor: 4.5:1 for all text; 3:1 for large text and for boundaries that identify a control
+(input and select outlines, the ticket radio cards, checklist rings) — `--ui-border-accented` is
+petrol-500 in both modes for that reason. Decorative dividers and surface outlines (petrol-200 /
+petrol-800) are exempt: the surface fill already separates them. Every page must be checked in
 both modes.
 
 ### 2.2 Type
