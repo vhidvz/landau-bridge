@@ -406,7 +406,54 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                                         )
                                     })
                             }
-                            None => Err(BridgeError::DuplicateRow),
+                            // Not live either: a seller who removed this exact part earlier and is
+                            // now importing it again. Landau's uniqueness index on (product, store,
+                            // …) still holds the soft-deleted row, so a fresh attach 409s forever —
+                            // the row must be restored before it can be patched (spec §2.1
+                            // amendment, discovered live: "a removed stock row in this store still
+                            // holds this part; restore it instead of attaching a second one").
+                            None => {
+                                let trash = svc.landau.shelf_deleted(&store).await?;
+                                match find_row(&trash, &product, authenticity.as_str()) {
+                                    Some(removed) => {
+                                        let removed = removed.clone();
+                                        svc.landau.restore(&removed.id).await?;
+                                        let inv = (mode == ImportMode::Quantity)
+                                            .then_some(removed.inventory + item.qty);
+                                        let outcome = svc
+                                            .landau
+                                            .patch(
+                                                &removed.id,
+                                                &PatchBody {
+                                                    inventory: inv,
+                                                    cost: Some(cost),
+                                                },
+                                            )
+                                            .await
+                                            .map(|_| {
+                                                (
+                                                    removed.id.clone(),
+                                                    Some(removed.inventory),
+                                                    inv.or(Some(removed.inventory)),
+                                                    removed.price,
+                                                    "PATCH",
+                                                )
+                                            });
+                                        if outcome.is_ok() {
+                                            ctx.info(
+                                                "WRITE",
+                                                "ردیف حذف‌شده بازیابی شد.",
+                                                Some(
+                                                    json!({"item_id": item.id, "stock_id": removed.id}),
+                                                ),
+                                            );
+                                            shelf.push(removed);
+                                        }
+                                        outcome
+                                    }
+                                    None => Err(BridgeError::DuplicateRow),
+                                }
+                            }
                         }
                     }
                     Err(e) => Err(e),

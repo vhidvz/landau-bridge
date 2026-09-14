@@ -328,16 +328,22 @@ impl LandauClient {
             .collect())
     }
 
-    /// `GET /career/stocks/shelf?store=&limit=100&skip=` paged to `total`.
-    pub async fn shelf(&self, store: &str) -> Result<Vec<ShelfRow>> {
+    /// `GET /career/stocks/shelf?store=&limit=100&skip=` (`deleted=true` for the trash view),
+    /// paged to `total`.
+    async fn shelf_paged(&self, store: &str, deleted: bool) -> Result<Vec<ShelfRow>> {
         let mut rows = Vec::new();
         let mut skip = 0usize;
         loop {
             let mut url = self.url("career/stocks/shelf")?;
-            url.query_pairs_mut()
-                .append_pair("store", store)
-                .append_pair("limit", &SHELF_PAGE.to_string())
-                .append_pair("skip", &skip.to_string());
+            {
+                let mut q = url.query_pairs_mut();
+                q.append_pair("store", store)
+                    .append_pair("limit", &SHELF_PAGE.to_string())
+                    .append_pair("skip", &skip.to_string());
+                if deleted {
+                    q.append_pair("deleted", "true");
+                }
+            }
             let v = self.call_url(Method::GET, url, None).await?;
             let page = peel(&v);
             let items = page
@@ -353,6 +359,31 @@ impl LandauClient {
             }
         }
         Ok(rows)
+    }
+
+    pub async fn shelf(&self, store: &str) -> Result<Vec<ShelfRow>> {
+        self.shelf_paged(store, false).await
+    }
+
+    /// The seller's own trash — rows soft-deleted from this store (plan 26's "restore" side).
+    /// Landau's uniqueness index on `(product, store, …)` still holds a removed row, so a second
+    /// `attach` of the same tuple answers [`BridgeError::DuplicateRow`] until the row here is
+    /// [`LandauClient::restore`]d — see the WRITE phase's 409 handling in `jobs::import::commit`.
+    pub async fn shelf_deleted(&self, store: &str) -> Result<Vec<ShelfRow>> {
+        self.shelf_paged(store, true).await
+    }
+
+    /// `PUT /career/stocks/:id/restore` — puts a soft-deleted row back on the shelf. The reply
+    /// (the restored row) is ignored: the caller already has the row's fields from the trash read
+    /// that found it, and a following `patch` sets what changed.
+    pub async fn restore(&self, id: &str) -> Result<()> {
+        self.call(
+            Method::PUT,
+            &format!("/career/stocks/{id}/restore"),
+            Some(&json!({})),
+        )
+        .await
+        .map(|_| ())
     }
 
     /// The seller's picker (spec §13): a case-insensitive substring match over `name`/`alias`/

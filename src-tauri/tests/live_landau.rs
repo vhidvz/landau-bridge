@@ -4,6 +4,7 @@
 use std::time::Duration;
 
 use landau_bridge_lib::domain::Authenticity;
+use landau_bridge_lib::errors::BridgeError;
 use landau_bridge_lib::landau::{AttachBody, LandauClient, PatchBody};
 
 fn client() -> Option<(LandauClient, String)> {
@@ -51,22 +52,40 @@ async fn memberships_shelf_search_attach_patch_reprice_delete() {
         .filter(|r| r.authenticity.as_deref() == Some("FAKE"))
         .map(|r| r.product.clone())
         .collect();
-    let product = page
+    let mut candidates = page
         .items
         .iter()
-        .find(|h| !held.contains(&h.id))
-        .expect("an unstocked hit");
+        .filter(|h| !held.contains(&h.id))
+        .peekable();
+    assert!(candidates.peek().is_some(), "an unstocked hit");
 
-    let row = landau
-        .attach(&AttachBody {
-            product: product.id.clone(),
-            store: store.clone(),
-            inventory: 1,
-            cost: 150_000,
-            authenticity: Authenticity::Fake,
-        })
-        .await
-        .expect("attach");
+    // A store's earlier live run soft-deletes its attached row on cleanup, and Landau's own
+    // uniqueness index (product, store) never frees up on a soft delete — a second attach of the
+    // very same product 409s with "a removed stock row in this store still holds this part;
+    // restore it instead" until someone restores it. This repo has no route that lists or
+    // restores a row it does not already hold the id of, so a rerun against this same fixture
+    // store must simply move on to the next unstocked candidate — exactly how `jobs::import`
+    // itself already treats `DuplicateRow` (see `import.rs`'s attach arm) rather than treating it
+    // as fatal.
+    let (row, product) = loop {
+        let product = candidates.next().expect(
+            "every candidate in this search term was already attached-then-removed by a prior run",
+        );
+        match landau
+            .attach(&AttachBody {
+                product: product.id.clone(),
+                store: store.clone(),
+                inventory: 1,
+                cost: 150_000,
+                authenticity: Authenticity::Fake,
+            })
+            .await
+        {
+            Ok(row) => break (row, product),
+            Err(BridgeError::DuplicateRow) => continue,
+            Err(e) => panic!("attach: {e}"),
+        }
+    };
     assert_eq!(row.product, product.id);
 
     let missing = landau
