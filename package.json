@@ -28,5 +28,10 @@
     "typescript": "^5.9.3",
     "vitest": "^5.0.0",
     "vue-tsc": "^3.3.11"
-  }
+  },
+  "engines": {
+    "node": ">=22.x.x <23",
+    "npm": "~10.9.2"
+  },
+  "packageManager": "pnpm@10.5.2"
 }
