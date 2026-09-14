@@ -48,7 +48,7 @@ const dismissAppImage = async () => {
     <ErrorBanner :error="error" />
 
     <template v-if="dash">
-      <PageHeader :title="dash.store_name ?? 'پل لاندا'" description="پل بین فاکتورهای بارزپخش و قفسهٔ لاندا" />
+      <PageHeader kicker="داشبورد" :title="dash.store_name ?? 'پل لاندا'" lede="پل بین فاکتورهای بارزپخش و قفسهٔ لاندا" />
       <SetupChecklist v-if="!dash.settings_complete && settings" :settings="settings" />
       <BridgeHero v-else :dash="dash" />
 
@@ -84,6 +84,6 @@ const dismissAppImage = async () => {
         </div>
       </section>
     </template>
-    <PageHeader v-else title="پل لاندا" description="پل بین فاکتورهای بارزپخش و قفسهٔ لاندا" />
+    <PageHeader v-else kicker="داشبورد" title="پل لاندا" lede="پل بین فاکتورهای بارزپخش و قفسهٔ لاندا" />
   </div>
 </template>

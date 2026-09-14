@@ -43,7 +43,7 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
 
 <template>
   <div>
-    <PageHeader title="به‌روزرسانی قیمت‌های قفسه" description="قیمت خرید هر ردیف از قیمت روز بارزپخش تازه می‌شود و قواعد قیمت‌گذاری لاندا دوباره اجرا می‌شود.">
+    <PageHeader kicker="به‌روزرسانی قیمت‌ها" title="به‌روزرسانی قیمت‌های قفسه" lede="قیمت خرید هر ردیف از قیمت روز بارزپخش تازه می‌شود و قواعد قیمت‌گذاری لاندا دوباره اجرا می‌شود.">
       <template #actions>
         <UButton v-if="active" color="error" variant="soft" icon="i-lucide-square" @click="cancel">توقف</UButton>
       </template>

@@ -37,7 +37,7 @@ const kindLabelOf = (j: JobRow) => (j.kind === 'IMPORT' ? `وارد کردن (${
 
 <template>
   <div>
-    <PageHeader title="گزارش و خطاها" description="هر عملیات با رویدادها و ردیف‌هایش، و هر خطا یا هشداری که ثبت شده.">
+    <PageHeader kicker="عملیات‌ها" title="گزارش و خطاها" lede="هر عملیات با رویدادها و ردیف‌هایش، و هر خطا یا هشداری که ثبت شده.">
       <template #actions>
         <UButton variant="ghost" icon="i-lucide-rotate-cw" @click="load">تازه‌سازی</UButton>
         <UButton variant="soft" icon="i-lucide-folder-open" @click="openFolder">باز کردن پوشهٔ لاگ</UButton>

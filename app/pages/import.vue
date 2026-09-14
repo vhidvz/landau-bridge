@@ -75,7 +75,7 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
 
 <template>
   <div>
-    <PageHeader title="وارد کردن فاکتورهای بارزپخش" description="فاکتورهای پرداخت‌شده خوانده می‌شود، هر قلم به قطعهٔ لاندا وصل می‌شود و با قیمت روز روی قفسه می‌نشیند.">
+    <PageHeader kicker="وارد کردن فاکتورها" title="وارد کردن فاکتورهای بارزپخش" lede="فاکتورهای پرداخت‌شده خوانده می‌شود، هر قلم به قطعهٔ لاندا وصل می‌شود و با قیمت روز روی قفسه می‌نشیند.">
       <template #actions>
         <UButton v-if="active" color="error" variant="soft" icon="i-lucide-square" @click="cancel">توقف</UButton>
       </template>

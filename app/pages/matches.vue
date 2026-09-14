@@ -50,7 +50,7 @@ const clear = async () => {
 
 <template>
   <div>
-    <PageHeader title="تطبیق‌های ثبت‌شده" description="هر کد بارزپخش یک بار به یک قطعهٔ لاندا وصل می‌شود و دیگر پرسیده نمی‌شود." />
+    <PageHeader kicker="تطبیق‌ها" title="تطبیق‌های ثبت‌شده" lede="هر کد بارزپخش یک بار به یک قطعهٔ لاندا وصل می‌شود و دیگر پرسیده نمی‌شود." />
     <ErrorBanner :error="error" />
 
     <div class="mb-4 flex flex-wrap items-center gap-3">

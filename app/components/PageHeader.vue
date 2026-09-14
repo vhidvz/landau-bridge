@@ -1,13 +1,14 @@
 <script setup lang="ts">
-defineProps<{ title: string; description?: string }>();
+defineProps<{ kicker: string; title: string; lede?: string }>();
 </script>
 
 <template>
-  <header class="mb-8 flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
-    <div class="min-w-0">
-      <h1 class="text-[2.1333rem] leading-tight">{{ title }}</h1>
-      <p v-if="description" class="mt-1 max-w-prose text-muted">{{ description }}</p>
+  <header class="mb-10">
+    <p class="kicker mb-3" data-reveal>{{ kicker }}</p>
+    <h1 class="display text-[2.4rem] leading-[1.2] text-paper" data-reveal>{{ title }}</h1>
+    <div class="mt-4 flex items-end justify-between gap-6">
+      <p v-if="lede" class="max-w-[58ch] text-[0.95rem] leading-relaxed text-paper-dim" data-reveal>{{ lede }}</p>
+      <div v-if="$slots.actions" class="ms-auto flex shrink-0 items-center gap-2" data-reveal><slot name="actions" /></div>
     </div>
-    <div v-if="$slots.actions" class="flex shrink-0 items-center gap-2"><slot name="actions" /></div>
   </header>
 </template>

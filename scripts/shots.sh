@@ -13,8 +13,10 @@ for p in $pages; do
   case "$p" in *"$filter"*) ;; *) continue ;; esac
   name=$(printf '%s' "$p" | tr '/?=&' '____' | sed 's/^_//; s/^$/root/')
   [ -n "$grid" ] && name="$name-grid"
+  fx=""
+  case "$p" in *fx=*) ;; *) fx="&fx=full" ;; esac
   google-chrome-stable --headless=new --no-proxy-server --disable-gpu --hide-scrollbars --no-sandbox \
     --window-size=1200,800 --virtual-time-budget=6000 --force-device-scale-factor=1 --force-prefers-reduced-motion \
-    --screenshot="$out/$name.png" "http://localhost:3210$p$grid" >/dev/null 2>&1
+    --screenshot="$out/$name.png" "http://localhost:3210$p$fx$grid" >/dev/null 2>&1
   echo "$out/$name.png"
 done

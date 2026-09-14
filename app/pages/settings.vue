@@ -73,7 +73,7 @@ const authItems = [{ label: 'اصلی (ORIGINAL)', value: 'ORIGINAL' }, { label:
 
 <template>
   <div class="mx-auto max-w-3xl">
-    <PageHeader title="تنظیمات" description="اتصال‌ها و قواعد وارد کردن." />
+    <PageHeader kicker="تنظیمات" title="تنظیمات" lede="اتصال‌ها و قواعد وارد کردن." />
     <ErrorBanner :error="error" />
 
     <div class="surface divide-y divide-default">
