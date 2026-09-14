@@ -5,6 +5,7 @@ export default defineNuxtConfig({
   devtools: { enabled: false },
   modules: ['@nuxt/ui'],
   css: ['~/assets/css/main.css'],
+  plugins: process.env.NODE_ENV === 'development' ? ['~/dev/devQuery.client'] : [],
   // A desktop app under a strict CSP: every icon the pages and Nuxt UI use is bundled at build
   // time from the local lucide collection; nothing is fetched from api.iconify.design at runtime.
   icon: {

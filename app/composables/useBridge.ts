@@ -8,8 +8,13 @@ import type {
 export const isBridgeError = (e: unknown): e is BridgeError =>
   typeof e === 'object' && e !== null && 'kind' in e && 'message' in e;
 
+// In `pnpm dev` opened in a plain browser there is no Tauri runtime; the fixtures in app/dev
+// stand in so the pages can be looked at. The branch is dead code in the production build.
+const useMock = import.meta.dev && typeof window !== 'undefined' && !('__TAURI_INTERNALS__' in window);
+
 /** One place every command goes through; a Rust `BridgeError` arrives as a typed rejection. */
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
+  if (useMock) return (await import('~/dev/mockBridge')).mockCall<T>(cmd, args);
   try {
     return await invoke<T>(cmd, args);
   } catch (e) {
@@ -52,6 +57,7 @@ export interface JobHandlers {
 
 /** Subscribe to the three job events; returns one function that unsubscribes all. */
 export async function onJobEvents(h: JobHandlers): Promise<UnlistenFn> {
+  if (useMock) return (await import('~/dev/mockBridge')).mockEvents(h);
   const offs: UnlistenFn[] = [];
   if (h.progress) offs.push(await listen<Progress>('job://progress', (e) => h.progress!(e.payload)));
   if (h.event) offs.push(await listen<JobEvent>('job://event', (e) => h.event!(e.payload)));
