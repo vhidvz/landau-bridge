@@ -9,3 +9,5 @@ src-tauri/gen/schemas
 *.log
 .DS_Store
 .vitest/
+src-tauri/icons/android/
+src-tauri/icons/ios/
