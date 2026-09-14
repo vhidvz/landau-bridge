@@ -5,11 +5,11 @@ use std::collections::HashSet;
 
 use serde_json::json;
 
-use super::planner::{aggregate, find_row, plan_write, WriteAction};
+use super::planner::{aggregate, find_row, floored, plan_write, shortfall, WriteAction};
 use super::{cost_for, fatal, i, opt_i, preflight, readback, reprice_items, t, JobCtx, Services};
 use crate::domain::{Authenticity, ImportMode};
 use crate::errors::{kinds, BridgeError, Result};
-use crate::landau::{AttachBody, PatchBody};
+use crate::landau::{AttachBody, PatchBody, ShelfRow};
 use crate::matching::{Decision, Matcher};
 use crate::settings::SUPPLIER_ID;
 use crate::supplier::Progress;
@@ -170,17 +170,6 @@ fn aggregate_phase(ctx: &JobCtx, params: &ImportParams) -> Result<()> {
                 t(&serde_json::to_string(&item.invoice_ids)?),
             )],
         )?;
-        if item.negative {
-            ctx.warn(
-                "AGGREGATE",
-                kinds::NEGATIVE_QUANTITY,
-                &format!(
-                    "«{}»: مرجوعی‌ها بیشتر از خرید بود؛ تعداد صفر منظور شد.",
-                    item.name
-                ),
-                Some(json!({"item_id": id})),
-            );
-        }
         invoice_ids.extend(item.invoice_ids.iter().copied());
     }
     let mut ids: Vec<i64> = invoice_ids.into_iter().collect();
@@ -361,9 +350,7 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
             .unwrap_or(svc.settings.default_authenticity);
         let existing = find_row(&shelf, &product, authenticity.as_str());
         let action = plan_write(existing, item.qty, mode);
-        // stock_id, qty_before, qty_after, price_before, action verb
-        #[allow(clippy::type_complexity)]
-        let result: Result<(String, Option<i64>, Option<i64>, Option<i64>, &str)> = match &action {
+        let result: Result<Written> = match &action {
             WriteAction::Attach { inventory } => {
                 match svc
                     .landau
@@ -378,15 +365,26 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                 {
                     Ok(row) => {
                         shelf.push(row.clone());
-                        Ok((row.id, None, Some(*inventory), None, "ATTACH"))
+                        Ok(Written {
+                            stock_id: row.id,
+                            qty_before: None,
+                            qty_after: Some(*inventory),
+                            price_before: None,
+                            verb: "ATTACH",
+                            shortfall: shortfall(0, item.qty),
+                        })
                     }
                     Err(BridgeError::DuplicateRow) => {
-                        // the mirror lagged behind a row that exists: re-read and patch instead
-                        shelf = svc.landau.shelf(&store).await?;
-                        match find_row(&shelf, &product, authenticity.as_str()) {
+                        // The mirror lagged behind a row that exists: re-read the live shelf and
+                        // patch that row instead. Only the row found is merged into the local
+                        // shelf — replacing the whole mirror would drop the figures this run has
+                        // already written to sibling rows the lagging read does not show yet.
+                        let fresh = svc.landau.shelf(&store).await?;
+                        match find_row(&fresh, &product, authenticity.as_str()).cloned() {
                             Some(row) => {
+                                merge_row(&mut shelf, row.clone());
                                 let inv = (mode == ImportMode::Quantity)
-                                    .then_some(row.inventory + item.qty);
+                                    .then_some(floored(row.inventory, item.qty));
                                 svc.landau
                                     .patch(
                                         &row.id,
@@ -396,14 +394,13 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                                         },
                                     )
                                     .await
-                                    .map(|_| {
-                                        (
-                                            row.id.clone(),
-                                            Some(row.inventory),
-                                            inv.or(Some(row.inventory)),
-                                            row.price,
-                                            "PATCH",
-                                        )
+                                    .map(|_| Written {
+                                        stock_id: row.id.clone(),
+                                        qty_before: Some(row.inventory),
+                                        qty_after: inv.or(Some(row.inventory)),
+                                        price_before: row.price,
+                                        verb: "PATCH",
+                                        shortfall: shortfall(row.inventory, item.qty),
                                     })
                             }
                             // Not live either: a seller who removed this exact part earlier and is
@@ -412,32 +409,36 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                             // the row must be restored before it can be patched (spec §2.1
                             // amendment, discovered live: "a removed stock row in this store still
                             // holds this part; restore it instead of attaching a second one").
+                            // A restored row is a fresh attach: whatever it held when it was removed
+                            // is gone from the seller's point of view, so its inventory is set to
+                            // this run's quantity (zero in zero mode), not added to.
                             None => {
                                 let trash = svc.landau.shelf_deleted(&store).await?;
-                                match find_row(&trash, &product, authenticity.as_str()) {
+                                match find_row(&trash, &product, authenticity.as_str()).cloned() {
                                     Some(removed) => {
-                                        let removed = removed.clone();
                                         svc.landau.restore(&removed.id).await?;
-                                        let inv = (mode == ImportMode::Quantity)
-                                            .then_some(removed.inventory + item.qty);
+                                        let inv = if mode == ImportMode::Quantity {
+                                            floored(0, item.qty)
+                                        } else {
+                                            0
+                                        };
                                         let outcome = svc
                                             .landau
                                             .patch(
                                                 &removed.id,
                                                 &PatchBody {
-                                                    inventory: inv,
+                                                    inventory: Some(inv),
                                                     cost: Some(cost),
                                                 },
                                             )
                                             .await
-                                            .map(|_| {
-                                                (
-                                                    removed.id.clone(),
-                                                    Some(removed.inventory),
-                                                    inv.or(Some(removed.inventory)),
-                                                    removed.price,
-                                                    "PATCH",
-                                                )
+                                            .map(|_| Written {
+                                                stock_id: removed.id.clone(),
+                                                qty_before: Some(removed.inventory),
+                                                qty_after: Some(inv),
+                                                price_before: removed.price,
+                                                verb: "PATCH",
+                                                shortfall: shortfall(0, item.qty),
                                             });
                                         if outcome.is_ok() {
                                             ctx.info(
@@ -447,7 +448,10 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                                                     json!({"item_id": item.id, "stock_id": removed.id}),
                                                 ),
                                             );
-                                            shelf.push(removed);
+                                            let mut restored = removed;
+                                            restored.inventory = inv;
+                                            restored.cost = Some(cost);
+                                            merge_row(&mut shelf, restored);
                                         }
                                         outcome
                                     }
@@ -474,19 +478,25 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                         },
                     )
                     .await
-                    .map(|_| {
-                        (
-                            stock_id.clone(),
-                            Some(*qty_before),
-                            inventory.or(Some(*qty_before)),
-                            price_before,
-                            "PATCH",
-                        )
+                    .map(|_| Written {
+                        stock_id: stock_id.clone(),
+                        qty_before: Some(*qty_before),
+                        qty_after: inventory.or(Some(*qty_before)),
+                        price_before,
+                        verb: "PATCH",
+                        shortfall: shortfall(*qty_before, item.qty),
                     })
             }
         };
         match result {
-            Ok((stock_id, before, after, price_before, verb)) => {
+            Ok(Written {
+                stock_id,
+                qty_before: before,
+                qty_after: after,
+                price_before,
+                verb,
+                shortfall: short,
+            }) => {
                 // keep the local mirror current: a second item mapped to the same
                 // (product, authenticity) tuple must see this write, not the stale figure.
                 if let Some(new_qty) = after {
@@ -494,6 +504,17 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                         shelf[pos].inventory = new_qty;
                         shelf[pos].cost = Some(cost);
                     }
+                }
+                if mode == ImportMode::Quantity && short > 0 {
+                    ctx.warn(
+                        "WRITE",
+                        kinds::NEGATIVE_QUANTITY,
+                        &format!(
+                            "«{}»: مرجوعی‌ها {short} عدد بیشتر از موجودی قفسه بود؛ موجودی صفر شد.",
+                            item.name
+                        ),
+                        Some(json!({"item_id": item.id, "stock_id": stock_id, "shortfall": short, "qty": item.qty, "qty_before": before})),
+                    );
                 }
                 // the transfer guard is written first, before the item is stamped WRITTEN: if
                 // the process dies between the two SQLite writes, the guard alone is enough to
@@ -558,4 +579,55 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
     ctx.db.set_job_summary(ctx.job_id, &summary)?;
     ctx.info("REPORT", &summary.to_string(), None);
     Ok(())
+}
+
+/// What one successful shelf write left behind, for the item's report columns.
+struct Written {
+    stock_id: String,
+    qty_before: Option<i64>,
+    qty_after: Option<i64>,
+    price_before: Option<i64>,
+    verb: &'static str,
+    /// Units of a negative transfer the shelf could not absorb (0 unless the floor bit).
+    shortfall: i64,
+}
+
+/// Put a freshly read row into the local shelf mirror: replace the entry with the same id, or
+/// add it. Never replaces the whole mirror (see the 409 branch of `commit`).
+fn merge_row(shelf: &mut Vec<ShelfRow>, row: ShelfRow) {
+    match shelf.iter().position(|r| r.id == row.id) {
+        Some(pos) => shelf[pos] = row,
+        None => shelf.push(row),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(id: &str, inventory: i64) -> ShelfRow {
+        ShelfRow {
+            id: id.into(),
+            product: "p".into(),
+            product_name: None,
+            store: None,
+            inventory,
+            price: None,
+            cost: None,
+            condition: Some("NEW".into()),
+            authenticity: Some("ORIGINAL".into()),
+            price_source: None,
+        }
+    }
+
+    #[test]
+    fn merge_row_replaces_by_id_or_appends_and_keeps_the_rest() {
+        let mut shelf = vec![row("a", 1), row("b", 2)];
+        merge_row(&mut shelf, row("b", 7));
+        merge_row(&mut shelf, row("c", 3));
+        assert_eq!(shelf.len(), 3);
+        assert_eq!(shelf[0].inventory, 1, "untouched sibling keeps its figure");
+        assert_eq!(shelf[1].inventory, 7, "same id replaced in place");
+        assert_eq!(shelf[2].id, "c");
+    }
 }

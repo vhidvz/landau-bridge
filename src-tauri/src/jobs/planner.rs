@@ -11,10 +11,10 @@ pub struct AggregatedItem {
     pub code: String,
     /// The most recent invoice's spelling — the search term is built from it.
     pub name: String,
+    /// Signed net quantity: sales minus returns. Negative when returns exceeded purchases in
+    /// this run's window — a negative transfer that `plan_write` floors at zero on the shelf.
     pub qty: i64,
     pub invoice_ids: Vec<i64>,
-    /// Returns exceeded purchases; `qty` was clamped to 0.
-    pub negative: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -26,9 +26,11 @@ pub struct Aggregation {
 }
 
 /// Quantity mode: paid invoices dated on/after `since` and not transferred before, sales minus
-/// returns. The transfer guard is per `(invoice, code)` line, not per invoice — one code on an
-/// invoice can be guarded while a sibling code on the same invoice still transfers. Zero mode:
-/// every paid invoice, quantity 0. Lines are expected oldest first.
+/// returns — the net is kept signed, so a return arriving in a later run subtracts from what an
+/// earlier run added (spec §13, ruled: a net-negative item is a negative transfer). The transfer
+/// guard is per `(invoice, code)` line, not per invoice — one code on an invoice can be guarded
+/// while a sibling code on the same invoice still transfers. Zero mode: every paid invoice,
+/// quantity 0. Lines are expected oldest first.
 pub fn aggregate(
     lines: &[LineWithInvoice],
     mode: ImportMode,
@@ -72,7 +74,6 @@ pub fn aggregate(
                 name: l.name.clone(),
                 qty: 0,
                 invoice_ids: Vec::new(),
-                negative: false,
             });
         item.qty += signed;
         item.name = l.name.clone();
@@ -85,9 +86,6 @@ pub fn aggregate(
         .into_values()
         .map(|mut item| {
             if mode == ImportMode::Zero {
-                item.qty = 0;
-            } else if item.qty < 0 {
-                item.negative = true;
                 item.qty = 0;
             }
             item
@@ -133,15 +131,31 @@ pub fn find_row<'a>(
     find_row_index(shelf, product_id, authenticity).map(|i| &shelf[i])
 }
 
+/// The shelf inventory after adding a signed `qty` to `before`: never below zero (Landau rejects
+/// a negative inventory, and a return the shelf never received is not a debt).
+pub fn floored(before: i64, qty: i64) -> i64 {
+    (before + qty).max(0)
+}
+
+/// How far the floor bit: the part of a negative `qty` that `before` could not absorb (0 when
+/// nothing was clamped). Reported as a `NegativeQuantity` warning by the write phase.
+pub fn shortfall(before: i64, qty: i64) -> i64 {
+    (-(before + qty)).max(0)
+}
+
 pub fn plan_write(existing: Option<&ShelfRow>, qty: i64, mode: ImportMode) -> WriteAction {
     match existing {
         Some(row) => WriteAction::Patch {
             stock_id: row.id.clone(),
-            inventory: (mode == ImportMode::Quantity).then_some(row.inventory + qty),
+            inventory: (mode == ImportMode::Quantity).then_some(floored(row.inventory, qty)),
             qty_before: row.inventory,
         },
         None => WriteAction::Attach {
-            inventory: if mode == ImportMode::Quantity { qty } else { 0 },
+            inventory: if mode == ImportMode::Quantity {
+                floored(0, qty)
+            } else {
+                0
+            },
         },
     }
 }
@@ -264,14 +278,56 @@ mod tests {
     }
 
     #[test]
-    fn net_negative_becomes_zero_and_is_flagged() {
+    fn net_negative_stays_signed_in_the_aggregation() {
         let lines = vec![
             line(1, InvoiceKind::Sale, true, "1403/01/01", "A", "a", 1),
             line(2, InvoiceKind::Return, true, "1403/01/02", "A", "a", 3),
         ];
         let agg = aggregate(&lines, ImportMode::Quantity, None, &HashSet::new());
-        assert_eq!(agg.items[0].qty, 0);
-        assert!(agg.items[0].negative);
+        assert_eq!(
+            agg.items[0].qty, -2,
+            "a return in excess of this run's purchases is a negative transfer"
+        );
+        assert_eq!(agg.items[0].invoice_ids, vec![1, 2]);
+    }
+
+    #[test]
+    fn a_negative_transfer_subtracts_from_the_shelf_and_floors_at_zero() {
+        let five = row("s1", "p1", Some("ORIGINAL"), 5);
+        assert_eq!(
+            plan_write(Some(&five), -2, ImportMode::Quantity),
+            WriteAction::Patch {
+                stock_id: "s1".into(),
+                inventory: Some(3),
+                qty_before: 5
+            }
+        );
+        assert_eq!(shortfall(5, -2), 0);
+        let one = row("s1", "p1", Some("ORIGINAL"), 1);
+        assert_eq!(
+            plan_write(Some(&one), -2, ImportMode::Quantity),
+            WriteAction::Patch {
+                stock_id: "s1".into(),
+                inventory: Some(0),
+                qty_before: 1
+            }
+        );
+        assert_eq!(shortfall(1, -2), 1, "one unit the shelf never held");
+        assert_eq!(
+            plan_write(None, -2, ImportMode::Quantity),
+            WriteAction::Attach { inventory: 0 },
+            "a missing row is attached empty, never negative"
+        );
+        assert_eq!(shortfall(0, -2), 2);
+        assert_eq!(
+            plan_write(Some(&one), -2, ImportMode::Zero),
+            WriteAction::Patch {
+                stock_id: "s1".into(),
+                inventory: None,
+                qty_before: 1
+            },
+            "zero mode never touches inventory"
+        );
     }
 
     fn row(id: &str, product: &str, auth: Option<&str>, inventory: i64) -> ShelfRow {
