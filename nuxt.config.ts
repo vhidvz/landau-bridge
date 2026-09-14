@@ -1,3 +1,5 @@
+import { version } from './package.json';
+
 export default defineNuxtConfig({
   ssr: false,
   devtools: { enabled: false },
@@ -9,10 +11,14 @@ export default defineNuxtConfig({
     provider: 'none',
     clientBundle: { scan: true, sizeLimitKb: 512 },
   },
+  colorMode: { preference: 'system', fallback: 'light' },
+  runtimeConfig: { public: { version } },
   app: {
     head: {
       htmlAttrs: { dir: 'rtl', lang: 'fa' },
       title: 'پل لندو',
+      meta: [{ name: 'color-scheme', content: 'light dark' }],
+      link: [{ rel: 'icon', type: 'image/svg+xml', href: '/brand/logo.svg' }],
     },
   },
   // Tauri's dev server contract: fixed port, no screen clearing, TAURI_* env exposed.
