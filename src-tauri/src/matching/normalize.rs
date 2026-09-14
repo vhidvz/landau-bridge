@@ -106,4 +106,17 @@ mod tests {
             "a non-numeric group stays"
         );
     }
+
+    #[test]
+    fn search_term_without_a_code_still_strips_pack_markers() {
+        // the review screen's free-text re-search has no SKU to strip; the rest applies
+        assert_eq!(
+            search_term("سيبک فرمان پرايد (0631)(48) (2عددي)", ""),
+            "سیبک فرمان پراید"
+        );
+        assert_eq!(
+            search_term("  واشر 10 عددی  سرسیلندر ", ""),
+            "واشر سرسیلندر"
+        );
+    }
 }

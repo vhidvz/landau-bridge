@@ -6,7 +6,10 @@ use std::collections::HashSet;
 use serde_json::json;
 
 use super::planner::{aggregate, find_row, floored, plan_write, shortfall, WriteAction};
-use super::{cost_for, fatal, i, opt_i, preflight, readback, reprice_items, t, JobCtx, Services};
+use super::{
+    cost_for, fatal, i, opt_i, preflight, readback, reprice_items, t, JobCtx, Services,
+    VatMismatches,
+};
 use crate::domain::{Authenticity, ImportMode};
 use crate::errors::{kinds, BridgeError, Result};
 use crate::landau::{AttachBody, PatchBody, ShelfRow};
@@ -75,13 +78,8 @@ async fn fetch(ctx: &JobCtx, svc: &Services, limit: Option<usize>) -> Result<()>
     });
     let headers = svc.supplier.ledger(progress).await?;
     ctx.check_cancel()?;
-    let mut unpaid = 0;
-    for h in &headers {
-        ctx.db.upsert_invoice(SUPPLIER_ID, h)?;
-        if !h.paid {
-            unpaid += 1;
-        }
-    }
+    ctx.db.upsert_invoices(SUPPLIER_ID, &headers)?;
+    let unpaid = headers.iter().filter(|h| !h.paid).count();
     ctx.info(
         "FETCH",
         &format!("{} ledger row(s), {unpaid} unpaid", headers.len()),
@@ -306,9 +304,10 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
         .filter(|i| i.status == "PLANNED" && i.product_id.is_some())
         .collect();
     let total = items.len() as u32;
+    let mut vat = VatMismatches::default();
     for (n, item) in items.iter().enumerate() {
         ctx.check_cancel()?;
-        match cost_for(ctx, svc, "PRICE", &item.code).await {
+        match cost_for(ctx, svc, &item.code, &mut vat).await {
             Ok(Some(cost)) => ctx.item(item.id, &[("cost", i(cost))])?,
             Ok(None) => {
                 let e = BridgeError::NoCurrentPrice {
@@ -339,6 +338,7 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
         }
         ctx.progress("PRICE", n as u32 + 1, total, "قیمت روز بارزپخش");
     }
+    vat.warn(ctx, "PRICE", svc.settings.vat_percent);
 
     ctx.phase("WRITE")?;
     let mut shelf = svc.landau.shelf(&store).await?;

@@ -361,6 +361,9 @@ pub async fn review_decide(state: State<'_, AppState>, decision: ReviewDecision)
     state.db.update_job_item(item.id, &patch)
 }
 
+/// The seller's free-text re-search. The typed text goes through the same normalisation as the
+/// automatic pass (`Matcher::term`, with no code to strip) so pack markers and Arabic letterforms
+/// do not skew the picker queries or the scores.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn review_search(state: State<'_, AppState>, term: String) -> Result<Vec<Scored>> {
     let s = settings(&state)?;
@@ -369,6 +372,7 @@ pub async fn review_search(state: State<'_, AppState>, term: String) -> Result<V
         let client = client.clone();
         async move { client.registry_search(&q, limit, skip).await }
     };
+    let term = Matcher::term(&term, "");
     let hits = candidates(&search, &term).await?;
     Ok(score(&term, &hits)
         .into_iter()

@@ -5,7 +5,10 @@ use std::collections::HashMap;
 
 use serde_json::json;
 
-use super::{cost_for, fatal, i, opt_i, preflight, readback, reprice_items, t, JobCtx, Services};
+use super::{
+    cost_for, fatal, i, opt_i, preflight, readback, reprice_items, t, JobCtx, Services,
+    VatMismatches,
+};
 use crate::errors::{kinds, BridgeError, Result};
 use crate::landau::PatchBody;
 use crate::settings::SUPPLIER_ID;
@@ -58,6 +61,7 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
     let links = links(ctx)?;
     let total = shelf.len() as u32;
     let mut to_write: Vec<(i64, String, i64, bool)> = Vec::new(); // item, stock, cost, unchanged
+    let mut vat = VatMismatches::default();
     for (n, row) in shelf.iter().enumerate() {
         ctx.check_cancel()?;
         let name = row
@@ -93,7 +97,7 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
                 ("qty_before", i(row.inventory)),
             ],
         )?;
-        match cost_for(ctx, svc, "PRICE", code).await {
+        match cost_for(ctx, svc, code, &mut vat).await {
             Ok(Some(cost)) => {
                 ctx.item(id, &[("cost", i(cost))])?;
                 // still repriced below (a rule may have changed even when the cost has not).
@@ -126,6 +130,7 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
         }
         ctx.progress("PRICE", n as u32 + 1, total, "قیمت روز بارزپخش");
     }
+    vat.warn(ctx, "PRICE", svc.settings.vat_percent);
 
     ctx.phase("WRITE")?;
     let mut written: Vec<(i64, String)> = Vec::new();

@@ -273,13 +273,50 @@ pub async fn preflight(ctx: &JobCtx, svc: &Services, store: &str) -> Result<()> 
     Ok(())
 }
 
-/// Today's cost of one code; records the snapshot and a `VatRateMismatch` when the site's rate
-/// differs from the setting (the setting wins — spec Global Constraints).
+/// The codes whose site VAT rate differed from the setting during one PRICE loop. Reported as a
+/// single `VatRateMismatch` warning per run (a site-wide rate change would otherwise repeat the
+/// same warning once per item).
+#[derive(Debug, Default)]
+pub struct VatMismatches {
+    /// (code, site rate)
+    codes: Vec<(String, f64)>,
+}
+
+impl VatMismatches {
+    pub fn is_empty(&self) -> bool {
+        self.codes.is_empty()
+    }
+
+    /// One warning naming how many codes differed, the rates seen, and the setting applied.
+    pub fn warn(&self, ctx: &JobCtx, phase: &str, setting: f64) {
+        if self.codes.is_empty() {
+            return;
+        }
+        let mut rates: Vec<String> = self.codes.iter().map(|(_, r)| r.to_string()).collect();
+        rates.sort();
+        rates.dedup();
+        let codes: Vec<&str> = self.codes.iter().map(|(c, _)| c.as_str()).collect();
+        ctx.warn(
+            phase,
+            kinds::VAT_RATE_MISMATCH,
+            &format!(
+                "نرخ ارزش افزوده سایت برای {} کد ({}٪) با تنظیمات ({setting}٪) فرق دارد؛ تنظیمات اعمال شد.",
+                codes.len(),
+                rates.join("، ")
+            ),
+            Some(json!({"codes": codes, "site_rates": rates, "setting": setting})),
+        );
+    }
+}
+
+/// Today's cost of one code; records the snapshot, and notes the code in `vat` when the site's
+/// rate differs from the setting (the setting wins — spec Global Constraints; the caller warns
+/// once per run through [`VatMismatches::warn`]).
 pub async fn cost_for(
     ctx: &JobCtx,
     svc: &Services,
-    phase: &str,
     code: &str,
+    vat: &mut VatMismatches,
 ) -> Result<Option<i64>> {
     let Some(q) = svc.supplier.price_of(code).await? else {
         return Ok(None);
@@ -289,7 +326,8 @@ pub async fn cost_for(
     if q.has_vat {
         if let Some(site) = q.vat_percent {
             if (site - setting).abs() > 0.01 {
-                ctx.warn(phase, kinds::VAT_RATE_MISMATCH, &format!("نرخ ارزش افزوده سایت برای {code} {site}٪ است ولی تنظیمات {setting}٪ می‌گوید؛ تنظیمات اعمال شد."), Some(json!({"code": code, "site": site, "setting": setting})));
+                tracing::warn!(code, site, setting, "vat rate differs from the setting");
+                vat.codes.push((code.to_string(), site));
             }
         }
     }
@@ -409,4 +447,51 @@ pub async fn readback(
         ctx.item(*item_id, &patch)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ctx() -> JobCtx {
+        let db = Db::in_memory().unwrap();
+        let job_id = db
+            .create_job("IMPORT", Some("ZERO"), None, "store1", false)
+            .unwrap();
+        JobCtx {
+            db,
+            app: None,
+            job_id,
+            cancel: Default::default(),
+        }
+    }
+
+    #[test]
+    fn vat_mismatches_warn_once_per_run_naming_every_code() {
+        let ctx = ctx();
+        let mut vat = VatMismatches::default();
+        assert!(vat.is_empty());
+        vat.warn(&ctx, "PRICE", 10.0);
+        assert!(
+            ctx.db.list_errors(10).unwrap().is_empty(),
+            "nothing to report, nothing recorded"
+        );
+
+        vat.codes.push(("A1".into(), 9.0));
+        vat.codes.push(("B2".into(), 9.0));
+        vat.codes.push(("C3".into(), 12.5));
+        vat.warn(&ctx, "PRICE", 10.0);
+        let errors = ctx.db.list_errors(10).unwrap();
+        assert_eq!(errors.len(), 1, "one warning for three codes");
+        assert_eq!(errors[0].kind, kinds::VAT_RATE_MISMATCH);
+        assert!(errors[0].message.contains("3 کد"), "{}", errors[0].message);
+        let detail = errors[0].context.clone().unwrap();
+        assert_eq!(detail["codes"], json!(["A1", "B2", "C3"]));
+        assert_eq!(detail["site_rates"], json!(["12.5", "9"]));
+        assert_eq!(detail["setting"], json!(10.0));
+        let events = ctx.db.job_detail(ctx.job_id).unwrap().events;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].level, "WARN");
+        assert_eq!(events[0].phase, "PRICE");
+    }
 }

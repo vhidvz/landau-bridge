@@ -62,11 +62,10 @@ async fn memberships_shelf_search_attach_patch_reprice_delete() {
     // A store's earlier live run soft-deletes its attached row on cleanup, and Landau's own
     // uniqueness index (product, store) never frees up on a soft delete — a second attach of the
     // very same product 409s with "a removed stock row in this store still holds this part;
-    // restore it instead" until someone restores it. This repo has no route that lists or
-    // restores a row it does not already hold the id of, so a rerun against this same fixture
-    // store must simply move on to the next unstocked candidate — exactly how `jobs::import`
-    // itself already treats `DuplicateRow` (see `import.rs`'s attach arm) rather than treating it
-    // as fatal.
+    // restore it instead" until someone restores it. The import job handles that by reading the
+    // trash (`shelf_deleted`) and restoring the row (`restore`, exercised by `live_e2e`); this
+    // test only checks the plain attach path, so on a 409 it simply moves on to the next
+    // unstocked candidate.
     let (row, product) = loop {
         let product = candidates.next().expect(
             "every candidate in this search term was already attached-then-removed by a prior run",

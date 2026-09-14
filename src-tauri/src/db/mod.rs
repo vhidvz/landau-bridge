@@ -58,6 +58,9 @@ impl Db {
         self.with(|c| c.query_row("PRAGMA user_version", [], |r| r.get(0)))
     }
 
+    /// Each pending migration runs with its `user_version` bump in one transaction, so a crash
+    /// mid-migration leaves the schema at the previous version rather than half-applied with the
+    /// old version number (which would re-run the script over existing tables next launch).
     pub fn migrate(&self) -> Result<()> {
         let current = self.user_version()?;
         self.with(|c| {
@@ -66,8 +69,10 @@ impl Db {
                 if version <= current {
                     continue;
                 }
-                c.execute_batch(sql)?;
-                c.pragma_update(None, "user_version", version)?;
+                let tx = c.unchecked_transaction()?;
+                tx.execute_batch(sql)?;
+                tx.pragma_update(None, "user_version", version)?;
+                tx.commit()?;
             }
             Ok(())
         })
@@ -146,6 +151,35 @@ mod tests {
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].code, "A");
         assert_eq!(all[0].kind, InvoiceKind::Sale);
+    }
+
+    #[test]
+    fn upsert_invoices_writes_the_batch_in_one_go_and_finds_existing_rows() {
+        let db = Db::in_memory().unwrap();
+        let first = db
+            .upsert_invoice(
+                "barezpakhsh",
+                &header("1", InvoiceKind::Sale, "1401/10/05", false),
+            )
+            .unwrap();
+        let headers = vec![
+            header("1", InvoiceKind::Sale, "1401/10/05", true),
+            header("2", InvoiceKind::Return, "1401/10/06", true),
+            header("3", InvoiceKind::Sale, "1401/10/07", false),
+        ];
+        db.upsert_invoices("barezpakhsh", &headers).unwrap();
+        assert_eq!(db.count_invoices("barezpakhsh").unwrap(), (3, 1));
+        let ids = db.unfetched_invoice_ids("barezpakhsh").unwrap();
+        assert_eq!(ids.len(), 3);
+        assert_eq!(
+            ids[0], first,
+            "the existing row was updated, not duplicated"
+        );
+        let lines = db.lines_with_invoices("barezpakhsh").unwrap();
+        assert!(lines.is_empty(), "headers only");
+        // the batch is idempotent
+        db.upsert_invoices("barezpakhsh", &headers).unwrap();
+        assert_eq!(db.count_invoices("barezpakhsh").unwrap(), (3, 1));
     }
 
     #[test]

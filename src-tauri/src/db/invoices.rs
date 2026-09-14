@@ -19,21 +19,55 @@ pub struct LineWithInvoice {
     pub unit_price: i64,
 }
 
+const UPSERT_INVOICE: &str =
+    "INSERT INTO invoices(supplier, number, kind, date_jalali, date_iso, paid, url)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+     ON CONFLICT(supplier, number, kind) DO UPDATE SET paid = excluded.paid, date_jalali = excluded.date_jalali";
+
 impl Db {
     /// Insert or find the header. Returns the row id.
     pub fn upsert_invoice(&self, supplier: &str, h: &InvoiceHeader) -> Result<i64> {
         self.with(|c| {
             c.execute(
-                "INSERT INTO invoices(supplier, number, kind, date_jalali, date_iso, paid, url)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-                 ON CONFLICT(supplier, number, kind) DO UPDATE SET paid = excluded.paid, date_jalali = excluded.date_jalali",
-                params![supplier, h.number, h.kind.as_str(), h.date_jalali, h.date_iso, h.paid as i64, h.url],
+                UPSERT_INVOICE,
+                params![
+                    supplier,
+                    h.number,
+                    h.kind.as_str(),
+                    h.date_jalali,
+                    h.date_iso,
+                    h.paid as i64,
+                    h.url
+                ],
             )?;
             c.query_row(
                 "SELECT id FROM invoices WHERE supplier = ?1 AND number = ?2 AND kind = ?3",
                 params![supplier, h.number, h.kind.as_str()],
                 |r| r.get(0),
             )
+        })
+    }
+
+    /// [`upsert_invoice`](Self::upsert_invoice) over a whole ledger read, in one transaction —
+    /// a ledger of thousands of rows is one fsync, and a crash mid-way leaves no partial read.
+    pub fn upsert_invoices(&self, supplier: &str, headers: &[InvoiceHeader]) -> Result<()> {
+        self.with(|c| {
+            let tx = c.unchecked_transaction()?;
+            {
+                let mut st = tx.prepare(UPSERT_INVOICE)?;
+                for h in headers {
+                    st.execute(params![
+                        supplier,
+                        h.number,
+                        h.kind.as_str(),
+                        h.date_jalali,
+                        h.date_iso,
+                        h.paid as i64,
+                        h.url
+                    ])?;
+                }
+            }
+            tx.commit()
         })
     }
 
