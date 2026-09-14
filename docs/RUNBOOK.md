@@ -33,3 +33,13 @@
 - Shelf reads lag writes by ~1 s (mirror); the jobs wait up to 15 s before repricing.
 - `PATCH /career/stocks/:id` must never carry `price` — Landau stamps it MANUAL and its rules skip the row.
 - Barezpakhsh's ledger has three row kinds: sales invoices (alias 2), returns (6), receipts (67). Only 2 and 6 are invoices.
+
+## Deviations from the spec (as built)
+- **Data folder is displayed, not configurable** (spec §3/§10 list it among the settings). The settings screen shows the platform data directory; moving it is not offered.
+- **No "fetch everything again" control** (spec §4). Invoices are cached by number and kind and never refetched; to force a refetch, delete the invoice rows (or the whole `bridge.sqlite`) in the data folder.
+- **The refresh report shows the new cost only** (spec §7.2 says old → new cost and price). `job_items.cost` holds today's cost; the old cost is not kept on the item, though the price before/after columns are.
+- **`landau_validate` does not restrict to RETAIL stores** (spec §5). Every non-rejected store of the approved business is offered; the seller picks.
+- **`price_of` is called once per shelf row, not once per code** (spec §7.2). Two rows linked to the same code cost two searches; the price snapshot is recorded each time.
+- **Event and command names**: the job event is `job://event` (spec §3 says `job://phase`) and the detail command is `job_get` (spec §3 says `job_detail`); `job://progress` and `job://done` are as specified.
+- **Return handling** (spec §13 says a net-negative item is clamped to 0 at aggregation): the net quantity stays signed across runs, the shelf is floored at zero at write time, and the `NegativeQuantity` warning names the shortfall — a return that arrives after the sale was transferred subtracts from the shelf.
+- **Icons are bundled** and the app declares a CSP (`tauri.conf.json`); nothing is fetched from api.iconify.design at runtime. The CSP applies to the built app only — `pnpm tauri dev` loads the page from the Nuxt dev server, where Tauri cannot inject headers.
