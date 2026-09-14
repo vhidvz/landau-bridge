@@ -34,6 +34,7 @@ export interface JobDetail { job: JobRow; items: JobItemRow[]; events: JobEventR
 export interface Dashboard {
   settings_complete: boolean; store_name: string | null; supplier_user: string | null; invoices_cached: number; invoices_unpaid: number;
   last_import: JobRow | null; last_refresh: JobRow | null; running: JobRow | null; pending_review: number; recent_errors: number; decided_matches: number;
+  appimage_offer: boolean;
 }
 export interface MatchRow {
   supplier: string; code: string; product_id: string | null; product_name: string | null; how: 'AUTO' | 'USER' | 'NONE';

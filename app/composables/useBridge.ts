@@ -47,6 +47,8 @@ export const bridge = {
   matchClear: (code: string) => call<void>('match_clear', { code }),
   errorsList: (limit = 200) => call<ErrorRow[]>('errors_list', { limit }),
   openLogFolder: () => call<void>('open_log_folder'),
+  appimageInstall: () => call<string>('appimage_install'),
+  appimageDismiss: () => call<void>('appimage_dismiss'),
 };
 
 export interface JobHandlers {

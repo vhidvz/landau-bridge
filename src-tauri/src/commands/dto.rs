@@ -44,6 +44,8 @@ pub struct Dashboard {
     pub pending_review: i64,
     pub recent_errors: i64,
     pub decided_matches: i64,
+    /// Linux only: running from an AppImage that is not in the applications menu yet.
+    pub appimage_offer: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

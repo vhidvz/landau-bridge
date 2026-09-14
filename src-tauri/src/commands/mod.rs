@@ -5,9 +5,10 @@ pub mod dto;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
+use crate::appimage;
 use crate::db::errors::ErrorRow;
 use crate::db::jobs::{JobDetail, JobItemRow, JobRow};
 use crate::db::matches::MatchRow;
@@ -138,7 +139,7 @@ pub async fn supplier_test_login(state: State<'_, AppState>) -> Result<()> {
 // ------------------------------------------------------------ dashboard
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn dashboard_get(state: State<'_, AppState>) -> Result<Dashboard> {
+pub async fn dashboard_get(app: AppHandle, state: State<'_, AppState>) -> Result<Dashboard> {
     let s = settings(&state)?;
     let jobs = state.db.list_jobs()?;
     let (invoices_cached, invoices_unpaid) = state.db.count_invoices(SUPPLIER_ID)?;
@@ -164,7 +165,70 @@ pub async fn dashboard_get(state: State<'_, AppState>) -> Result<Dashboard> {
         pending_review,
         recent_errors: state.db.count_unresolved_errors()?,
         decided_matches: state.db.list_matches(SUPPLIER_ID)?.len() as i64,
+        appimage_offer: appimage_offer(&app, &state),
     })
+}
+
+// ------------------------------------------------------------ appimage
+
+/// Settings key set once the seller answers "don't ask again" to the AppImage menu offer.
+const APPIMAGE_DISMISSED: &str = "appimage_install_dismissed";
+
+/// The AppImage runtime exports `APPIMAGE`/`APPDIR`; nothing else sets them, so their presence
+/// on Linux is the whole "which install am I" detection.
+fn appimage_running() -> Option<appimage::AppImage> {
+    if !cfg!(target_os = "linux") {
+        return None;
+    }
+    let image = std::env::var("APPIMAGE").ok();
+    let appdir = std::env::var("APPDIR").ok();
+    appimage::running(image.as_deref(), appdir.as_deref())
+}
+
+fn appimage_layout(app: &AppHandle) -> Result<appimage::Layout> {
+    let home = app
+        .path()
+        .home_dir()
+        .map_err(|e| BridgeError::Other(format!("home dir: {e}")))?;
+    Ok(appimage::Layout::new(home))
+}
+
+fn appimage_offer(app: &AppHandle, state: &AppState) -> bool {
+    let running = appimage_running();
+    let Ok(layout) = appimage_layout(app) else {
+        return false;
+    };
+    let dismissed = state
+        .db
+        .setting(APPIMAGE_DISMISSED)
+        .ok()
+        .flatten()
+        .is_some();
+    appimage::should_offer(running.as_ref(), &layout, dismissed)
+}
+
+/// Copy the running AppImage under `~/.local` and add it to the applications menu. Returns the
+/// path the copy landed at.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn appimage_install(app: AppHandle) -> Result<String> {
+    let running = appimage_running()
+        .ok_or_else(|| BridgeError::Other("برنامه از فایل AppImage اجرا نشده است.".into()))?;
+    let layout = appimage_layout(&app)?;
+    let version = app.package_info().version.to_string();
+    let installed = appimage::install(&running, &layout, &version)?;
+    // Most desktops watch the folder; the ones that keep a cache need a nudge. Best effort.
+    if let Some(dir) = layout.desktop().parent() {
+        let _ = std::process::Command::new("update-desktop-database")
+            .arg(dir)
+            .output();
+    }
+    tracing::info!("appimage installed at {}", installed.display());
+    Ok(installed.display().to_string())
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn appimage_dismiss(state: State<'_, AppState>) -> Result<()> {
+    state.db.set_setting(APPIMAGE_DISMISSED, "1")
 }
 
 // ------------------------------------------------------------ jobs

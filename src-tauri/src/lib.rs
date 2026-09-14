@@ -1,5 +1,6 @@
 //! Landau Bridge — Rust core. See docs/superpowers/specs/2026-09-13-landau-bridge-design.md.
 
+pub mod appimage;
 pub mod commands;
 pub mod db;
 pub mod domain;
@@ -79,6 +80,8 @@ pub fn run() {
             commands::match_clear,
             commands::errors_list,
             commands::open_log_folder,
+            commands::appimage_install,
+            commands::appimage_dismiss,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

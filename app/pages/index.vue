@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { BridgeError, Dashboard, JobRow, SettingsView } from '~/types/bridge';
 
+const toast = useToast();
 const dash = ref<Dashboard | null>(null);
 const settings = ref<SettingsView | null>(null);
 const error = ref<BridgeError | null>(null);
@@ -26,6 +27,20 @@ const lastRuns = computed(() => [
   { label: 'آخرین به‌روزرسانی قیمت', job: dash.value?.last_refresh ?? null },
 ]);
 const statusColor = (j: JobRow) => (j.status === 'DONE' ? 'success' : j.status === 'FAILED' ? 'error' : 'neutral');
+
+// Linux AppImage only: offer to put the file in the applications menu (README, "Other Linux").
+const installing = ref(false);
+const installAppImage = async () => {
+  error.value = null; installing.value = true;
+  try {
+    const path = await bridge.appimageInstall();
+    toast.add({ title: 'در فهرست برنامه‌ها نصب شد', description: path, color: 'success' });
+    await load();
+  } catch (e) { error.value = e as BridgeError; } finally { installing.value = false; }
+};
+const dismissAppImage = async () => {
+  try { await bridge.appimageDismiss(); await load(); } catch (e) { error.value = e as BridgeError; }
+};
 </script>
 
 <template>
@@ -36,6 +51,18 @@ const statusColor = (j: JobRow) => (j.status === 'DONE' ? 'success' : j.status =
       <PageHeader :title="dash.store_name ?? 'پل لاندا'" description="پل بین فاکتورهای بارزپخش و قفسهٔ لاندا" />
       <SetupChecklist v-if="!dash.settings_complete && settings" :settings="settings" />
       <BridgeHero v-else :dash="dash" />
+
+      <section v-if="dash.appimage_offer" class="surface mt-6 flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4">
+        <UIcon name="i-lucide-package-plus" class="size-6 shrink-0 text-primary" aria-hidden="true" />
+        <div class="min-w-0 flex-1">
+          <p class="font-medium text-highlighted">برنامه از فایل AppImage اجرا شده است</p>
+          <p class="text-sm text-muted">می‌خواهید در فهرست برنامه‌ها نصب شود؟ نسخه‌ای از فایل در پوشهٔ خانگی شما (<code dir="ltr">~/.local/bin</code>) نگه داشته می‌شود و میان‌بر آن به منوی برنامه‌ها اضافه می‌شود.</p>
+        </div>
+        <div class="flex gap-2">
+          <UButton size="sm" icon="i-lucide-download" :loading="installing" @click="installAppImage">نصب</UButton>
+          <UButton size="sm" variant="ghost" color="neutral" :disabled="installing" @click="dismissAppImage">نه، دیگر نپرس</UButton>
+        </div>
+      </section>
 
       <ul v-if="attention.length" class="surface mt-6 divide-y divide-default">
         <li v-for="a in attention" :key="a.key" class="flex items-center gap-3 px-5 py-3">

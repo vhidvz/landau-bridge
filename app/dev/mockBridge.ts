@@ -133,6 +133,7 @@ const dashboard = (state: State): Dashboard => {
     invoices_unpaid: state === 'empty' ? 0 : 3, last_import: state === 'empty' ? null : jobs[0]!,
     last_refresh: state === 'empty' ? null : jobs[1]!, running, pending_review: state === 'review' ? reviewItems.length : 0,
     recent_errors: state === 'empty' ? 0 : 4, decided_matches: state === 'empty' ? 0 : matches.length,
+    appimage_offer: new URLSearchParams(location.search).has('appimage'),
   };
 };
 
@@ -159,7 +160,8 @@ export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {
       case 'import_start': return 43;
       case 'refresh_start': return 44;
       case 'import_review': return reviewItems;
-      case 'review_decide': case 'import_continue': case 'match_set': case 'match_none': case 'match_clear': case 'open_log_folder': return undefined;
+      case 'review_decide': case 'import_continue': case 'match_set': case 'match_none': case 'match_clear': case 'open_log_folder': case 'appimage_dismiss': return undefined;
+      case 'appimage_install': return '/home/vahid/.local/bin/landau-bridge.AppImage';
       case 'review_search': return [scored('p_s1', `${args.term}`, 'جست‌وجو', 66)];
       case 'job_cancel': return true;
       case 'job_current': return current(state);
