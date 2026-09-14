@@ -103,7 +103,7 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
           <UButton v-if="active" size="sm" color="error" variant="soft" icon="i-lucide-square" @click="cancel">توقف</UButton>
         </div>
       </template>
-      <JobProgress :phase="job.phase.value" :progress="job.progress.value" :events="job.events.value" :status="job.status.value" />
+      <JobProgress kind="IMPORT" :phase="job.phase.value" :progress="job.progress.value" :events="job.events.value" :status="job.status.value" />
     </UCard>
 
     <UCard v-if="job.status.value === 'REVIEW'">
