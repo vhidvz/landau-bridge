@@ -84,9 +84,8 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
           <UIcon v-if="mode === 'QUANTITY'" name="i-lucide-check-circle-2" class="ticket-check size-5" />
           <span class="block text-lg font-semibold text-highlighted">با تعداد، از تاریخ</span>
           <span class="mt-1 block text-sm text-muted">تعداد خریداری‌شده در فاکتورهای پرداخت‌شده از این تاریخ به بعد، منهای مرجوعی‌ها، به قفسه اضافه می‌شود. اگر قطعه از قبل روی قفسه باشد به موجودی فعلی افزوده می‌شود. هر فاکتور فقط یک بار منتقل می‌شود.</span>
-          <UFormField label="از تاریخ" class="mt-4">
-            <UInput v-model="since" placeholder="۱۴۰۵/۰۱/۰۱" dir="ltr" class="w-40" :color="sinceOk ? 'primary' : 'error'" :disabled="mode !== 'QUANTITY'" />
-          </UFormField>
+          <span class="mt-4 block text-sm font-medium text-highlighted">از تاریخ</span>
+          <UInput v-model="since" aria-label="از تاریخ" placeholder="۱۴۰۵/۰۱/۰۱" dir="ltr" class="mt-1 w-40" :color="sinceOk ? 'primary' : 'error'" :disabled="mode !== 'QUANTITY'" />
         </label>
         <label class="ticket" :data-selected="mode === 'ZERO'">
           <input v-model="mode" type="radio" name="mode" value="ZERO" class="sr-only" />

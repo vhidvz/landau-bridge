@@ -43,7 +43,7 @@ const csv = async () => {
     <div class="flex flex-wrap items-center gap-3">
       <SegmentedControl v-model="filter" :items="filters" aria-label="فیلتر ردیف‌ها" />
       <span class="tabular ms-auto text-sm text-muted">{{ faNumber(rows.length) }} ردیف</span>
-      <UButton size="sm" variant="soft" icon="i-lucide-download" :loading="saving" @click="csv">خروجی CSV</UButton>
+      <UButton v-if="items.length" size="sm" variant="soft" icon="i-lucide-download" :loading="saving" @click="csv">خروجی CSV</UButton>
     </div>
     <ErrorBanner :error="error" />
     <LedgerTable v-if="rows.length">
@@ -82,6 +82,7 @@ const csv = async () => {
         </tr>
       </tbody>
     </LedgerTable>
-    <EmptyState v-else art="shelf" title="ردیفی با این فیلتر نیست" description="فیلتر دیگری را انتخاب کنید." />
+    <EmptyState v-else-if="items.length" art="shelf" title="ردیفی با این فیلتر نیست" description="فیلتر دیگری را انتخاب کنید." />
+    <EmptyState v-else art="shelf" title="این عملیات ردیفی ندارد" />
   </div>
 </template>

@@ -16,12 +16,22 @@ const petrol = scale('petrol');
 const sabz = scale('sabz');
 const sorkh = scale('sorkh');
 
+const block = (selector: string): string => {
+  const m = new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css);
+  return m?.[1] ?? '';
+};
+const varOf = (selector: string, name: string): string => {
+  const raw = new RegExp(`--${name}:\\s*([^;]+);`).exec(block(selector))?.[1]?.trim() ?? '';
+  const viaToken = /var\(--color-([a-z]+)-(\d+)\)/.exec(raw);
+  return viaToken ? scale(viaToken[1]!)[viaToken[2]!]! : raw;
+};
+
 const WHITE = '#FFFFFF';
-const SIDEBAR_TOP = '#0B1820';
-const SIDEBAR_BOTTOM = '#10222D';
-const SIDEBAR_TEXT = '#C6D4DB';
-const LIGHT = { page: petrol['50']!, surface: WHITE, well: petrol['100']!, text: petrol['800']!, heading: '#13232C', muted: petrol['600']! };
-const DARK = { page: petrol['950']!, surface: petrol['900']!, well: '#1C2F3B', text: '#E6EEF2', heading: '#F3F7F9', muted: petrol['400']! };
+const SIDEBAR_TOP = varOf(':root', 'sidebar-top');
+const SIDEBAR_BOTTOM = varOf(':root', 'sidebar-bottom');
+const SIDEBAR_TEXT = varOf(':root', 'sidebar-text');
+const LIGHT = { page: petrol['50']!, surface: WHITE, well: petrol['100']!, text: petrol['800']!, heading: varOf(':root', 'ui-text-highlighted'), muted: petrol['600']! };
+const DARK = { page: petrol['950']!, surface: petrol['900']!, well: varOf('.dark', 'ui-bg-elevated'), text: varOf('.dark', 'ui-text'), heading: varOf('.dark', 'ui-text-highlighted'), muted: petrol['400']! };
 
 const atLeast = (fg: string, bg: string, min: number) =>
   expect(contrastRatio(fg, bg), `${fg} on ${bg}`).toBeGreaterThanOrEqual(min);

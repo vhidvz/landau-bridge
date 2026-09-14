@@ -54,7 +54,7 @@ const kindLabelOf = (j: JobRow) => (j.kind === 'IMPORT' ? `وارد کردن (${
             <tr><th>#</th><th>نوع</th><th>شروع</th><th>وضعیت</th><th>مرحله</th></tr>
           </thead>
           <tbody>
-            <tr v-for="j in jobs" :key="j.id" class="cursor-pointer" :aria-selected="detail?.job.id === j.id" @click="open(j)">
+            <tr v-for="j in jobs" :key="j.id" class="cursor-pointer" :data-selected="detail?.job.id === j.id" @click="open(j)">
               <td>{{ faNumber(j.id) }}</td>
               <td>
                 {{ kindLabelOf(j) }}

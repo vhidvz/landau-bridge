@@ -21,7 +21,7 @@
 ## For developers
 Tauri 2 + Nuxt 4 + Rust core. Design: `docs/superpowers/specs/2026-09-13-landau-bridge-design.md`. Plan: `docs/superpowers/plans/2026-09-13-landau-bridge.md`. Live testing and fixtures: `docs/RUNBOOK.md`. Matching threshold and why: `docs/matching-threshold.md`.
 
-Visual design: `docs/superpowers/specs/2026-09-14-ui-redesign-design.md`. To look at the pages without Tauri: `pnpm dev`, open `http://localhost:3210/?state=done&mode=dark` (`state` = `empty|running|review|done`; fixtures in `app/dev/mockBridge.ts`); `scripts/shots.sh OUT_DIR` screenshots every page in both modes.
+Visual design: `docs/superpowers/specs/2026-09-14-ui-redesign-design.md`. To look at the pages without Tauri: `pnpm dev`, open `http://localhost:3210/?state=done&mode=dark` (`state` = `empty|running|review|refreshing|done`; fixtures in `app/dev/mockBridge.ts`); `scripts/shots.sh OUT_DIR` screenshots every page in both modes.
 
 ```sh
 pnpm install

@@ -79,7 +79,7 @@ const authItems = [{ label: 'اصلی (ORIGINAL)', value: 'ORIGINAL' }, { label:
     <div class="surface divide-y divide-default">
       <section class="p-6">
         <div class="mb-4 flex items-center justify-between gap-3">
-          <h2>لندو</h2>
+          <h2 class="text-xl">لندو</h2>
           <UBadge :color="landauChip.color" variant="soft">{{ landauChip.label }}</UBadge>
         </div>
         <div class="space-y-4">
@@ -101,7 +101,7 @@ const authItems = [{ label: 'اصلی (ORIGINAL)', value: 'ORIGINAL' }, { label:
 
       <section class="p-6">
         <div class="mb-4 flex items-center justify-between gap-3">
-          <h2>بارزپخش</h2>
+          <h2 class="text-xl">بارزپخش</h2>
           <UBadge :color="supplierChip.color" variant="soft">{{ supplierChip.label }}</UBadge>
         </div>
         <div class="space-y-4">
@@ -114,7 +114,7 @@ const authItems = [{ label: 'اصلی (ORIGINAL)', value: 'ORIGINAL' }, { label:
       </section>
 
       <section class="p-6">
-        <h2 class="mb-4">قواعد وارد کردن</h2>
+        <h2 class="mb-4 text-xl">قواعد وارد کردن</h2>
         <div class="space-y-4">
           <UFormField label="اصالت پیش‌فرض ردیف‌های تازه" hint="وضعیت همیشه «نو» ثبت می‌شود؛ اصالت را می‌توانید برای هر قلم در مرحلهٔ بازبینی تغییر دهید">
             <USelect v-model="form.default_authenticity" :items="authItems" class="w-full" />
@@ -134,7 +134,7 @@ const authItems = [{ label: 'اصلی (ORIGINAL)', value: 'ORIGINAL' }, { label:
       </section>
 
       <section class="p-6 text-sm">
-        <h2 class="mb-3">داده‌ها</h2>
+        <h2 class="mb-3 text-xl">داده‌ها</h2>
         <p>پوشهٔ داده: <code dir="ltr">{{ view?.data_dir }}</code></p>
         <p class="mt-2" :class="view?.secret_backend === 'file' ? 'text-warning' : 'text-muted'">
           {{ view?.secret_backend === 'keyring' ? 'رمزها در ذخیره‌ساز امن سیستم‌عامل نگه داشته می‌شوند.' : 'ذخیره‌ساز امن سیستم در دسترس نیست؛ رمزها در پرونده‌ای با دسترسی محدود در پوشهٔ داده نگه داشته می‌شوند.' }}

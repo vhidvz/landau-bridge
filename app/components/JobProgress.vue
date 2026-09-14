@@ -7,9 +7,11 @@ const props = defineProps<{
 const phases = computed(() => phasesOf(props.kind));
 const index = computed(() => (props.phase ? phases.value.indexOf(props.phase) : -1));
 const finished = computed(() => props.status === 'DONE');
+const halted = computed(() => ['FAILED', 'CANCELLED', 'INTERRUPTED'].includes(props.status ?? ''));
 const percent = computed(() =>
   props.progress && props.progress.total > 0 ? Math.round((props.progress.done / props.progress.total) * 100) : null);
-const pierState = (i: number) => (finished.value || i < index.value ? 'done' : i === index.value ? 'current' : 'todo');
+const pierState = (i: number) =>
+  finished.value || i < index.value ? 'done' : i === index.value && halted.value ? 'failed' : i === index.value ? 'current' : 'todo';
 const statusColor = computed(() =>
   props.status === 'DONE' ? 'success' : props.status === 'FAILED' ? 'error' : props.status === 'REVIEW' ? 'warning' : 'neutral');
 </script>
@@ -17,7 +19,7 @@ const statusColor = computed(() =>
 <template>
   <div class="space-y-5">
     <ol class="stepper" :style="{ '--n': phases.length }" aria-label="مراحل عملیات">
-      <li v-for="(p, i) in phases" :key="p" class="stepper-step" :data-state="pierState(i)" :aria-current="i === index && !finished ? 'step' : undefined">
+      <li v-for="(p, i) in phases" :key="p" class="stepper-step" :data-state="pierState(i)" :aria-current="i === index && !finished && !halted ? 'step' : undefined">
         <span class="stepper-pier" aria-hidden="true" />
         <span class="stepper-label">{{ phaseLabel[p] }}</span>
       </li>

@@ -37,7 +37,7 @@ defineProps<{ dash: Dashboard }>();
       </div>
 
       <!-- left bank (end side): Landau -->
-      <div class="min-w-0 md:text-left">
+      <div class="min-w-0 md:text-end">
         <p class="text-sm font-medium text-muted">لندو</p>
         <p class="mt-1 truncate text-2xl font-bold leading-tight text-highlighted">{{ dash.store_name ?? '—' }}</p>
         <p class="tabular mt-3 text-[2rem] font-extrabold leading-none text-highlighted">{{ faNumber(dash.decided_matches) }}</p>
