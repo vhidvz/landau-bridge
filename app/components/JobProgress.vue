@@ -12,8 +12,6 @@ const percent = computed(() =>
   props.progress && props.progress.total > 0 ? Math.round((props.progress.done / props.progress.total) * 100) : null);
 const pierState = (i: number) =>
   finished.value || i < index.value ? 'done' : i === index.value && halted.value ? 'failed' : i === index.value ? 'current' : 'todo';
-const statusColor = computed(() =>
-  props.status === 'DONE' ? 'success' : props.status === 'FAILED' ? 'error' : props.status === 'REVIEW' ? 'warning' : 'neutral');
 </script>
 
 <template>
@@ -25,27 +23,18 @@ const statusColor = computed(() =>
       </li>
     </ol>
 
-    <div v-if="progress && progress.total > 0" class="space-y-1">
+    <div v-if="progress && progress.total > 0" class="space-y-1.5">
       <UProgress :model-value="percent ?? 0" size="sm" />
-      <p class="tabular text-sm text-muted">{{ progress.message }} · {{ faNumber(progress.done) }} از {{ faNumber(progress.total) }}</p>
+      <p class="tabular text-sm text-paper-mute">{{ progress.message }} · {{ faNumber(progress.done) }} از {{ faNumber(progress.total) }}</p>
     </div>
 
     <div v-if="status" class="flex items-center gap-2 text-sm">
-      <span class="text-muted">وضعیت</span>
-      <UBadge :color="statusColor" variant="soft">{{ statusLabel[status] ?? status }}</UBadge>
+      <span class="text-paper-mute">وضعیت</span>
+      <StatusPill :tone="statusTone(status)" :label="statusLabel[status] ?? status" />
     </div>
 
-    <ul v-if="events.length" class="max-h-64 space-y-1.5 overflow-auto rounded-control bg-elevated/60 p-3 text-sm">
-      <li v-for="(e, i) in events" :key="i" class="flex items-start gap-2">
-        <span class="level-dot" :data-level="e.level" aria-hidden="true" />
-        <span class="min-w-0">
-          <span class="text-xs text-muted">
-            <template v-if="phaseLabel[e.phase]">{{ phaseLabel[e.phase] }}</template>
-            <bdi v-else dir="ltr">{{ e.phase }}</bdi>
-          </span>
-          <span class="block" :class="e.level === 'ERROR' ? 'text-error' : e.level === 'WARN' ? 'text-warning' : ''">{{ e.message }}</span>
-        </span>
-      </li>
-    </ul>
+    <div v-if="events.length" class="glass-inset max-h-64 overflow-auto">
+      <EventTimeline :events="events" :kind="kind" />
+    </div>
   </div>
 </template>

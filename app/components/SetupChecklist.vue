@@ -10,11 +10,11 @@ const steps = computed(() => [
 </script>
 
 <template>
-  <section class="surface flex flex-wrap items-center gap-8 p-8">
-    <BrandLogo :size="96" class="shrink-0 text-primary" />
+  <GlassCard class="flex flex-wrap items-center gap-8 !p-8">
+    <BrandLogo :size="96" tone="brand" class="shrink-0" />
     <div class="min-w-0 flex-1">
-      <h2 class="text-2xl">سه قدم تا اولین عبور</h2>
-      <p class="mt-1 max-w-prose text-muted">پل وقتی باز می‌شود که هر دو کرانه وصل باشند.</p>
+      <h2 class="display text-2xl text-paper">سه قدم تا اولین عبور</h2>
+      <p class="mt-1 max-w-[58ch] text-paper-dim">پل وقتی باز می‌شود که هر دو کرانه وصل باشند.</p>
       <ol class="mt-5 space-y-3">
         <li v-for="(s, i) in steps" :key="s.label" class="flex items-start gap-3">
           <span class="check mt-0.5" :class="s.done && 'is-done'">
@@ -22,12 +22,12 @@ const steps = computed(() => [
             <template v-else>{{ faNumber(i + 1) }}</template>
           </span>
           <span class="min-w-0">
-            <span class="block font-medium text-highlighted">{{ s.label }}</span>
-            <span class="block text-sm text-muted">{{ s.hint }}</span>
+            <span class="block font-medium text-paper">{{ s.label }}</span>
+            <span class="block text-sm text-paper-mute">{{ s.hint }}</span>
           </span>
         </li>
       </ol>
-      <UButton to="/settings" class="mt-6" icon="i-lucide-settings">رفتن به تنظیمات</UButton>
+      <NuxtLink to="/settings" class="btn-primary mt-6"><UIcon name="i-lucide-settings" class="size-4" />رفتن به تنظیمات</NuxtLink>
     </div>
-  </section>
+  </GlassCard>
 </template>

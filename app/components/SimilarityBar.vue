@@ -8,6 +8,6 @@ const clamped = computed(() => Math.max(0, Math.min(100, props.value)));
     <span class="sim-track" aria-hidden="true">
       <span class="sim-fill" :data-tone="similarityTone(clamped)" :style="{ width: `${clamped}%` }" />
     </span>
-    <span class="text-xs text-muted">{{ faNumber(clamped) }}٪</span>
+    <span class="text-xs text-paper-mute">{{ faNumber(clamped) }}٪</span>
   </span>
 </template>

@@ -50,7 +50,7 @@ const dismissAppImage = async () => {
     <template v-if="dash">
       <PageHeader kicker="داشبورد" :title="dash.store_name ?? 'پل لاندا'" lede="پل بین فاکتورهای بارزپخش و قفسهٔ لاندا" />
       <SetupChecklist v-if="!dash.settings_complete && settings" :settings="settings" />
-      <BridgeHero v-else :dash="dash" />
+      <GlassCard v-else><p class="text-paper-dim">داشبورد در حال بازسازی است.</p></GlassCard>
 
       <section v-if="dash.appimage_offer" class="surface mt-6 flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4">
         <UIcon name="i-lucide-package-plus" class="size-6 shrink-0 text-primary" aria-hidden="true" />
