@@ -56,7 +56,7 @@ describe('palette', () => {
 
   it('crimson in its lit form is readable everywhere it is used', () => {
     const crimson = scale('crimson');
-    for (const bg of SURFACES()) atLeast(crimson['400']!, bg, 4.5); // kicker, links, active nav
+    for (const bg of SURFACES()) atLeast(crimson['400']!, bg, 4.5); // kicker, links
     expect(ui('primary')).toBe(crimson['400']);
     atLeast('#ffffff', crimson['600']!, 4.5); // primary button gradient, top
     atLeast('#ffffff', crimson['800']!, 4.5); // primary button gradient, bottom
