@@ -82,12 +82,16 @@ impl Db {
     }
 
     /// Headers whose lines were never fetched.
-    pub fn unfetched_invoice_ids(&self, supplier: &str) -> Result<Vec<i64>> {
+    /// Invoices whose lines were never fetched, oldest row first; `since` keeps only those dated
+    /// on/after it (Jalali `YYYY/MM/DD`, so string order is date order).
+    pub fn unfetched_invoice_ids(&self, supplier: &str, since: Option<&str>) -> Result<Vec<i64>> {
         self.with(|c| {
             let mut st = c.prepare(
-                "SELECT id FROM invoices WHERE supplier = ?1 AND fetched_at IS NULL ORDER BY id",
+                "SELECT id FROM invoices
+                 WHERE supplier = ?1 AND fetched_at IS NULL AND (?2 IS NULL OR date_jalali >= ?2)
+                 ORDER BY id",
             )?;
-            let rows = st.query_map(params![supplier], |r| r.get(0))?;
+            let rows = st.query_map(params![supplier, since], |r| r.get(0))?;
             rows.collect()
         })
     }

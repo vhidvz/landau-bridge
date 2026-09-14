@@ -135,7 +135,10 @@ mod tests {
             .unwrap();
         assert_ne!(id, ret);
 
-        assert_eq!(db.unfetched_invoice_ids("barezpakhsh").unwrap().len(), 2);
+        assert_eq!(
+            db.unfetched_invoice_ids("barezpakhsh", None).unwrap().len(),
+            2
+        );
         let lines = vec![InvoiceLine {
             line_no: 1,
             code: "A".into(),
@@ -146,7 +149,10 @@ mod tests {
         }];
         db.replace_lines(id, &lines).unwrap();
         db.replace_lines(id, &lines).unwrap();
-        assert_eq!(db.unfetched_invoice_ids("barezpakhsh").unwrap(), vec![ret]);
+        assert_eq!(
+            db.unfetched_invoice_ids("barezpakhsh", None).unwrap(),
+            vec![ret]
+        );
         let all = db.lines_with_invoices("barezpakhsh").unwrap();
         assert_eq!(all.len(), 1);
         assert_eq!(all[0].code, "A");
@@ -169,7 +175,7 @@ mod tests {
         ];
         db.upsert_invoices("barezpakhsh", &headers).unwrap();
         assert_eq!(db.count_invoices("barezpakhsh").unwrap(), (3, 1));
-        let ids = db.unfetched_invoice_ids("barezpakhsh").unwrap();
+        let ids = db.unfetched_invoice_ids("barezpakhsh", None).unwrap();
         assert_eq!(ids.len(), 3);
         assert_eq!(
             ids[0], first,
@@ -265,6 +271,27 @@ mod tests {
         .unwrap();
         let latest = db.latest_price("barezpakhsh", "A").unwrap().unwrap();
         assert_eq!(latest.cost, 132);
+    }
+
+    #[test]
+    fn unfetched_invoice_ids_can_be_bounded_to_a_start_date() {
+        let db = Db::in_memory().unwrap();
+        let headers = vec![
+            header("1", InvoiceKind::Sale, "1404/12/29", true),
+            header("2", InvoiceKind::Sale, "1405/01/01", true),
+            header("3", InvoiceKind::Return, "1405/01/02", true),
+        ];
+        db.upsert_invoices("barezpakhsh", &headers).unwrap();
+        let all = db.unfetched_invoice_ids("barezpakhsh", None).unwrap();
+        assert_eq!(all.len(), 3);
+        let bounded = db
+            .unfetched_invoice_ids("barezpakhsh", Some("1405/01/01"))
+            .unwrap();
+        assert_eq!(
+            bounded,
+            all[1..].to_vec(),
+            "dated on/after the bound, in id order"
+        );
     }
 
     #[test]

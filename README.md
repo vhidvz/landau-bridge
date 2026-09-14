@@ -80,6 +80,7 @@ The app uses Microsoft Edge WebView2, which Windows 10 (1803+) and Windows 11 al
 
 - Prices you typed by hand in Landau are kept, unless you switch on **بازنویسی قیمت‌های دستی** (overwrite manual prices).
 - Each invoice is added to stock only once; running an import again is safe.
+- A **با تعداد، از تاریخ** (quantities since a date) import asks Barezpakhsh only for invoices from that date on. Switch off **فقط فاکتورهای از تاریخ شروع** (only invoices since the start date) — next to the date, or in Settings — to list and cache the whole statement instead; slower, but only the first time, since every invoice is downloaded once.
 - A part that is not in Landau's catalogue: choose **هیچ‌کدام** (none) and open a ticket with Landau support to have it added.
 - Every error and warning is listed on the **گزارش و خطاها** (report and errors) page and written to the log folder.
 - **Where your data lives.** The database, logs and settings are in one folder, shown on the Settings page:

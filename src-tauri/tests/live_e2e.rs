@@ -116,6 +116,7 @@ async fn zero_import_then_refresh_round_trip() {
         &ImportParams {
             mode: ImportMode::Zero,
             since: None,
+            fetch_since_only: settings.fetch_since_only,
             fetch_limit: Some(3),
         },
     )
@@ -264,6 +265,7 @@ async fn quantity_import_is_idempotent_across_runs() {
                 &ImportParams {
                     mode: ImportMode::Quantity,
                     since: Some(SINCE.into()),
+                    fetch_since_only: settings.fetch_since_only,
                     fetch_limit: Some(fetch_limit),
                 },
             )

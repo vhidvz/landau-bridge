@@ -27,6 +27,8 @@ pub struct Settings {
     pub threshold: u8,
     pub vat_percent: f64,
     pub overwrite_manual: bool,
+    /// A «quantities since ‹date›» run asks the supplier only for invoices from that date on.
+    pub fetch_since_only: bool,
 }
 
 /// Fields a save may carry. `None` = untouched; an empty string on a secret = untouched too.
@@ -42,6 +44,7 @@ pub struct SettingsPatch {
     pub threshold: Option<u8>,
     pub vat_percent: Option<f64>,
     pub overwrite_manual: Option<bool>,
+    pub fetch_since_only: Option<bool>,
 }
 
 impl Settings {
@@ -64,6 +67,7 @@ impl Settings {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(DEFAULT_VAT_PERCENT),
             overwrite_manual: get("overwrite_manual")?.map(|v| v == "1").unwrap_or(false),
+            fetch_since_only: get("fetch_since_only")?.map(|v| v == "1").unwrap_or(true),
         })
     }
 
@@ -101,6 +105,9 @@ impl Settings {
         }
         if let Some(v) = p.overwrite_manual {
             db.set_setting("overwrite_manual", if v { "1" } else { "0" })?;
+        }
+        if let Some(v) = p.fetch_since_only {
+            db.set_setting("fetch_since_only", if v { "1" } else { "0" })?;
         }
         Ok(())
     }
@@ -160,6 +167,22 @@ mod tests {
         assert!(!s.overwrite_manual);
         assert!(s.landau_token.is_none());
         assert!(s.require_landau().is_err());
+    }
+
+    #[test]
+    fn fetch_since_only_defaults_on_and_round_trips() {
+        let (db, sec, _d) = stores();
+        assert!(Settings::load(&db, &sec).unwrap().fetch_since_only);
+        Settings::save(
+            &db,
+            &sec,
+            &SettingsPatch {
+                fetch_since_only: Some(false),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!Settings::load(&db, &sec).unwrap().fetch_since_only);
     }
 
     #[test]

@@ -17,7 +17,7 @@ use crate::supplier::{Credentials, Progress, Supplier};
 
 pub const ID: &str = "barezpakhsh";
 pub const BASE_URL: &str = "https://33314466.ir";
-/// Earliest date the statement form is asked for — "every invoice to date".
+/// Earliest date the statement form is asked for when no bound is given — "every invoice to date".
 const LEDGER_FROM: &str = "1390/01/01";
 const USER_AGENT: &str = "LandauBridge/0.1 (+https://landau.ir)";
 
@@ -296,6 +296,31 @@ impl Client {
         fields.push((name.to_string(), value.to_string()));
     }
 
+    /// The statement form asking for «معین فاکتور» from `from` (every invoice when `None`) to
+    /// date. The site filters server-side on this POST; the paging endpoint's own `fromDate` is
+    /// ignored on its own, so both carry the same value.
+    fn ledger_form(mut fields: Vec<(String, String)>, from: Option<&str>) -> Vec<(String, String)> {
+        Self::set_field(&mut fields, "FromDate", from.unwrap_or(LEDGER_FROM));
+        Self::set_field(&mut fields, "ToDate", "");
+        Self::set_field(&mut fields, "command", "moein2");
+        fields
+    }
+
+    /// One page of `/Shop/Share/GradualMoein2Load` for the statement posted by [`Self::ledger_form`].
+    fn ledger_page(
+        ctx: &parse::LedgerContext,
+        index: u32,
+        from: Option<&str>,
+    ) -> serde_json::Value {
+        json!({
+            "pageIndex": index,
+            "yearId": ctx.year_id,
+            "businessCode": ctx.business_code,
+            "fromDate": from.unwrap_or(LEDGER_FROM),
+            "toDate": ""
+        })
+    }
+
     async fn buy_session(&self) -> Result<BuySession> {
         if let Some(s) = self.buy.lock().await.clone() {
             return Ok(s);
@@ -340,12 +365,10 @@ impl Supplier for Client {
         self.do_login().await
     }
 
-    async fn ledger(&self, progress: Progress) -> Result<Vec<InvoiceHeader>> {
+    async fn ledger(&self, from: Option<&str>, progress: Progress) -> Result<Vec<InvoiceHeader>> {
         let page = self.get_authed("/Shop/Report/Bill").await?;
-        let mut fields = parse::form_fields(&page, "/Shop/Report/Bill", "bill")?;
-        Self::set_field(&mut fields, "FromDate", LEDGER_FROM);
-        Self::set_field(&mut fields, "ToDate", "");
-        Self::set_field(&mut fields, "command", "moein2");
+        let fields = parse::form_fields(&page, "/Shop/Report/Bill", "bill")?;
+        let fields = Self::ledger_form(fields, from);
         let html = self.post_form_authed("/Shop/Report/Bill", &fields).await?;
         let ctx = parse::ledger_context(&html)?;
         let pages = ctx.page_count();
@@ -354,13 +377,7 @@ impl Supplier for Client {
             let body = self
                 .post_json_authed(
                     "/Shop/Share/GradualMoein2Load",
-                    &json!({
-                        "pageIndex": index,
-                        "yearId": ctx.year_id,
-                        "businessCode": ctx.business_code,
-                        "fromDate": LEDGER_FROM,
-                        "toDate": ""
-                    }),
+                    &Self::ledger_page(&ctx, index, from),
                 )
                 .await?;
             headers.extend(
@@ -450,6 +467,49 @@ mod tests {
         assert!(retryable(Some(429)));
         assert!(retryable(Some(500)));
         assert!(retryable(None));
+    }
+
+    fn field<'a>(fields: &'a [(String, String)], name: &str) -> Option<&'a str> {
+        fields
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.as_str())
+    }
+
+    fn ctx() -> parse::LedgerContext {
+        parse::LedgerContext {
+            total: 30,
+            page_size: 15,
+            year_id: 0,
+            business_code: "97100251".into(),
+        }
+    }
+
+    #[test]
+    fn ledger_requests_carry_the_start_date() {
+        let page_fields = vec![
+            ("BusinessId".to_string(), "1".to_string()),
+            ("FromDate".to_string(), "1405/4/24".to_string()),
+        ];
+        let fields = Client::ledger_form(page_fields, Some("1405/01/01"));
+        assert_eq!(field(&fields, "BusinessId"), Some("1"));
+        assert_eq!(field(&fields, "FromDate"), Some("1405/01/01"));
+        assert_eq!(field(&fields, "ToDate"), Some(""));
+        assert_eq!(field(&fields, "command"), Some("moein2"));
+        let body = Client::ledger_page(&ctx(), 2, Some("1405/01/01"));
+        assert_eq!(body["fromDate"], "1405/01/01");
+        assert_eq!(body["toDate"], "");
+        assert_eq!(body["pageIndex"], 2);
+        assert_eq!(body["yearId"], 0);
+        assert_eq!(body["businessCode"], "97100251");
+    }
+
+    #[test]
+    fn ledger_requests_ask_for_every_invoice_when_unbounded() {
+        let fields = Client::ledger_form(vec![], None);
+        assert_eq!(field(&fields, "FromDate"), Some(LEDGER_FROM));
+        let body = Client::ledger_page(&ctx(), 1, None);
+        assert_eq!(body["fromDate"], LEDGER_FROM);
     }
 
     #[test]

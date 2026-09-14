@@ -79,6 +79,7 @@ pub async fn settings_get(state: State<'_, AppState>) -> Result<SettingsView> {
         threshold: s.threshold,
         vat_percent: s.vat_percent,
         overwrite_manual: s.overwrite_manual,
+        fetch_since_only: s.fetch_since_only,
         secret_backend: state.secrets.backend().into(),
         data_dir: state.data_dir.display().to_string(),
     })
@@ -325,6 +326,7 @@ pub async fn import_start(
     let params = jobs::import::ImportParams {
         mode,
         since,
+        fetch_since_only: s.fetch_since_only,
         fetch_limit,
     };
     spawn(app, &state, job_id, true, move |ctx, svc| async move {

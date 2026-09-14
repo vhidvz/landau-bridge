@@ -19,7 +19,7 @@ const supplierChip = computed(() =>
 
 const form = reactive({
   landau_url: '', landau_token: '', store: '', supplier_user: '', supplier_password: '',
-  default_authenticity: 'ORIGINAL' as 'ORIGINAL' | 'FAKE', threshold: 80, vat_percent: 10, overwrite_manual: false,
+  default_authenticity: 'ORIGINAL' as 'ORIGINAL' | 'FAKE', threshold: 80, vat_percent: 10, overwrite_manual: false, fetch_since_only: true,
 });
 
 const load = async () => {
@@ -28,7 +28,7 @@ const load = async () => {
     Object.assign(form, {
       landau_url: view.value.landau_url, store: view.value.store ?? '', supplier_user: view.value.supplier_user ?? '',
       default_authenticity: view.value.default_authenticity, threshold: view.value.threshold, vat_percent: view.value.vat_percent,
-      overwrite_manual: view.value.overwrite_manual, landau_token: '', supplier_password: '',
+      overwrite_manual: view.value.overwrite_manual, fetch_since_only: view.value.fetch_since_only, landau_token: '', supplier_password: '',
     });
   } catch (e) { error.value = e as BridgeError; }
 };
@@ -129,6 +129,9 @@ const authItems = [{ label: 'اصلی (ORIGINAL)', value: 'ORIGINAL' }, { label:
           </div>
           <UFormField label="قیمت‌های دستی لاندا را هم بازنویسی کن" hint="لاندا قیمتی را که خودتان تایپ کرده باشید نگه می‌دارد؛ این گزینه همان «بازنویسی» لانداست">
             <USwitch v-model="form.overwrite_manual" />
+          </UFormField>
+          <UFormField label="فقط فاکتورهای از تاریخ شروع از بارزپخش خوانده شود" hint="در حالت «با تعداد، از تاریخ» صورت‌حساب از همان تاریخ خواسته می‌شود. خاموش: کل صورت‌حساب از ۱۳۹۰ خوانده و ذخیره می‌شود؛ کندتر، ولی فقط بار اول">
+            <USwitch v-model="form.fetch_since_only" />
           </UFormField>
         </div>
       </section>

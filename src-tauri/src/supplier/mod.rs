@@ -22,8 +22,9 @@ pub trait Supplier: Send + Sync {
     fn id(&self) -> &'static str;
     /// Establish a session. Idempotent.
     async fn login(&self) -> Result<()>;
-    /// Every sale and return header, oldest first. Receipts are not returned.
-    async fn ledger(&self, progress: Progress) -> Result<Vec<InvoiceHeader>>;
+    /// Every sale and return header dated on/after `from` (Jalali `YYYY/MM/DD`; all of them when
+    /// `None`), oldest first. Receipts are not returned.
+    async fn ledger(&self, from: Option<&str>, progress: Progress) -> Result<Vec<InvoiceHeader>>;
     /// The lines of one invoice page (`InvoiceHeader::url`).
     async fn invoice_lines(&self, url: &str) -> Result<Vec<InvoiceLine>>;
     /// Today's list price of one code, `None` when the site no longer lists it.

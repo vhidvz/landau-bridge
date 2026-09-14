@@ -22,7 +22,10 @@ async fn logs_in_reads_the_ledger_an_invoice_and_a_price() {
     supplier.login().await.expect("login");
 
     let headers = supplier
-        .ledger(Arc::new(|done, total| eprintln!("ledger {done}/{total}")))
+        .ledger(
+            None,
+            Arc::new(|done, total| eprintln!("ledger {done}/{total}")),
+        )
         .await
         .expect("ledger");
     assert!(

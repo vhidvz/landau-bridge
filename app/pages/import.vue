@@ -7,6 +7,7 @@ const settings = ref<SettingsView | null>(null);
 const error = ref<BridgeError | null>(null);
 const mode = ref<'QUANTITY' | 'ZERO'>('QUANTITY');
 const since = ref(jalaliYearStart());
+const sinceOnly = ref(true);
 const starting = ref(false);
 const review = ref<JobItemRow[]>([]);
 const job = useJob();
@@ -21,6 +22,7 @@ const loadReview = async () => {
 onMounted(async () => {
   try {
     settings.value = await bridge.settingsGet();
+    sinceOnly.value = settings.value.fetch_since_only;
     const fromQuery = Number(route.query.job);
     const current = Number.isFinite(fromQuery) && fromQuery > 0 ? { id: fromQuery } : await bridge.jobCurrent();
     if (current) {
@@ -35,6 +37,9 @@ watch(job.status, async (s) => { if (s === 'REVIEW') await loadReview(); });
 const start = async () => {
   error.value = null; starting.value = true;
   try {
+    if (mode.value === 'QUANTITY' && settings.value && sinceOnly.value !== settings.value.fetch_since_only) {
+      settings.value = await bridge.settingsSave({ fetch_since_only: sinceOnly.value });
+    }
     const id = await bridge.importStart(mode.value, mode.value === 'QUANTITY' ? normalizeJalali(since.value)! : undefined);
     await job.follow(id);
   } catch (e) { error.value = e as BridgeError; } finally { starting.value = false; }
@@ -86,6 +91,11 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
           <span class="mt-1 block text-sm text-muted">تعداد خریداری‌شده در فاکتورهای پرداخت‌شده از این تاریخ به بعد، منهای مرجوعی‌ها، به قفسه اضافه می‌شود. اگر قطعه از قبل روی قفسه باشد به موجودی فعلی افزوده می‌شود. هر فاکتور فقط یک بار منتقل می‌شود.</span>
           <span class="mt-4 block text-sm font-medium text-highlighted">از تاریخ</span>
           <UInput v-model="since" aria-label="از تاریخ" placeholder="۱۴۰۵/۰۱/۰۱" dir="ltr" class="mt-1 w-40" :color="sinceOk ? 'primary' : 'error'" :disabled="mode !== 'QUANTITY'" />
+          <span class="mt-3 flex items-center gap-2 text-sm text-highlighted">
+            <USwitch v-model="sinceOnly" aria-label="فقط فاکتورهای از این تاریخ خوانده شود" :disabled="mode !== 'QUANTITY'" />
+            فقط فاکتورهای از این تاریخ از بارزپخش خوانده شود
+          </span>
+          <span class="mt-1 block text-xs text-muted">خاموش: کل صورت‌حساب از ۱۳۹۰ خوانده و ذخیره می‌شود؛ کندتر، ولی فقط بار اول.</span>
         </label>
         <label class="ticket" :data-selected="mode === 'ZERO'">
           <input v-model="mode" type="radio" name="mode" value="ZERO" class="sr-only" />

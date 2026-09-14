@@ -18,6 +18,7 @@ pub struct SettingsView {
     pub threshold: u8,
     pub vat_percent: f64,
     pub overwrite_manual: bool,
+    pub fetch_since_only: bool,
     pub secret_backend: String,
     pub data_dir: String,
 }

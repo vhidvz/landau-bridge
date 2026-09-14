@@ -21,9 +21,22 @@ use crate::supplier::Progress;
 pub struct ImportParams {
     pub mode: ImportMode,
     pub since: Option<String>,
+    /// Ask the supplier only for invoices dated on/after `since` (quantity mode); otherwise the
+    /// whole ledger is listed and cached, as a zero-mode run always does.
+    pub fetch_since_only: bool,
     /// At most this many not-yet-fetched invoices this run (`None` = all). Invoices are cached, so
     /// a capped run simply continues next time; the live e2e test uses it to stay short.
     pub fetch_limit: Option<usize>,
+}
+
+impl ImportParams {
+    /// The date the ledger request is bounded to, if any.
+    pub fn ledger_from(&self) -> Option<&str> {
+        match self.mode {
+            ImportMode::Quantity if self.fetch_since_only => self.since.as_deref(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,7 +50,7 @@ pub async fn start(ctx: &JobCtx, svc: &Services, params: &ImportParams) -> Resul
     let (_, _, store) = svc.settings.require_landau()?;
     let store = store.to_string();
     preflight(ctx, svc, &store).await?;
-    fetch(ctx, svc, params.fetch_limit).await?;
+    fetch(ctx, svc, params.ledger_from(), params.fetch_limit).await?;
     aggregate_phase(ctx, params)?;
     let pending = match_phase(ctx, svc).await?;
     if pending > 0 {
@@ -58,9 +71,14 @@ pub async fn start(ctx: &JobCtx, svc: &Services, params: &ImportParams) -> Resul
     Ok(Outcome::Done)
 }
 
-/// Ledger headers → unseen invoices' lines. Per-invoice parse failures are recorded and skipped;
-/// session/transport failures stop the job.
-async fn fetch(ctx: &JobCtx, svc: &Services, limit: Option<usize>) -> Result<()> {
+/// Ledger headers (from `from` on, or all of them) → unseen invoices' lines in that range.
+/// Per-invoice parse failures are recorded and skipped; session/transport failures stop the job.
+async fn fetch(
+    ctx: &JobCtx,
+    svc: &Services,
+    from: Option<&str>,
+    limit: Option<usize>,
+) -> Result<()> {
     ctx.phase("FETCH")?;
     let progress_ctx = (ctx.app.clone(), ctx.job_id);
     let progress: Progress = std::sync::Arc::new(move |done, total| {
@@ -76,7 +94,7 @@ async fn fetch(ctx: &JobCtx, svc: &Services, limit: Option<usize>) -> Result<()>
             },
         );
     });
-    let headers = svc.supplier.ledger(progress).await?;
+    let headers = svc.supplier.ledger(from, progress).await?;
     ctx.check_cancel()?;
     ctx.db.upsert_invoices(SUPPLIER_ID, &headers)?;
     let unpaid = headers.iter().filter(|h| !h.paid).count();
@@ -85,7 +103,7 @@ async fn fetch(ctx: &JobCtx, svc: &Services, limit: Option<usize>) -> Result<()>
         &format!("{} ledger row(s), {unpaid} unpaid", headers.len()),
         None,
     );
-    let mut todo = ctx.db.unfetched_invoice_ids(SUPPLIER_ID)?;
+    let mut todo = ctx.db.unfetched_invoice_ids(SUPPLIER_ID, from)?;
     if let Some(limit) = limit {
         if todo.len() > limit {
             ctx.info(
@@ -629,6 +647,22 @@ mod tests {
             authenticity: Some("ORIGINAL".into()),
             price_source: None,
         }
+    }
+
+    #[test]
+    fn the_ledger_is_bounded_only_for_a_quantity_run_that_asks_for_it() {
+        let params = |mode, fetch_since_only| ImportParams {
+            mode,
+            since: Some("1405/01/01".into()),
+            fetch_since_only,
+            fetch_limit: None,
+        };
+        assert_eq!(
+            params(ImportMode::Quantity, true).ledger_from(),
+            Some("1405/01/01")
+        );
+        assert_eq!(params(ImportMode::Quantity, false).ledger_from(), None);
+        assert_eq!(params(ImportMode::Zero, true).ledger_from(), None);
     }
 
     #[test]
