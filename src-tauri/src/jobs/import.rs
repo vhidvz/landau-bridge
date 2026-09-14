@@ -203,7 +203,18 @@ async fn match_phase(ctx: &JobCtx, svc: &Services) -> Result<usize> {
     let mut pending = 0usize;
     for (n, item) in items.iter().enumerate() {
         ctx.check_cancel()?;
-        match matcher.decide(&search, &item.code, &item.name).await? {
+        // One failed search (a rejected query, a parse slip) must not take the whole job down:
+        // the item goes to review with no candidates and the seller re-searches by hand.
+        // Session/transport failures still stop the job.
+        let decision = match matcher.decide(&search, &item.code, &item.name).await {
+            Ok(d) => d,
+            Err(e) if fatal(&e) => return Err(e),
+            Err(e) => {
+                ctx.error("MATCH", &e, Some(json!({"item_id": item.id})));
+                Decision::Review(Vec::new())
+            }
+        };
+        match decision {
             Decision::Matched {
                 product_id,
                 product_name,
