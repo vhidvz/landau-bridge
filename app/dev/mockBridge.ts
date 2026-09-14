@@ -141,6 +141,8 @@ const detail = (id: number, state: State): JobDetail => {
   if (id === 43 && state === 'running') return { job: runningJob, items: [], events: runningEvents };
   if (id === 43 && state === 'review') return { job: reviewJob, items: reviewItems, events: doneEvents.slice(0, 4) };
   if (id === 44 && state === 'refreshing') return { job: refreshJob, items: [], events: [ev(1, 'INFO', 'PREFLIGHT', 'اتصال به لاندا و بارزپخش برقرار است', 6), ev(2, 'INFO', 'PRICE', 'قیمت روز ۴۱۲ کد از بارزپخش خوانده شد', 3)] };
+  if (id === 40) return { job: jobs[2]!, items: [], events: [ev(1, 'INFO', 'PREFLIGHT', 'اتصال به لاندا و بارزپخش برقرار است', 4400), ev(2, 'ERROR', 'FETCH', 'پاسخی از بارزپخش نیامد', 4390)] };
+  if (id === 41) return { job: jobs[1]!, items: doneItems.filter((i) => i.action === 'PATCH'), events: [ev(1, 'INFO', 'PREFLIGHT', 'اتصال به لاندا و بارزپخش برقرار است', 1500), ev(2, 'INFO', 'PRICE', 'قیمت روز ۴۱۲ کد از بارزپخش خوانده شد', 1490), ev(3, 'INFO', 'REPORT', JSON.stringify({ rows: 412, changed: 96, skipped_manual: 12 }), 1480)] };
   const j = jobs.find((x) => x.id === id) ?? jobs[0]!;
   return { job: j, items: j.status === 'DONE' ? doneItems : [], events: j.status === 'DONE' ? doneEvents : doneEvents.slice(0, 2) };
 };
@@ -165,7 +167,7 @@ export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {
       case 'review_search': return [scored('p_s1', `${args.term}`, 'جست‌وجو', 66)];
       case 'job_cancel': return true;
       case 'job_current': return current(state);
-      case 'jobs_list': return state === 'empty' ? [] : jobs;
+      case 'jobs_list': return state === 'empty' ? [] : [...(current(state) ? [current(state)!] : []), ...jobs];
       case 'job_get': return detail(Number(args.job_id), state);
       case 'matches_list': return state === 'empty' ? [] : matches;
       case 'errors_list': return state === 'empty' ? [] : errors;

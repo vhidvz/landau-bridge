@@ -29,7 +29,7 @@
 - If the app was run before a schema change, delete `bridge.sqlite*` in the data dir (`bridge.sqlite`, `-wal`, `-shm`) — the app recreates it on next launch. A database created after the final schema needs no such reset.
 
 ## Design review without Tauri
-To look at the pages without Tauri: `pnpm dev`, open `http://localhost:3210/?state=done&mode=dark` (`state` = `empty|running|review|refreshing|done`; fixtures in `app/dev/mockBridge.ts`); `scripts/shots.sh OUT_DIR` screenshots every page in both modes.
+To look at the pages without Tauri: `pnpm dev`, open `http://localhost:3210/?state=done` (`state` = `empty|running|review|refreshing|done`; fixtures in `app/dev/mockBridge.ts`; add `&grid=1` for the alignment overlay, `&fx=lite` for reduced effects, `&appimage=1` for the install offer); `scripts/shots.sh OUT_DIR [filter] [--grid]` screenshots every page.
 
 ## Facts worth knowing before debugging
 - A fresh apt answers `401` for a few seconds until the CDC watcher lands it.
