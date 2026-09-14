@@ -6,19 +6,21 @@ export default defineNuxtConfig({
   modules: ['@nuxt/ui'],
   css: ['~/assets/css/main.css'],
   plugins: process.env.NODE_ENV === 'development' ? ['~/dev/devQuery.client'] : [],
+  // Dark only: no colour-mode module, `class="dark"` is fixed on <html> (spec §1).
+  ui: { colorMode: false },
   // A desktop app under a strict CSP: every icon the pages and Nuxt UI use is bundled at build
   // time from the local lucide collection; nothing is fetched from api.iconify.design at runtime.
   icon: {
     provider: 'none',
     clientBundle: { scan: true, sizeLimitKb: 512 },
   },
-  colorMode: { preference: 'system', fallback: 'light' },
   runtimeConfig: { public: { version } },
   app: {
+    pageTransition: { name: 'page', mode: 'out-in' },
     head: {
-      htmlAttrs: { dir: 'rtl', lang: 'fa' },
+      htmlAttrs: { dir: 'rtl', lang: 'fa', class: 'dark' },
       title: 'پل لاندا',
-      meta: [{ name: 'color-scheme', content: 'light dark' }],
+      meta: [{ name: 'color-scheme', content: 'dark' }],
       link: [{ rel: 'icon', type: 'image/svg+xml', href: '/brand/logo.svg' }],
     },
   },

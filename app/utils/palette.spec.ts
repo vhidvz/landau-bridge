@@ -5,85 +5,79 @@ import { describe, expect, it } from 'vitest';
 import { contrastRatio } from './color';
 
 const css = readFileSync(resolve(__dirname, '../assets/css/main.css'), 'utf8');
+
+/** `--color-<name>-<stop>: #hex` pairs of one ramp. */
 const scale = (name: string): Record<string, string> => {
   const out: Record<string, string> = {};
   for (const m of css.matchAll(new RegExp(`--color-${name}-(\\d+):\\s*(#[0-9a-fA-F]{6})`, 'g'))) out[m[1]!] = m[2]!;
   return out;
 };
-const firoozeh = scale('firoozeh');
-const zaferan = scale('zaferan');
-const petrol = scale('petrol');
-const sabz = scale('sabz');
-const sorkh = scale('sorkh');
-
-const block = (selector: string): string => {
-  const m = new RegExp(`${selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css);
-  return m?.[1] ?? '';
+/** Follows `var(--color-x-N)` (a ramp stop) or `var(--color-name)` (an alias) to its hex. */
+const resolveRef = (raw: string): string => {
+  const viaRamp = /^var\(--color-([a-z]+)-(\d+)\)$/.exec(raw);
+  if (viaRamp) return scale(viaRamp[1]!)[viaRamp[2]!]!;
+  const viaAlias = /^var\(--color-([a-z-]+)\)$/.exec(raw);
+  return viaAlias ? token(viaAlias[1]!) : raw;
 };
-const varOf = (selector: string, name: string): string => {
-  const raw = new RegExp(`--${name}:\\s*([^;]+);`).exec(block(selector))?.[1]?.trim() ?? '';
-  const viaToken = /var\(--color-([a-z]+)-(\d+)\)/.exec(raw);
-  return viaToken ? scale(viaToken[1]!)[viaToken[2]!]! : raw;
+/** A single `--color-<name>: …` token (alias or literal), resolved to hex. */
+const token = (name: string): string =>
+  resolveRef(new RegExp(`--color-${name}:\\s*([^;]+);`).exec(css)?.[1]?.trim() ?? '');
+/** The value a `--ui-<name>` variable resolves to on `:root`. */
+const ui = (name: string): string => {
+  const root = /:root\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  return resolveRef(new RegExp(`--ui-${name}:\\s*([^;]+);`).exec(root)?.[1]?.trim() ?? '');
 };
-
-const WHITE = '#FFFFFF';
-const SIDEBAR_TOP = varOf(':root', 'sidebar-top');
-const SIDEBAR_BOTTOM = varOf(':root', 'sidebar-bottom');
-const SIDEBAR_TEXT = varOf(':root', 'sidebar-text');
-const LIGHT = { page: petrol['50']!, surface: WHITE, well: petrol['100']!, text: petrol['800']!, heading: varOf(':root', 'ui-text-highlighted'), muted: petrol['600']! };
-const DARK = { page: petrol['950']!, surface: petrol['900']!, well: varOf('.dark', 'ui-bg-elevated'), text: varOf('.dark', 'ui-text'), heading: varOf('.dark', 'ui-text-highlighted'), muted: petrol['400']! };
 
 const atLeast = (fg: string, bg: string, min: number) =>
   expect(contrastRatio(fg, bg), `${fg} on ${bg}`).toBeGreaterThanOrEqual(min);
 
+const SURFACES = () => [token('ink-950'), token('ink-900'), token('ink-800'), token('ink-700')];
+
 describe('palette', () => {
-  it('defines all five scales with 11 stops', () => {
-    for (const s of [firoozeh, zaferan, petrol, sabz, sorkh]) expect(Object.keys(s)).toHaveLength(11);
-  });
-
-  it('sidebar text is readable in every state', () => {
-    atLeast(WHITE, firoozeh['600']!, 4.5); // active item
-    atLeast(SIDEBAR_TEXT, SIDEBAR_TOP, 4.5);
-    atLeast(SIDEBAR_TEXT, SIDEBAR_BOTTOM, 4.5);
-    atLeast(petrol['400']!, SIDEBAR_BOTTOM, 4.5); // version / muted line
-    atLeast(zaferan['300']!, firoozeh['600']!, 3); // active icon (large, non-text)
-  });
-
-  it('light surfaces carry readable text', () => {
-    for (const bg of [LIGHT.page, LIGHT.surface, LIGHT.well]) {
-      atLeast(LIGHT.text, bg, 4.5);
-      atLeast(LIGHT.heading, bg, 4.5);
-      atLeast(LIGHT.muted, bg, 4.5);
+  it('defines the six ramps with 11 stops each', () => {
+    for (const name of ['graphite', 'crimson', 'sapphire', 'sage', 'amber', 'rust']) {
+      expect(Object.keys(scale(name)), name).toHaveLength(11);
     }
   });
 
-  it('dark surfaces carry readable text', () => {
-    for (const bg of [DARK.page, DARK.surface, DARK.well]) {
-      atLeast(DARK.text, bg, 4.5);
-      atLeast(DARK.heading, bg, 4.5);
-      atLeast(DARK.muted, bg, 4.5);
+  it('pins the surfaces and text roles to the spec values', () => {
+    expect(SURFACES()).toEqual(['#0b0d12', '#10131a', '#171b24', '#232833']);
+    expect(token('paper')).toBe('#f7f7f9');
+    expect(token('paper-dim')).toBe(scale('graphite')['300']);
+    expect(token('paper-mute')).toBe(scale('graphite')['400']);
+    expect(ui('text-dimmed')).toBe(scale('graphite')['400']);
+  });
+
+  it('text roles clear 4.5:1 on all four surfaces', () => {
+    for (const bg of SURFACES()) {
+      for (const fg of [token('paper'), token('paper-dim'), token('paper-mute')]) atLeast(fg, bg, 4.5);
     }
   });
 
-  it('semantic colours used as text or button fills pass', () => {
-    // solid primary button: white on firoozeh-600 (light), petrol-900 on firoozeh-400 (dark)
-    atLeast(WHITE, firoozeh['600']!, 4.5);
-    atLeast(petrol['900']!, firoozeh['400']!, 4.5);
-    // soft badges: the --ui-* text shade on the 50 stop (light) and on the dark surface (dark)
-    atLeast(firoozeh['600']!, firoozeh['50']!, 4.5);
-    atLeast(zaferan['800']!, zaferan['50']!, 4.5);
-    atLeast(sabz['700']!, sabz['50']!, 4.5);
-    atLeast(sorkh['600']!, sorkh['50']!, 4.5);
-    atLeast(petrol['600']!, petrol['100']!, 4.5);
-    atLeast(firoozeh['400']!, DARK.surface, 4.5);
-    atLeast(zaferan['300']!, DARK.surface, 4.5);
-    atLeast(sabz['400']!, DARK.surface, 4.5);
-    atLeast(sorkh['300']!, DARK.surface, 4.5);
-    // control outlines (--ui-border-accented) must identify the control: WCAG 1.4.11
-    atLeast(petrol['500']!, LIGHT.surface, 3);
-    atLeast(petrol['500']!, DARK.surface, 3);
-    // decorative dividers only need to be visible; the surface fill does the separating
-    atLeast(petrol['200']!, LIGHT.page, 1.2);
-    atLeast(petrol['800']!, DARK.page, 1.2);
+  it('crimson in its lit form is readable everywhere it is used', () => {
+    const crimson = scale('crimson');
+    for (const bg of SURFACES()) atLeast(crimson['400']!, bg, 4.5); // kicker, links, active nav
+    expect(ui('primary')).toBe(crimson['400']);
+    atLeast('#ffffff', crimson['600']!, 4.5); // primary button gradient, top
+    atLeast('#ffffff', crimson['800']!, 4.5); // primary button gradient, bottom
+  });
+
+  it('signals are readable where they may appear', () => {
+    for (const bg of SURFACES()) {
+      atLeast(token('ok'), bg, 4.5);
+      atLeast(token('warn'), bg, 4.5);
+      atLeast(token('info'), bg, 4.5);
+    }
+    for (const bg of SURFACES().slice(0, 3)) atLeast(token('danger'), bg, 4.5); // never on ink-700
+    expect(ui('success')).toBe(token('ok'));
+    expect(ui('warning')).toBe(token('warn'));
+    expect(ui('error')).toBe(token('danger'));
+    expect(ui('info')).toBe(token('info'));
+  });
+
+  it('control outlines identify the control (WCAG 1.4.11)', () => {
+    atLeast(token('line-bright'), token('ink-900'), 3);
+    atLeast(token('line-bright'), token('ink-800'), 3);
+    expect(ui('border-accented')).toBe(token('line-bright'));
   });
 });

@@ -32,7 +32,6 @@ const version = useRuntimeConfig().public.version;
       <div class="mt-auto flex flex-col gap-3 p-3">
         <RunningJobCard v-if="running" :job="running" compact />
         <div class="flex items-center justify-between px-2 pb-1">
-          <ThemeToggle />
           <span class="tabular text-xs" :style="{ color: 'var(--sidebar-muted)' }" dir="ltr">v{{ version }}</span>
         </div>
       </div>
