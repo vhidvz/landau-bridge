@@ -6,7 +6,7 @@ use landau_bridge_lib::db::Db;
 use landau_bridge_lib::domain::ImportMode;
 use landau_bridge_lib::jobs::import::{self, ImportParams, Outcome};
 use landau_bridge_lib::jobs::{refresh, JobCtx, Services};
-use landau_bridge_lib::landau::LandauClient;
+use landau_bridge_lib::landau::{LandauClient, PatchBody};
 use landau_bridge_lib::matching::Matcher;
 use landau_bridge_lib::secrets::SecretStore;
 use landau_bridge_lib::settings::{Settings, SettingsPatch, SUPPLIER_ID};
@@ -386,16 +386,38 @@ async fn quantity_import_is_idempotent_across_runs() {
         );
     }
 
-    // ---- cleanup: soft-delete rows these runs attached
+    // ---- cleanup: soft-delete rows these runs attached (a restored row is one of them) and put
+    // the quantities the runs added to existing rows back, so the fixture store is left where it
+    // was found.
     for job_id in [first, second] {
-        for item in db
-            .job_items(job_id)
-            .unwrap()
+        let detail = db.job_detail(job_id).unwrap();
+        let restored: Vec<i64> = detail
+            .events
             .iter()
-            .filter(|i| i.action.as_deref() == Some("ATTACH"))
-        {
-            if let Some(id) = &item.stock_id {
-                let _ = landau.delete(id).await;
+            .filter(|e| e.level == "INFO" && e.message.contains("بازیابی"))
+            .filter_map(|e| e.detail.as_ref()?.get("item_id")?.as_i64())
+            .collect();
+        for item in detail.items.iter().filter(|i| i.status == "DONE") {
+            let Some(id) = &item.stock_id else { continue };
+            match (item.action.as_deref(), item.qty_before) {
+                (Some("ATTACH"), _) => {
+                    let _ = landau.delete(id).await;
+                }
+                (Some("PATCH"), _) if restored.contains(&item.id) => {
+                    let _ = landau.delete(id).await;
+                }
+                (Some("PATCH"), Some(before)) if item.qty_after != Some(before) => {
+                    let _ = landau
+                        .patch(
+                            id,
+                            &PatchBody {
+                                inventory: Some(before),
+                                cost: None,
+                            },
+                        )
+                        .await;
+                }
+                _ => {}
             }
         }
     }
