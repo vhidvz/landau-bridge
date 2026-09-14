@@ -3,6 +3,12 @@ export default defineNuxtConfig({
   devtools: { enabled: false },
   modules: ['@nuxt/ui'],
   css: ['~/assets/css/main.css'],
+  // A desktop app under a strict CSP: every icon the pages and Nuxt UI use is bundled at build
+  // time from the local lucide collection; nothing is fetched from api.iconify.design at runtime.
+  icon: {
+    provider: 'none',
+    clientBundle: { scan: true, sizeLimitKb: 512 },
+  },
   app: {
     head: {
       htmlAttrs: { dir: 'rtl', lang: 'fa' },

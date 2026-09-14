@@ -1,24 +1,39 @@
 <script setup lang="ts">
-import type { JobItemRow } from '~/types/bridge';
+import { save } from '@tauri-apps/plugin-dialog';
+import { writeTextFile } from '@tauri-apps/plugin-fs';
+import type { BridgeError, JobItemRow } from '~/types/bridge';
 
 const props = defineProps<{ items: JobItemRow[]; kind: 'IMPORT' | 'REFRESH' }>();
 const filter = ref<'ALL' | 'DONE' | 'SKIPPED' | 'FAILED'>('ALL');
 const rows = computed(() => props.items.filter((i) => filter.value === 'ALL' || i.status === filter.value));
 const actionLabel: Record<string, string> = { ATTACH: 'افزوده شد', PATCH: 'به‌روزرسانی شد', SKIP: 'بدون تغییر' };
+const error = ref<BridgeError | null>(null);
+const saving = ref(false);
 
-const csv = () => {
+// A blob download is unreliable in WebKitGTK, so the export goes through the native save dialog
+// and the fs plugin. The BOM makes Excel read the UTF-8 Persian text correctly.
+const csv = async () => {
   const head = ['کد', 'نام', 'اقدام', 'تعداد قبل', 'تعداد بعد', 'قیمت خرید', 'قیمت قفسه قبل', 'قیمت قفسه بعد', 'نتیجه قیمت‌گذاری', 'وضعیت', 'خطا'];
   const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const lines = [head.join(','), ...props.items.map((i) => [
     i.code, i.name, i.action ? actionLabel[i.action] : '—', i.qty_before, i.qty_after, i.cost, i.price_before, i.price_after,
     verdictLabel(i.reprice_verdict), statusLabel[i.status] ?? i.status, i.error_msg,
   ].map(esc).join(','))];
-  const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = `landau-bridge-${props.kind.toLowerCase()}.csv`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  error.value = null;
+  saving.value = true;
+  try {
+    const path = await save({
+      defaultPath: `landau-bridge-${props.kind.toLowerCase()}.csv`,
+      filters: [{ name: 'CSV', extensions: ['csv'] }],
+    });
+    if (path) await writeTextFile(path, '\ufeff' + lines.join('\n'));
+  } catch (e) {
+    error.value = isBridgeError(e)
+      ? e
+      : { kind: 'Other', message: 'ذخیره فایل CSV ناموفق بود.', detail: String(e) };
+  } finally {
+    saving.value = false;
+  }
 };
 </script>
 
@@ -29,8 +44,9 @@ const csv = () => {
         {{ { ALL: 'همه', DONE: 'انجام‌شده', SKIPPED: 'ردشده', FAILED: 'ناموفق' }[f] }}
       </UButton>
       <span class="ms-auto text-sm text-neutral-500">{{ faNumber(rows.length) }} ردیف</span>
-      <UButton size="sm" variant="soft" icon="i-lucide-download" @click="csv">خروجی CSV</UButton>
+      <UButton size="sm" variant="soft" icon="i-lucide-download" :loading="saving" @click="csv">خروجی CSV</UButton>
     </div>
+    <ErrorBanner :error="error" />
     <div class="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-800">
       <table class="w-full text-sm">
         <thead class="bg-neutral-50 dark:bg-neutral-900">

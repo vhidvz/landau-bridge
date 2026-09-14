@@ -13,7 +13,9 @@
     "windows": [
       { "title": "پل لندو", "width": 1200, "height": 800, "minWidth": 960, "minHeight": 640 }
     ],
-    "security": { "csp": null }
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'"
+    }
   },
   "bundle": {
     "active": true,

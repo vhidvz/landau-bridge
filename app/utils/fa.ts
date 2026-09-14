@@ -64,7 +64,6 @@ export const verdictLabel = (v: string | null | undefined): string => {
   if (!v) return '—';
   if (v.startsWith('REPRICED:')) return `قیمت‌گذاری شد: ${rials(Number(v.slice(9)))}`;
   if (v.startsWith('SKIPPED:')) return skipLabel[v.slice(8)] ?? v;
-  if (v === 'COST_UNCHANGED') return 'قیمت خرید تغییری نکرده';
   if (v === 'UNCHANGED') return 'بدون تغییر';
   return v;
 };
