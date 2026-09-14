@@ -75,7 +75,7 @@ const clear = async () => {
           <td class="font-medium text-highlighted">{{ r.name_seen }}</td>
           <td><span dir="ltr" class="whitespace-nowrap">{{ r.code }}</span></td>
           <td>{{ r.product_name ?? '—' }}</td>
-          <td><UBadge :color="r.how === 'NONE' ? 'error' : r.how === 'USER' ? 'info' : 'success'" variant="soft">{{ howLabel[r.how] }}</UBadge></td>
+          <td class="whitespace-nowrap"><UBadge :color="r.how === 'NONE' ? 'error' : r.how === 'USER' ? 'info' : 'success'" variant="soft">{{ howLabel[r.how] }}</UBadge></td>
           <td><SimilarityBar v-if="r.similarity != null" :value="r.similarity" /><span v-else class="text-muted">—</span></td>
           <td class="whitespace-nowrap">{{ isoToLocal(r.decided_at) }}</td>
           <td class="text-end"><UButton size="xs" variant="soft" @click="openEdit(r)">تغییر</UButton></td>

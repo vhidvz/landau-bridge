@@ -142,7 +142,7 @@ const authItems = [{ label: 'اصلی (ORIGINAL)', value: 'ORIGINAL' }, { label:
       </section>
     </div>
 
-    <div class="sticky bottom-0 -mx-8 mt-6 flex justify-end border-t border-default bg-muted/85 px-8 py-3 backdrop-blur">
+    <div class="sticky bottom-0 mt-6 flex justify-end border-t border-default bg-muted/85 py-3 backdrop-blur">
       <UButton size="lg" :loading="busy === 'save'" icon="i-lucide-save" @click="save">ذخیره تنظیمات</UButton>
     </div>
   </div>
