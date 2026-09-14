@@ -87,7 +87,7 @@
   --ui-bg-inverted: var(--color-petrol-900);
   --ui-border: var(--color-petrol-200);
   --ui-border-muted: var(--color-petrol-100);
-  --ui-border-accented: var(--color-petrol-300);
+  --ui-border-accented: var(--color-petrol-500);
   --ui-text-highlighted: #13232C;
   --ui-text: var(--color-petrol-800);
   --ui-text-toned: var(--color-petrol-700);
@@ -113,7 +113,7 @@
   --ui-bg-inverted: #F3F7F9;
   --ui-border: var(--color-petrol-800);
   --ui-border-muted: #1F3440;
-  --ui-border-accented: var(--color-petrol-700);
+  --ui-border-accented: var(--color-petrol-500);
   --ui-text-highlighted: #F3F7F9;
   --ui-text: #E6EEF2;
   --ui-text-toned: #C6D4DB;
@@ -168,8 +168,8 @@ code, pre, kbd { font-family: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Me
   .segmented-btn:hover { color: var(--ui-text-highlighted); }
   .segmented-btn[aria-checked="true"] { background: var(--ui-bg); color: var(--ui-text-highlighted); box-shadow: 0 1px 2px rgb(11 24 32 / 0.12); }
 
-  .ticket { position: relative; display: block; cursor: pointer; padding: 1.25rem; padding-inline-end: 3rem; border-radius: var(--radius-surface); background: var(--ui-bg); border: 1px solid var(--ui-border); transition: border-color 150ms, box-shadow 150ms; }
-  .ticket:hover { border-color: var(--ui-border-accented); }
+  .ticket { position: relative; display: block; cursor: pointer; padding: 1.25rem; padding-inline-end: 3rem; border-radius: var(--radius-surface); background: var(--ui-bg); border: 1px solid var(--ui-border-accented); transition: border-color 150ms, box-shadow 150ms; }
+  .ticket:hover { border-color: var(--color-firoozeh-400); }
   .ticket[data-selected="true"] { border-color: var(--color-firoozeh-500); box-shadow: inset 0 0 0 1px var(--color-firoozeh-500); }
   .ticket:has(input:focus-visible) { outline: 2px solid var(--color-zaferan-400); outline-offset: 2px; }
   .ticket-check { position: absolute; top: 1.25rem; inset-inline-end: 1.25rem; color: var(--color-firoozeh-500); }

@@ -1,4 +1,4 @@
-// @ts-nocheck
+/// <reference types="node" />
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -69,7 +69,10 @@ describe('palette', () => {
     atLeast(zaferan['300']!, DARK.surface, 4.5);
     atLeast(sabz['400']!, DARK.surface, 4.5);
     atLeast(sorkh['300']!, DARK.surface, 4.5);
-    // borders against both pages
+    // control outlines (--ui-border-accented) must identify the control: WCAG 1.4.11
+    atLeast(petrol['500']!, LIGHT.surface, 3);
+    atLeast(petrol['500']!, DARK.surface, 3);
+    // decorative dividers only need to be visible; the surface fill does the separating
     atLeast(petrol['200']!, LIGHT.page, 1.2);
     atLeast(petrol['800']!, DARK.page, 1.2);
   });
