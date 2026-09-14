@@ -1,6 +1,6 @@
 # Landau Bridge — UI/UX redesign
 
-Date: 2026-09-14. Status: approved in brainstorming, awaiting the implementation plan.
+Date: 2026-09-14. Status: approved in brainstorming; implementation plan at `docs/superpowers/plans/2026-09-14-ui-redesign.md`.
 
 The app works but looks like a default Nuxt UI scaffold: no identity, no logo (the window icon is
 Tauri's), identical grey cards, and a sidebar whose active item is unreadable in dark mode
@@ -35,22 +35,28 @@ Three scales, 50–950, defined once as hex (Tailwind names in parentheses):
 - **petrol** (`neutral`; a blue-tinted grey, never pure grey): 50 `#F2F5F7`, 100 `#E9EEF1`, 200 `#D5DDE2`,
   300 `#B4C2CA`, 400 `#8FA3AE`, 500 `#6B808B`, 600 `#5B6B74`, 700 `#3C4C55`, 800 `#27404D`, 900 `#152530`,
   950 `#0E1B24`.
-- **success**: 50 `#E9F7F0`, 100 `#CDEEDD`, 200 `#9FDDBE`, 300 `#6CC79A`, 400 `#45B37F`, 500 `#2E9E6B`,
+- **sabz** (`success`): 50 `#E9F7F0`, 100 `#CDEEDD`, 200 `#9FDDBE`, 300 `#6CC79A`, 400 `#45B37F`, 500 `#2E9E6B`,
   600 `#248257`, 700 `#1C6745`, 800 `#154F35`, 900 `#0F3A27`, 950 `#082418`.
-- **error**: 50 `#FCEDED`, 100 `#F8D6D6`, 200 `#F1ACAC`, 300 `#E77E7E`, 400 `#DD5C5C`, 500 `#D14343`,
+- **sorkh** (`error`): 50 `#FCEDED`, 100 `#F8D6D6`, 200 `#F1ACAC`, 300 `#E77E7E`, 400 `#DD5C5C`, 500 `#D14343`,
   600 `#B13333`, 700 `#8E2828`, 800 `#6C1F1F`, 900 `#4C1616`, 950 `#2E0D0D`.
 
-Semantic surfaces (`--ui-*` overrides):
+Semantic surfaces (`--ui-*` overrides; Nuxt UI's `bg-default` is the **surface**, `bg-muted` the
+**page**, `bg-elevated` the **wells**, so its components keep their own surface colour untouched):
 
 | Token | Light | Dark |
 | --- | --- | --- |
-| `--ui-bg` (page) | `#F2F5F7` petrol-50 | `#0E1B24` petrol-950 |
-| `--ui-bg-elevated` (surface / card) | `#FFFFFF` | `#152530` petrol-900 |
-| `--ui-bg-muted` (table header, wells) | `#E9EEF1` petrol-100 | `#1C2F3B` |
+| `--ui-bg-muted` (page) | `#F2F5F7` petrol-50 | `#0E1B24` petrol-950 |
+| `--ui-bg` (surface / card) | `#FFFFFF` | `#152530` petrol-900 |
+| `--ui-bg-elevated` (table header, wells) | `#E9EEF1` petrol-100 | `#1C2F3B` |
 | `--ui-border` | `#D5DDE2` petrol-200 | `#27404D` petrol-800 |
 | `--ui-text-highlighted` (headings) | `#13232C` | `#F3F7F9` |
 | `--ui-text` (body) | `#27404D` petrol-800 | `#E6EEF2` |
 | `--ui-text-muted` | `#5B6B74` petrol-600 | `#8FA3AE` petrol-400 |
+| `--ui-primary` (button fill, link) | firoozeh-600 | firoozeh-400 (with dark text) |
+| `--ui-success` / `--ui-warning` / `--ui-error` / `--ui-neutral` (badge text) | sabz-700 / zaferan-800 / sorkh-600 / petrol-600 | sabz-400 / zaferan-300 / sorkh-400 / petrol-400 |
+
+The 500 stops are the brand hues; the shades Nuxt UI uses for text and fills are shifted as above
+so every pair clears 4.5:1 (white on firoozeh-500 alone is 4.0:1).
 
 Sidebar (same in both modes): background gradient `#0B1820 → #10222D` (top→bottom) with a faint arch
 pattern (inline SVG, 6 % white); text `#C6D4DB`; hover `rgba(255,255,255,.08)`; active item white on
@@ -127,12 +133,13 @@ both modes.
 
 **Mark** (`app/components/BrandLogo.vue`, inline SVG, `viewBox 0 0 64 64`, stroke-based):
 
-- Deck: horizontal line y=22 from x=8 to x=56, stroke 5, round caps.
-- Towers: two verticals at x=14 and x=50 from y=22 down to y=36.
-- Cable: one quadratic curve from (14,22) sagging to (32,40) and back up to (50,22) — this is the
-  bowl of «پ», open at the top.
-- Dots: three circles r=3.5 at (24,50), (32,54), (40,50) — the three dots of «پ» and the piers'
-  reflection.
+- Deck: horizontal line y=14 from x=8 to x=56, stroke 5, round caps.
+- Towers: two short verticals at x=14 and x=50 from y=14 down to y=22.
+- Cable: one quadratic curve `M14 22 Q32 54 50 22` (sagging to y=38) — this is the bowl of «پ»,
+  open at the top.
+- Dots: three circles r=3.5 at (24,48), (32,52), (40,48) — the three dots of «پ» and the piers'
+  reflection. The whole sits between y=11.5 and y=55.5, slightly above centre, which reads right
+  next to text.
 - Colour: deck, towers and cable in `currentColor`; dots in zaferan-400 (prop `dots` can force
   `currentColor` for single-colour contexts). Default size 28 px in the sidebar, 40 px in the hero,
   96 px on the setup checklist.
@@ -234,13 +241,14 @@ New, under `app/components/`:
 | --- | --- | --- |
 | `BrandLogo` | `size?: number` (px, default 28), `withWordmark?: boolean`, `dots?: 'accent' \| 'current'` | Inline SVG per §4. |
 | `PageHeader` | `title`, `description?`; `#actions` | Title 32/700; description 15 muted; actions end-aligned. |
-| `BridgeHero` | `dash: Dashboard`, `running: JobRow \| null`; `#deck` | SVG bridge + banks; draw-in animation once. |
+| `BridgeHero` | `dash: Dashboard` | SVG bridge + banks; draw-in animation once; shows `RunningJobCard` on the deck when `dash.running` is set, the two action buttons otherwise. |
 | `SetupChecklist` | `settings: SettingsView` | Three steps, each links to `/settings`. |
 | `RunningJobCard` | `job: JobRow`, `compact?: boolean` | Used in the aside and on the hero deck. |
 | `ThemeToggle` | — | Segmented سیستم/روشن/تیره over `useColorMode()`. |
 | `EmptyState` | `title`, `description?`, `art?`; `#action` | §5.7. |
 | `SimilarityBar` | `value: number` (0–100) | 64 px bar + Persian percent; colour: ≥80 success, ≥60 zaferan, else petrol. Replaces the bare badge everywhere similarity is shown. |
 | `LedgerTable` | `#default` (thead/tbody) | The one table wrapper: surface, muted header row, `tnum`, row divider petrol-200/800, hover petrol-50/900. Replaces the four hand-rolled `overflow-x-auto rounded-lg border …` wrappers. |
+| `SegmentedControl` | `v-model` (string union), `items: { value, label }[]`, `ariaLabel?` | The one segmented filter (report filters, match filters); `role="radiogroup"`. |
 
 Rewritten:
 
@@ -277,11 +285,14 @@ Config:
 `app/composables/useBridge.ts` keeps its API. `call()` and `onJobEvents()` delegate to
 `app/dev/mockBridge.ts` when **both** `import.meta.dev` is true **and** `window.__TAURI_INTERNALS__`
 is absent; otherwise the Tauri path runs unchanged. The mock returns fixed fixtures for every
-command (a complete `Dashboard`, a `RUNNING` import at `MATCH`, three review items with candidates,
-a finished job with items and events, 12 match rows, 6 error rows, a `SettingsView`), and `?state=`
-query values on the page switch scenarios the screenshots need: `empty` (settings incomplete),
-`running`, `review`, `done`. `onJobEvents` returns a no-op unsubscriber. The file is not imported by
-the production build (the `import.meta.dev` branch is tree-shaken by Vite).
+command (a complete `Dashboard`, a `RUNNING` import at `MATCH`, a `RUNNING` refresh at `WRITE`,
+three review items with candidates, a finished job with items and events, 12 match rows, 6 error
+rows, a `SettingsView`), and `?state=` query values on the page switch scenarios the screenshots
+need: `empty` (settings incomplete), `running`, `review`, `refreshing`, `done`. `?mode=light|dark`
+sets the colour mode (a dev-only Nuxt plugin registered from `nuxt.config.ts` only in development).
+`onJobEvents` emits one progress tick for the running fixtures and returns a no-op unsubscriber.
+The fixture module is reached only through a dynamic import behind `import.meta.dev`, so the
+production build does not contain it.
 
 ## 8. Verification
 
