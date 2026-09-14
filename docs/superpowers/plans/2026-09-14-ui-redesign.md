@@ -785,7 +785,7 @@ for mode in light dark; do
     case "$p" in *"$filter"*) ;; *) continue ;; esac
     name=$(printf '%s' "$p" | tr '/?=&' '____' | sed 's/^_//; s/^$/root/')
     google-chrome-stable --headless=new --no-proxy-server --disable-gpu --hide-scrollbars --no-sandbox \
-      --window-size=1200,800 --virtual-time-budget=6000 --force-device-scale-factor=1 \
+      --window-size=1200,800 --virtual-time-budget=6000 --force-device-scale-factor=1 --force-prefers-reduced-motion \
       --screenshot="$out/$mode-$name.png" "http://localhost:3210$p&mode=$mode" >/dev/null 2>&1
     echo "$out/$mode-$name.png"
   done
@@ -2154,14 +2154,9 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 Run: `scripts/shots.sh "$SCRATCH/shots-12-final"` and Read all 24 PNGs, one by one. For each, tick the spec checklist: contrast, no saffron outside its four uses, no grey-card grid, tabular numbers aligned in tables, no clipped RTL text, dark mode surfaces distinct from the page. Fix anything found in the page it belongs to; re-shoot that page; commit fixes as `Polish <page> after the screenshot review`.
 
-- [ ] **Step 2: Reduced-motion check**
+- [ ] **Step 2: Motion check in the real app**
 
-Run:
-```sh
-google-chrome-stable --headless=new --no-proxy-server --disable-gpu --hide-scrollbars --no-sandbox --window-size=1200,800 \
-  --force-prefers-reduced-motion --virtual-time-budget=100 --screenshot="$SCRATCH/reduced.png" "http://localhost:3210/?state=done&mode=light"
-```
-Read `reduced.png`: the bridge must be fully drawn at 100 ms of virtual time (no partial strokes). If Chrome ignores the flag, temporarily set `@media (prefers-reduced-motion: reduce)` to `all` in `main.css`, re-shoot, and revert.
+The stills are taken under forced reduced motion (so they show end states). The draw-in and the breathing pier are checked by eye in Step 5's real-app run: the dashboard bridge must draw itself once on first paint and be fully drawn afterwards; with the desktop's reduce-motion setting on (GNOME: Settings → Accessibility → Reduce animation; KDE: System Settings → Accessibility) the bridge must appear fully drawn immediately.
 
 - [ ] **Step 3: Grep for leftovers**
 
