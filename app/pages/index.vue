@@ -1,39 +1,60 @@
 <script setup lang="ts">
-import type { BridgeError, Dashboard } from '~/types/bridge';
+import type { BridgeError, Dashboard, JobRow, SettingsView } from '~/types/bridge';
 
 const dash = ref<Dashboard | null>(null);
+const settings = ref<SettingsView | null>(null);
 const error = ref<BridgeError | null>(null);
-const load = async () => { try { dash.value = await bridge.dashboardGet(); } catch (e) { error.value = e as BridgeError; } };
+const load = async () => {
+  try {
+    dash.value = await bridge.dashboardGet();
+    settings.value = dash.value.settings_complete ? null : await bridge.settingsGet();
+  } catch (e) { error.value = e as BridgeError; }
+};
 onMounted(load);
+
+const attention = computed(() => {
+  const rows: { key: string; tone: 'info' | 'warn'; text: string; to: string; action: string }[] = [];
+  const d = dash.value;
+  if (!d) return rows;
+  if (d.running?.status === 'REVIEW') rows.push({ key: 'review', tone: 'info', text: `${faNumber(d.pending_review)} قلم منتظر تصمیم شماست`, to: `/import?job=${d.running.id}`, action: 'ادامهٔ بازبینی' });
+  if (d.recent_errors > 0) rows.push({ key: 'errors', tone: 'warn', text: `${faNumber(d.recent_errors)} خطا یا هشدار در هفت روز گذشته`, to: '/logs', action: 'مشاهده' });
+  return rows;
+});
+const lastRuns = computed(() => [
+  { label: 'آخرین وارد کردن', job: dash.value?.last_import ?? null },
+  { label: 'آخرین به‌روزرسانی قیمت', job: dash.value?.last_refresh ?? null },
+]);
+const statusColor = (j: JobRow) => (j.status === 'DONE' ? 'success' : j.status === 'FAILED' ? 'error' : 'neutral');
 </script>
 
 <template>
-  <div class="space-y-6">
-    <h2 class="text-2xl font-bold">داشبورد</h2>
+  <div>
+    <PageHeader :title="dash?.store_name ?? 'پل لندو'" description="پل بین فاکتورهای بارزپخش و قفسهٔ لندو" />
     <ErrorBanner :error="error" />
-    <UAlert v-if="dash && !dash.settings_complete" color="warning" variant="soft" title="تنظیمات ناقص است" description="کلید لندو، فروشگاه مقصد و ورود بارزپخش را در صفحه تنظیمات کامل کنید.">
-      <template #actions><UButton to="/settings" size="sm">تنظیمات</UButton></template>
-    </UAlert>
 
-    <div v-if="dash" class="grid gap-4 md:grid-cols-3">
-      <UCard><p class="text-sm text-neutral-500">فروشگاه لندو</p><p class="text-lg font-semibold">{{ dash.store_name ?? '—' }}</p></UCard>
-      <UCard><p class="text-sm text-neutral-500">حساب بارزپخش</p><p class="text-lg font-semibold" dir="ltr">{{ dash.supplier_user ?? '—' }}</p></UCard>
-      <UCard><p class="text-sm text-neutral-500">فاکتورهای ذخیره‌شده</p><p class="text-lg font-semibold">{{ faNumber(dash.invoices_cached) }} <span class="text-sm text-neutral-500">({{ faNumber(dash.invoices_unpaid) }} پرداخت‌نشده)</span></p></UCard>
-      <UCard><p class="text-sm text-neutral-500">آخرین وارد کردن</p><p class="font-semibold">{{ dash.last_import ? `${isoToLocal(dash.last_import.started_at)} — ${statusLabel[dash.last_import.status] ?? dash.last_import.status}` : '—' }}</p></UCard>
-      <UCard><p class="text-sm text-neutral-500">آخرین به‌روزرسانی قیمت</p><p class="font-semibold">{{ dash.last_refresh ? `${isoToLocal(dash.last_refresh.started_at)} — ${statusLabel[dash.last_refresh.status] ?? dash.last_refresh.status}` : '—' }}</p></UCard>
-      <UCard><p class="text-sm text-neutral-500">تطبیق‌های ثبت‌شده</p><p class="text-lg font-semibold">{{ faNumber(dash.decided_matches) }}</p></UCard>
-    </div>
+    <template v-if="dash">
+      <SetupChecklist v-if="!dash.settings_complete && settings" :settings="settings" />
+      <BridgeHero v-else :dash="dash" />
 
-    <UAlert v-if="dash?.running?.status === 'REVIEW'" color="info" variant="soft" :title="`${faNumber(dash.pending_review)} قلم منتظر تصمیم شماست`">
-      <template #actions><UButton :to="`/import?job=${dash.running.id}`" size="sm">ادامه بازبینی</UButton></template>
-    </UAlert>
-    <UAlert v-if="dash && dash.recent_errors > 0" color="warning" variant="soft" :title="`${faNumber(dash.recent_errors)} خطا یا هشدار در هفت روز گذشته`">
-      <template #actions><UButton to="/logs" size="sm" variant="soft">مشاهده</UButton></template>
-    </UAlert>
+      <ul v-if="attention.length" class="surface mt-6 divide-y divide-default">
+        <li v-for="a in attention" :key="a.key" class="flex items-center gap-3 px-5 py-3">
+          <span class="level-dot !mt-0" :data-level="a.tone === 'warn' ? 'WARN' : 'PRIMARY'" aria-hidden="true" />
+          <span class="tabular flex-1">{{ a.text }}</span>
+          <UButton :to="a.to" size="sm" variant="soft">{{ a.action }}</UButton>
+        </li>
+      </ul>
 
-    <div class="flex flex-wrap gap-4">
-      <UButton size="xl" icon="i-lucide-file-input" to="/import" :disabled="!dash?.settings_complete || !!dash?.running">وارد کردن فاکتورها</UButton>
-      <UButton size="xl" icon="i-lucide-refresh-cw" variant="soft" to="/refresh" :disabled="!dash?.settings_complete || !!dash?.running">به‌روزرسانی قیمت‌ها</UButton>
-    </div>
+      <section class="surface mt-6 divide-y divide-default">
+        <div v-for="r in lastRuns" :key="r.label" class="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3">
+          <span class="w-56 shrink-0 text-muted">{{ r.label }}</span>
+          <template v-if="r.job">
+            <UBadge :color="statusColor(r.job)" variant="soft">{{ statusLabel[r.job.status] ?? r.job.status }}</UBadge>
+            <span class="tabular text-sm">{{ isoToLocal(r.job.started_at) }}</span>
+            <UButton :to="`/logs?job=${r.job.id}`" size="xs" variant="ghost" class="ms-auto">جزئیات</UButton>
+          </template>
+          <span v-else class="text-sm text-muted">هنوز اجرا نشده</span>
+        </div>
+      </section>
+    </template>
   </div>
 </template>

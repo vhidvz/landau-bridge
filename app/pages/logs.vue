@@ -6,15 +6,21 @@ const errors = ref<ErrorRow[]>([]);
 const detail = ref<JobDetail | null>(null);
 const error = ref<BridgeError | null>(null);
 const tab = ref<'jobs' | 'errors'>('jobs');
+const route = useRoute();
 
 const load = async () => {
   try { [jobs.value, errors.value] = await Promise.all([bridge.jobsList(), bridge.errorsList(300)]); } catch (e) { error.value = e as BridgeError; }
 };
-onMounted(load);
 const open = async (j: JobRow) => {
   error.value = null;
   try { detail.value = await bridge.jobGet(j.id); } catch (e) { error.value = e as BridgeError; }
 };
+onMounted(async () => {
+  await load();
+  const wanted = Number(route.query.job);
+  const j = jobs.value.find((x) => x.id === wanted);
+  if (j) await open(j);
+});
 const openFolder = async () => {
   error.value = null;
   try { await bridge.openLogFolder(); } catch (e) { error.value = e as BridgeError; }
