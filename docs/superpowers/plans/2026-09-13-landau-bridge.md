@@ -121,7 +121,7 @@ export default defineNuxtConfig({
   app: {
     head: {
       htmlAttrs: { dir: 'rtl', lang: 'fa' },
-      title: 'پل لندو',
+      title: 'پل لاندا',
     },
   },
   // Tauri's dev server contract: fixed port, no screen clearing, TAURI_* env exposed.
@@ -184,7 +184,7 @@ import { fa } from '@nuxt/ui/locale';
 ```vue
 <template>
   <main class="p-6">
-    <h1 class="text-xl font-bold">پل لندو</h1>
+    <h1 class="text-xl font-bold">پل لاندا</h1>
   </main>
 </template>
 ```
@@ -200,7 +200,7 @@ ls public/fonts
 - [ ] **Step 3: Initialise Tauri non-interactively**
 
 ```bash
-pnpm tauri init --ci --app-name landau-bridge --window-title "پل لندو" \
+pnpm tauri init --ci --app-name landau-bridge --window-title "پل لاندا" \
   --frontend-dist ../.output/public --dev-url http://localhost:3000 \
   --before-dev-command "pnpm dev" --before-build-command "pnpm generate"
 ```
@@ -220,7 +220,7 @@ Then overwrite `src-tauri/tauri.conf.json`:
   },
   "app": {
     "windows": [
-      { "title": "پل لندو", "width": 1200, "height": 800, "minWidth": 960, "minHeight": 640 }
+      { "title": "پل لاندا", "width": 1200, "height": 800, "minWidth": 960, "minHeight": 640 }
     ],
     "security": { "csp": null }
   },
@@ -360,7 +360,7 @@ Expected: finishes with no warnings (an unused-module warning means a `mod` line
 Run: `pnpm generate && ls .output/public/index.html`
 Expected: the file exists.
 
-Run (smoke, optional if a display is available): `pnpm tauri dev` — a window titled «پل لندو» opens showing the placeholder heading. Close it.
+Run (smoke, optional if a display is available): `pnpm tauri dev` — a window titled «پل لاندا» opens showing the placeholder heading. Close it.
 
 - [ ] **Step 6: Commit**
 
@@ -713,13 +713,13 @@ impl BridgeError {
             SupplierSessionExpired => "نشست بارزپخش منقضی شد و ورود دوباره هم ناموفق بود.".into(),
             SupplierParse { page, field } => format!("ساختار صفحه «{page}» تغییر کرده است (بخش «{field}» پیدا نشد). به‌روزرسانی برنامه لازم است."),
             NoCurrentPrice { code } => format!("برای کد {code} قیمت روز در بارزپخش پیدا نشد."),
-            LandauUnauthorized => "کلید API لندو نامعتبر یا منقضی است. کلید تازه‌ای در لندو بسازید.".into(),
-            LandauForbidden(d) => format!("لندو این درخواست را مجاز نمی‌داند ({d}). کلید باید از حساب فروشنده و از طریق درگاه لندو باشد."),
-            LandauUnreachable(d) => format!("اتصال به لندو برقرار نشد ({d})."),
-            LandauRejected { status, body } => format!("لندو درخواست را رد کرد (کد {status}): {body}"),
-            BusinessNotApproved => "کسب‌وکار شما در لندو هنوز تأیید نشده است.".into(),
-            NoStore => "هیچ فروشگاهی برای این حساب در لندو ثبت نشده است.".into(),
-            ProductNotApproved(p) => format!("قطعه {p} در فهرست لندو تأیید نشده است."),
+            LandauUnauthorized => "کلید API لاندا نامعتبر یا منقضی است. کلید تازه‌ای در لاندا بسازید.".into(),
+            LandauForbidden(d) => format!("لاندا این درخواست را مجاز نمی‌داند ({d}). کلید باید از حساب فروشنده و از طریق درگاه لاندا باشد."),
+            LandauUnreachable(d) => format!("اتصال به لاندا برقرار نشد ({d})."),
+            LandauRejected { status, body } => format!("لاندا درخواست را رد کرد (کد {status}): {body}"),
+            BusinessNotApproved => "کسب‌وکار شما در لاندا هنوز تأیید نشده است.".into(),
+            NoStore => "هیچ فروشگاهی برای این حساب در لاندا ثبت نشده است.".into(),
+            ProductNotApproved(p) => format!("قطعه {p} در فهرست لاندا تأیید نشده است."),
             DuplicateRow => "این قطعه با همین مشخصات از قبل روی قفسه است.".into(),
             MirrorTimeout(n) => format!("{n} ردیف هنوز در قفسه دیده نمی‌شود؛ قیمت‌گذاری آن‌ها در اجرای بعدی انجام می‌شود."),
             JobCancelled => "عملیات به درخواست شما متوقف شد.".into(),
@@ -2032,9 +2032,9 @@ impl Settings {
     /// `(url, token, store)` or `SettingsIncomplete` naming the missing piece.
     pub fn require_landau(&self) -> Result<(&str, &str, &str)> {
         let token = self.landau_token.as_deref().filter(|t| !t.is_empty())
-            .ok_or_else(|| BridgeError::SettingsIncomplete("کلید API لندو".into()))?;
+            .ok_or_else(|| BridgeError::SettingsIncomplete("کلید API لاندا".into()))?;
         let store = self.store.as_deref().filter(|s| !s.is_empty())
-            .ok_or_else(|| BridgeError::SettingsIncomplete("فروشگاه مقصد در لندو".into()))?;
+            .ok_or_else(|| BridgeError::SettingsIncomplete("فروشگاه مقصد در لاندا".into()))?;
         Ok((self.landau_url.as_str(), token, store))
     }
 
@@ -3431,7 +3431,7 @@ impl LandauClient {
             .build()
             .map_err(|e| BridgeError::LandauUnreachable(e.to_string()))?;
         let base = Url::parse(&format!("{}/", base_url.trim_end_matches('/')))
-            .map_err(|e| BridgeError::SettingsIncomplete(format!("نشانی لندو نامعتبر است: {e}")))?;
+            .map_err(|e| BridgeError::SettingsIncomplete(format!("نشانی لاندا نامعتبر است: {e}")))?;
         Ok(LandauClient { http, base, token: token.to_string() })
     }
 
@@ -4606,7 +4606,7 @@ pub async fn preflight(ctx: &JobCtx, svc: &Services, store: &str) -> Result<()> 
     let rules = svc.landau.pricing_rules().await?;
     let active = rules.iter().filter(|r| r.active).count();
     if active == 0 {
-        ctx.warn("PREFLIGHT", kinds::NO_PRICING_RULE, "در لندو هیچ قاعده قیمت‌گذاری فعالی ندارید؛ قیمت قفسه برابر قیمت خرید خواهد بود.", None);
+        ctx.warn("PREFLIGHT", kinds::NO_PRICING_RULE, "در لاندا هیچ قاعده قیمت‌گذاری فعالی ندارید؛ قیمت قفسه برابر قیمت خرید خواهد بود.", None);
     }
     ctx.info("PREFLIGHT", &format!("business {} · {active} active pricing rule(s)", owner.business), None);
     Ok(())
@@ -4819,14 +4819,14 @@ async fn match_phase(ctx: &JobCtx, svc: &Services) -> Result<usize> {
                 ctx.item(item.id, &[("product_id", t(&product_id)), ("product_name", t(&product_name)), ("status", t("PLANNED"))])?;
             }
             Decision::None => {
-                ctx.item(item.id, &[("status", t("SKIPPED")), ("error_kind", t(kinds::NONE_DECISION)), ("error_msg", t("این قطعه در لندو نیست (تصمیم قبلی)."))])?;
+                ctx.item(item.id, &[("status", t("SKIPPED")), ("error_kind", t(kinds::NONE_DECISION)), ("error_msg", t("این قطعه در لاندا نیست (تصمیم قبلی)."))])?;
             }
             Decision::Review(scored) => {
                 pending += 1;
                 ctx.item(item.id, &[("status", t("REVIEW")), ("candidates_json", t(&serde_json::to_string(&scored)?))])?;
             }
         }
-        ctx.progress("MATCH", n as u32 + 1, total, "تطبیق با فهرست لندو");
+        ctx.progress("MATCH", n as u32 + 1, total, "تطبیق با فهرست لاندا");
     }
     if pending > 0 {
         ctx.warn("MATCH", kinds::UNMATCHED, &format!("{pending} قطعه نیاز به تأیید شما دارد."), None);
@@ -4917,7 +4917,7 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                 ctx.item(item.id, &[("status", t("FAILED")), ("error_kind", t(e.kind())), ("error_msg", t(&e.message_fa()))])?;
             }
         }
-        ctx.progress("WRITE", n as u32 + 1, total, "نوشتن روی قفسه لندو");
+        ctx.progress("WRITE", n as u32 + 1, total, "نوشتن روی قفسه لاندا");
     }
 
     reprice_items(ctx, svc, &store, &written).await?;
@@ -5200,7 +5200,7 @@ fn settings(state: &AppState) -> Result<Settings> {
 }
 
 fn landau(s: &Settings) -> Result<LandauClient> {
-    let token = s.landau_token.as_deref().filter(|t| !t.is_empty()).ok_or_else(|| BridgeError::SettingsIncomplete("کلید API لندو".into()))?;
+    let token = s.landau_token.as_deref().filter(|t| !t.is_empty()).ok_or_else(|| BridgeError::SettingsIncomplete("کلید API لاندا".into()))?;
     LandauClient::new(&s.landau_url, token)
 }
 
@@ -5359,8 +5359,8 @@ pub async fn review_decide(state: State<'_, AppState>, decision: ReviewDecision)
     }
     if decision.none {
         matcher.record_none(&item.code, &item.name)?;
-        state.db.record_error(Some(item.job_id), kinds::NONE_DECISION, &format!("«{}» در فهرست لندو نیست؛ برای افزودن آن یک تیکت برای پشتیبانی لندو ثبت کنید.", item.name), Some(serde_json::json!({"code": item.code})))?;
-        return state.db.update_job_item(item.id, &[("status", jobs::t("SKIPPED")), ("error_kind", jobs::t(kinds::NONE_DECISION)), ("error_msg", jobs::t("این قطعه در لندو نیست."))]);
+        state.db.record_error(Some(item.job_id), kinds::NONE_DECISION, &format!("«{}» در فهرست لاندا نیست؛ برای افزودن آن یک تیکت برای پشتیبانی لاندا ثبت کنید.", item.name), Some(serde_json::json!({"code": item.code})))?;
+        return state.db.update_job_item(item.id, &[("status", jobs::t("SKIPPED")), ("error_kind", jobs::t(kinds::NONE_DECISION)), ("error_msg", jobs::t("این قطعه در لاندا نیست."))]);
     }
     let product_id = decision.product_id.ok_or_else(|| BridgeError::Other("no product picked".into()))?;
     let product_name = decision.product_name.unwrap_or_default();
@@ -5629,11 +5629,11 @@ export const phaseLabel: Record<string, string> = {
   PREFLIGHT: 'بررسی اتصال‌ها',
   FETCH: 'دریافت فاکتورها',
   AGGREGATE: 'جمع‌بندی اقلام',
-  MATCH: 'تطبیق با فهرست لندو',
+  MATCH: 'تطبیق با فهرست لاندا',
   REVIEW: 'در انتظار تصمیم شما',
   PRICE: 'قیمت روز بارزپخش',
   WRITE: 'نوشتن روی قفسه',
-  REPRICE: 'اعمال قواعد قیمت‌گذاری لندو',
+  REPRICE: 'اعمال قواعد قیمت‌گذاری لاندا',
   REPORT: 'گزارش نهایی',
 };
 
@@ -5652,7 +5652,7 @@ export const statusLabel: Record<string, string> = {
 const skipLabel: Record<string, string> = {
   MANUAL: 'قیمت دستی حفظ شد',
   NO_COST: 'بدون قیمت خرید',
-  NO_RULE: 'قاعده‌ای در لندو ندارید',
+  NO_RULE: 'قاعده‌ای در لاندا ندارید',
   UNCHANGED: 'بدون تغییر',
 };
 
@@ -5676,19 +5676,19 @@ export const kindLabel = (kind: string): string =>
     InvoiceUnpaid: 'فاکتور پرداخت‌نشده',
     InvoiceAlreadyImported: 'فاکتور قبلاً منتقل‌شده',
     LineNonPositiveQty: 'ردیف با تعداد صفر',
-    LandauUnauthorized: 'کلید API لندو',
-    LandauForbidden: 'عدم مجوز در لندو',
-    LandauUnreachable: 'اتصال به لندو',
-    LandauRejected: 'رد درخواست توسط لندو',
+    LandauUnauthorized: 'کلید API لاندا',
+    LandauForbidden: 'عدم مجوز در لاندا',
+    LandauUnreachable: 'اتصال به لاندا',
+    LandauRejected: 'رد درخواست توسط لاندا',
     BusinessNotApproved: 'کسب‌وکار تأییدنشده',
     NoStore: 'بدون فروشگاه',
     ProductNotApproved: 'قطعه تأییدنشده',
     DuplicateRow: 'ردیف تکراری',
-    MirrorTimeout: 'تأخیر قفسه لندو',
+    MirrorTimeout: 'تأخیر قفسه لاندا',
     NoPricingRule: 'بدون قاعده قیمت‌گذاری',
     RepriceSkipped: 'قیمت‌گذاری رد شد',
     Unmatched: 'تطبیق‌نشده',
-    NoneDecision: 'در فهرست لندو نیست',
+    NoneDecision: 'در فهرست لاندا نیست',
     JobCancelled: 'لغو شد',
     JobInterrupted: 'ناتمام ماند',
     VatRateMismatch: 'اختلاف نرخ ارزش افزوده',
@@ -5898,7 +5898,7 @@ onBeforeUnmount(() => clearInterval(timer));
 <template>
   <div class="flex min-h-screen bg-neutral-50 text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
     <aside class="w-64 shrink-0 border-e border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
-      <h1 class="mb-6 text-lg font-bold">پل لندو</h1>
+      <h1 class="mb-6 text-lg font-bold">پل لاندا</h1>
       <nav class="space-y-1">
         <NuxtLink v-for="l in links" :key="l.to" :to="l.to" class="flex items-center gap-2 rounded-lg px-3 py-2 hover:bg-neutral-100 dark:hover:bg-neutral-800" active-class="bg-primary-50 text-primary-700 dark:bg-primary-950">
           <UIcon :name="l.icon" class="size-5" />
@@ -6030,7 +6030,7 @@ const validateLandau = async () => {
     form.landau_token = '';
     landau.value = await bridge.landauValidate();
     if (!form.store && landau.value.stores.length === 1) form.store = landau.value.stores[0]!.id;
-    toast.add({ title: `اتصال به لندو برقرار است — ${landau.value.business_name ?? landau.value.business}`, color: 'success' });
+    toast.add({ title: `اتصال به لاندا برقرار است — ${landau.value.business_name ?? landau.value.business}`, color: 'success' });
   } catch (e) { error.value = e as BridgeError; } finally { busy.value = null; }
 };
 
@@ -6054,17 +6054,17 @@ const authItems = [{ label: 'اصلی (ORIGINAL)', value: 'ORIGINAL' }, { label:
     <ErrorBanner :error="error" />
 
     <UCard>
-      <template #header><h3 class="font-semibold">لندو</h3></template>
+      <template #header><h3 class="font-semibold">لاندا</h3></template>
       <div class="space-y-4">
-        <UFormField label="نشانی درگاه لندو" hint="مثال: https://api.landau.ir">
+        <UFormField label="نشانی درگاه لاندا" hint="مثال: https://api.landau.ir">
           <UInput v-model="form.landau_url" dir="ltr" class="w-full" />
         </UFormField>
-        <UFormField label="کلید API لندو" :hint="view?.has_landau_token ? 'کلیدی ذخیره شده است؛ برای تغییر، کلید تازه را وارد کنید' : 'در لندو: حساب کاربری ← کلیدهای API'">
+        <UFormField label="کلید API لاندا" :hint="view?.has_landau_token ? 'کلیدی ذخیره شده است؛ برای تغییر، کلید تازه را وارد کنید' : 'در لاندا: حساب کاربری ← کلیدهای API'">
           <UInput v-model="form.landau_token" type="password" dir="ltr" placeholder="apt-…" class="w-full" />
         </UFormField>
         <UButton :loading="busy === 'landau'" icon="i-lucide-plug-zap" @click="validateLandau">بررسی اتصال و دریافت فروشگاه‌ها</UButton>
         <UAlert v-if="landau" color="info" variant="soft" :title="`کسب‌وکار: ${landau.business_name ?? landau.business}`"
-          :description="landau.active_rules === 0 ? 'هیچ قاعده قیمت‌گذاری فعالی ندارید؛ تا زمانی که در لندو قاعده‌ای بسازید، قیمت قفسه برابر قیمت خرید خواهد بود.' : `${faNumber(landau.active_rules)} قاعده قیمت‌گذاری فعال`" />
+          :description="landau.active_rules === 0 ? 'هیچ قاعده قیمت‌گذاری فعالی ندارید؛ تا زمانی که در لاندا قاعده‌ای بسازید، قیمت قفسه برابر قیمت خرید خواهد بود.' : `${faNumber(landau.active_rules)} قاعده قیمت‌گذاری فعال`" />
         <UFormField label="فروشگاه مقصد" hint="ردیف‌ها روی قفسه این فروشگاه نوشته می‌شوند">
           <USelect v-model="form.store" :items="storeItems" :disabled="!storeItems.length" placeholder="ابتدا اتصال را بررسی کنید" class="w-full" />
           <p v-if="!storeItems.length && view?.store_name" class="mt-1 text-sm text-neutral-500">فروشگاه ذخیره‌شده: {{ view.store_name }}</p>
@@ -6095,7 +6095,7 @@ const authItems = [{ label: 'اصلی (ORIGINAL)', value: 'ORIGINAL' }, { label:
         <UFormField label="نرخ ارزش افزوده (٪)" hint="قیمت خرید = قیمت فهرست بارزپخش × (۱ + نرخ)">
           <UInput v-model.number="form.vat_percent" type="number" min="0" max="100" step="0.5" dir="ltr" class="w-32" />
         </UFormField>
-        <UFormField label="قیمت‌های دستی لندو را هم بازنویسی کن" hint="لندو قیمتی را که خودتان تایپ کرده باشید نگه می‌دارد؛ این گزینه همان «بازنویسی» لندوست">
+        <UFormField label="قیمت‌های دستی لاندا را هم بازنویسی کن" hint="لاندا قیمتی را که خودتان تایپ کرده باشید نگه می‌دارد؛ این گزینه همان «بازنویسی» لانداست">
           <USwitch v-model="form.overwrite_manual" />
         </UFormField>
       </div>
@@ -6132,12 +6132,12 @@ onMounted(load);
   <div class="space-y-6">
     <h2 class="text-2xl font-bold">داشبورد</h2>
     <ErrorBanner :error="error" />
-    <UAlert v-if="dash && !dash.settings_complete" color="warning" variant="soft" title="تنظیمات ناقص است" description="کلید لندو، فروشگاه مقصد و ورود بارزپخش را در صفحه تنظیمات کامل کنید.">
+    <UAlert v-if="dash && !dash.settings_complete" color="warning" variant="soft" title="تنظیمات ناقص است" description="کلید لاندا، فروشگاه مقصد و ورود بارزپخش را در صفحه تنظیمات کامل کنید.">
       <template #actions><UButton to="/settings" size="sm">تنظیمات</UButton></template>
     </UAlert>
 
     <div v-if="dash" class="grid gap-4 md:grid-cols-3">
-      <UCard><p class="text-sm text-neutral-500">فروشگاه لندو</p><p class="text-lg font-semibold">{{ dash.store_name ?? '—' }}</p></UCard>
+      <UCard><p class="text-sm text-neutral-500">فروشگاه لاندا</p><p class="text-lg font-semibold">{{ dash.store_name ?? '—' }}</p></UCard>
       <UCard><p class="text-sm text-neutral-500">حساب بارزپخش</p><p class="text-lg font-semibold" dir="ltr">{{ dash.supplier_user ?? '—' }}</p></UCard>
       <UCard><p class="text-sm text-neutral-500">فاکتورهای ذخیره‌شده</p><p class="text-lg font-semibold">{{ faNumber(dash.invoices_cached) }} <span class="text-sm text-neutral-500">({{ faNumber(dash.invoices_unpaid) }} پرداخت‌نشده)</span></p></UCard>
       <UCard><p class="text-sm text-neutral-500">آخرین وارد کردن</p><p class="font-semibold">{{ dash.last_import ? `${isoToLocal(dash.last_import.started_at)} — ${statusLabel[dash.last_import.status] ?? dash.last_import.status}` : '—' }}</p></UCard>
@@ -6220,7 +6220,7 @@ const research = async (item: JobItemRow) => {
 <template>
   <div class="space-y-4">
     <ErrorBanner :error="error" />
-    <p class="text-sm text-neutral-600">برای هر قلم، قطعه درست را از فهرست لندو انتخاب کنید. اگر هیچ‌کدام درست نیست، «هیچ‌کدام» را بزنید — این قلم دیگر پرسیده نمی‌شود و باید برای افزودن آن یک تیکت برای پشتیبانی لندو ثبت کنید. «بعداً» آن را برای اجرای بعدی نگه می‌دارد.</p>
+    <p class="text-sm text-neutral-600">برای هر قلم، قطعه درست را از فهرست لاندا انتخاب کنید. اگر هیچ‌کدام درست نیست، «هیچ‌کدام» را بزنید — این قلم دیگر پرسیده نمی‌شود و باید برای افزودن آن یک تیکت برای پشتیبانی لاندا ثبت کنید. «بعداً» آن را برای اجرای بعدی نگه می‌دارد.</p>
     <UCard v-for="item in items" :key="item.id">
       <template #header>
         <div class="flex flex-wrap items-center justify-between gap-2">
@@ -6237,10 +6237,10 @@ const research = async (item: JobItemRow) => {
       </template>
       <div class="space-y-2">
         <div class="flex gap-2">
-          <UInput v-model="terms[item.id]" placeholder="جست‌وجوی دوباره در لندو با عبارت دیگر" class="flex-1" @keyup.enter="research(item)" />
+          <UInput v-model="terms[item.id]" placeholder="جست‌وجوی دوباره در لاندا با عبارت دیگر" class="flex-1" @keyup.enter="research(item)" />
           <UButton :loading="searching === item.id" variant="soft" icon="i-lucide-search" @click="research(item)">جست‌وجو</UButton>
         </div>
-        <p v-if="!candidatesOf(item).length" class="text-sm text-neutral-500">لندو پیشنهادی نداشت. عبارت دیگری را امتحان کنید یا «هیچ‌کدام» را بزنید.</p>
+        <p v-if="!candidatesOf(item).length" class="text-sm text-neutral-500">لاندا پیشنهادی نداشت. عبارت دیگری را امتحان کنید یا «هیچ‌کدام» را بزنید.</p>
         <ul class="divide-y divide-neutral-200 dark:divide-neutral-800">
           <li v-for="c in candidatesOf(item)" :key="c.candidate.id" class="flex items-center justify-between gap-3 py-2">
             <div>
@@ -6411,7 +6411,7 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
             <p class="text-sm text-neutral-600">همه اقلام همه فاکتورهای پرداخت‌شده تا امروز با تعداد صفر و قیمت روز روی قفسه می‌آیند تا خودتان تعداد را اصلاح کنید. موجودی ردیف‌های موجود دست نمی‌خورد؛ فقط قیمت خریدشان به‌روز می‌شود.</p>
           </div>
         </label>
-        <p class="text-sm text-neutral-600">در هر دو حالت قیمت قفسه با قواعد قیمت‌گذاری خودتان در لندو از روی قیمت روز بارزپخش (با ارزش افزوده) محاسبه می‌شود، نه قیمت روی فاکتور.</p>
+        <p class="text-sm text-neutral-600">در هر دو حالت قیمت قفسه با قواعد قیمت‌گذاری خودتان در لاندا از روی قیمت روز بارزپخش (با ارزش افزوده) محاسبه می‌شود، نه قیمت روی فاکتور.</p>
         <UButton size="lg" icon="i-lucide-play" :loading="starting" :disabled="mode === 'QUANTITY' && !sinceOk" @click="start">شروع</UButton>
       </div>
     </UCard>
@@ -6511,8 +6511,8 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
 
     <UCard v-if="!job.jobId.value || finished">
       <div class="space-y-4">
-        <p class="text-sm text-neutral-600">برای هر ردیف قفسه که به یک کد بارزپخش وصل است، قیمت روز بارزپخش (با ارزش افزوده) به عنوان قیمت خرید ثبت می‌شود و سپس قواعد قیمت‌گذاری لندو روی کل فروشگاه اجرا می‌شود. ردیف‌هایی که به بارزپخش وصل نیستند در گزارش فهرست می‌شوند و دست نمی‌خورند.</p>
-        <UFormField label="قیمت‌های دستی لندو را هم بازنویسی کن" hint="لندو قیمتی را که خودتان در پنل تایپ کرده باشید حفظ می‌کند مگر این گزینه روشن باشد">
+        <p class="text-sm text-neutral-600">برای هر ردیف قفسه که به یک کد بارزپخش وصل است، قیمت روز بارزپخش (با ارزش افزوده) به عنوان قیمت خرید ثبت می‌شود و سپس قواعد قیمت‌گذاری لاندا روی کل فروشگاه اجرا می‌شود. ردیف‌هایی که به بارزپخش وصل نیستند در گزارش فهرست می‌شوند و دست نمی‌خورند.</p>
+        <UFormField label="قیمت‌های دستی لاندا را هم بازنویسی کن" hint="لاندا قیمتی را که خودتان در پنل تایپ کرده باشید حفظ می‌کند مگر این گزینه روشن باشد">
           <USwitch v-model="overwrite" />
         </UFormField>
         <UButton size="lg" icon="i-lucide-refresh-cw" :loading="starting" @click="start">شروع به‌روزرسانی</UButton>
@@ -6577,7 +6577,7 @@ const load = async () => { try { rows.value = await bridge.matchesList(); } catc
 onMounted(load);
 
 const shown = computed(() => rows.value.filter((r) => (filter.value === 'ALL' || r.how === filter.value) && (!query.value || r.name_seen.includes(query.value) || r.code.includes(query.value) || (r.product_name ?? '').includes(query.value))));
-const howLabel: Record<string, string> = { AUTO: 'خودکار', USER: 'انتخاب شما', NONE: 'در لندو نیست' };
+const howLabel: Record<string, string> = { AUTO: 'خودکار', USER: 'انتخاب شما', NONE: 'در لاندا نیست' };
 
 const openEdit = (r: MatchRow) => { editing.value = r; term.value = r.name_seen; candidates.value = []; };
 const search = async () => {
@@ -6597,7 +6597,7 @@ const clear = async () => { if (editing.value) { await bridge.matchClear(editing
   <div class="space-y-6">
     <h2 class="text-2xl font-bold">تطبیق‌های ثبت‌شده</h2>
     <ErrorBanner :error="error" />
-    <p class="text-sm text-neutral-600">هر کد بارزپخش یک بار به یک قطعه لندو وصل می‌شود و دیگر پرسیده نمی‌شود. برای اقلامی که «در لندو نیست» علامت خورده‌اند، یک تیکت برای پشتیبانی لندو ثبت کنید تا قطعه اضافه شود؛ سپس اینجا تصمیم را تغییر دهید.</p>
+    <p class="text-sm text-neutral-600">هر کد بارزپخش یک بار به یک قطعه لاندا وصل می‌شود و دیگر پرسیده نمی‌شود. برای اقلامی که «در لاندا نیست» علامت خورده‌اند، یک تیکت برای پشتیبانی لاندا ثبت کنید تا قطعه اضافه شود؛ سپس اینجا تصمیم را تغییر دهید.</p>
 
     <div class="flex flex-wrap items-center gap-2">
       <UButton v-for="f in (['ALL', 'AUTO', 'USER', 'NONE'] as const)" :key="f" size="sm" :variant="filter === f ? 'solid' : 'soft'" @click="filter = f">
@@ -6608,7 +6608,7 @@ const clear = async () => { if (editing.value) { await bridge.matchClear(editing
 
     <div class="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-800">
       <table class="w-full text-sm">
-        <thead class="bg-neutral-50 dark:bg-neutral-900"><tr><th class="p-2 text-start">نام در فاکتور</th><th class="p-2">کد</th><th class="p-2 text-start">قطعه لندو</th><th class="p-2">نحوه</th><th class="p-2">شباهت</th><th class="p-2">تاریخ</th><th class="p-2"></th></tr></thead>
+        <thead class="bg-neutral-50 dark:bg-neutral-900"><tr><th class="p-2 text-start">نام در فاکتور</th><th class="p-2">کد</th><th class="p-2 text-start">قطعه لاندا</th><th class="p-2">نحوه</th><th class="p-2">شباهت</th><th class="p-2">تاریخ</th><th class="p-2"></th></tr></thead>
         <tbody>
           <tr v-for="r in shown" :key="r.code" class="border-t border-neutral-200 dark:border-neutral-800">
             <td class="p-2">{{ r.name_seen }}</td>
@@ -6629,7 +6629,7 @@ const clear = async () => { if (editing.value) { await bridge.matchClear(editing
           <p class="text-sm">{{ editing.name_seen }} <span dir="ltr" class="text-neutral-500">{{ editing.code }}</span></p>
           <div class="flex gap-2">
             <UInput v-model="term" class="flex-1" @keyup.enter="search" />
-            <UButton :loading="searching" icon="i-lucide-search" @click="search">جست‌وجو در لندو</UButton>
+            <UButton :loading="searching" icon="i-lucide-search" @click="search">جست‌وجو در لاندا</UButton>
           </div>
           <ul class="max-h-72 divide-y divide-neutral-200 overflow-auto dark:divide-neutral-800">
             <li v-for="c in candidates" :key="c.candidate.id" class="flex items-center justify-between py-2">
@@ -6638,7 +6638,7 @@ const clear = async () => { if (editing.value) { await bridge.matchClear(editing
             </li>
           </ul>
           <div class="flex justify-between">
-            <UButton color="error" variant="soft" @click="setNone">در لندو نیست (تیکت)</UButton>
+            <UButton color="error" variant="soft" @click="setNone">در لاندا نیست (تیکت)</UButton>
             <UButton color="neutral" variant="soft" @click="clear">حذف تصمیم (دوباره پرسیده شود)</UButton>
           </div>
         </div>
@@ -6963,22 +6963,22 @@ Expected: `live_supplier`, `live_landau` and `live_e2e` pass. The e2e run fetche
 - [ ] **Step 4: README** — `README.md`
 
 ```markdown
-# پل لندو (Landau Bridge)
+# پل لاندا (Landau Bridge)
 
-برنامه‌ای برای فروشنده خرده‌فروش لندو که دو کار می‌کند:
+برنامه‌ای برای فروشنده خرده‌فروش لاندا که دو کار می‌کند:
 
-1. **وارد کردن فاکتورهای بارزپخش روی قفسه لندو** — همه فاکتورهای پرداخت‌شده تا امروز خوانده می‌شود، هر قلم با جست‌وجوی فازی لندو به قطعه درست وصل می‌شود (اقلام مبهم را خودتان تأیید می‌کنید و تصمیم شما ذخیره می‌ماند)، قیمت خرید = قیمت روز بارزپخش با ارزش افزوده، و قیمت قفسه با **قواعد قیمت‌گذاری خودتان در لندو** محاسبه می‌شود. دو حالت: «با تعداد، از تاریخ» یا «با تعداد صفر برای بازبینی».
-2. **به‌روزرسانی قیمت‌ها** — هر وقت بخواهید، قیمت خرید ردیف‌های قفسه از قیمت روز بارزپخش تازه می‌شود و قواعد لندو دوباره اعمال می‌شود.
+1. **وارد کردن فاکتورهای بارزپخش روی قفسه لاندا** — همه فاکتورهای پرداخت‌شده تا امروز خوانده می‌شود، هر قلم با جست‌وجوی فازی لاندا به قطعه درست وصل می‌شود (اقلام مبهم را خودتان تأیید می‌کنید و تصمیم شما ذخیره می‌ماند)، قیمت خرید = قیمت روز بارزپخش با ارزش افزوده، و قیمت قفسه با **قواعد قیمت‌گذاری خودتان در لاندا** محاسبه می‌شود. دو حالت: «با تعداد، از تاریخ» یا «با تعداد صفر برای بازبینی».
+2. **به‌روزرسانی قیمت‌ها** — هر وقت بخواهید، قیمت خرید ردیف‌های قفسه از قیمت روز بارزپخش تازه می‌شود و قواعد لاندا دوباره اعمال می‌شود.
 
 ## راه‌اندازی
-1. در لندو: حساب کاربری ← کلیدهای API ← یک کلید بسازید (فقط یک بار نمایش داده می‌شود).
-2. برنامه را باز کنید ← **تنظیمات**: نشانی درگاه لندو و کلید را وارد کنید، «بررسی اتصال» را بزنید، فروشگاه مقصد را انتخاب کنید؛ نام کاربری و کلمه عبور بارزپخش را وارد و «آزمایش ورود» کنید؛ ذخیره.
-3. اگر در لندو قاعده قیمت‌گذاری ندارید، ابتدا یکی بسازید — وگرنه قیمت قفسه برابر قیمت خرید خواهد بود (برنامه هشدار می‌دهد).
+1. در لاندا: حساب کاربری ← کلیدهای API ← یک کلید بسازید (فقط یک بار نمایش داده می‌شود).
+2. برنامه را باز کنید ← **تنظیمات**: نشانی درگاه لاندا و کلید را وارد کنید، «بررسی اتصال» را بزنید، فروشگاه مقصد را انتخاب کنید؛ نام کاربری و کلمه عبور بارزپخش را وارد و «آزمایش ورود» کنید؛ ذخیره.
+3. اگر در لاندا قاعده قیمت‌گذاری ندارید، ابتدا یکی بسازید — وگرنه قیمت قفسه برابر قیمت خرید خواهد بود (برنامه هشدار می‌دهد).
 
 ## نکته‌ها
-- قیمت‌هایی که خودتان در لندو دستی تایپ کرده باشید حفظ می‌شود، مگر گزینه «بازنویسی قیمت‌های دستی» را روشن کنید.
+- قیمت‌هایی که خودتان در لاندا دستی تایپ کرده باشید حفظ می‌شود، مگر گزینه «بازنویسی قیمت‌های دستی» را روشن کنید.
 - هر فاکتور فقط یک بار به موجودی اضافه می‌شود؛ اجرای دوباره امن است.
-- قطعه‌ای که در فهرست لندو نیست: «هیچ‌کدام» را بزنید و برای افزودن آن تیکتی برای پشتیبانی لندو ثبت کنید.
+- قطعه‌ای که در فهرست لاندا نیست: «هیچ‌کدام» را بزنید و برای افزودن آن تیکتی برای پشتیبانی لاندا ثبت کنید.
 - همه خطاها و هشدارها در صفحه «گزارش و خطاها» و در پوشه لاگ ثبت می‌شوند.
 
 ---

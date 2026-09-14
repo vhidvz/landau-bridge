@@ -111,12 +111,12 @@ impl Settings {
             .landau_token
             .as_deref()
             .filter(|t| !t.is_empty())
-            .ok_or_else(|| BridgeError::SettingsIncomplete("کلید API لندو".into()))?;
+            .ok_or_else(|| BridgeError::SettingsIncomplete("کلید API لاندا".into()))?;
         let store = self
             .store
             .as_deref()
             .filter(|s| !s.is_empty())
-            .ok_or_else(|| BridgeError::SettingsIncomplete("فروشگاه مقصد در لندو".into()))?;
+            .ok_or_else(|| BridgeError::SettingsIncomplete("فروشگاه مقصد در لاندا".into()))?;
         Ok((self.landau_url.as_str(), token, store))
     }
 

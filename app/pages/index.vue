@@ -33,7 +33,7 @@ const statusColor = (j: JobRow) => (j.status === 'DONE' ? 'success' : j.status =
     <ErrorBanner :error="error" />
 
     <template v-if="dash">
-      <PageHeader :title="dash.store_name ?? 'پل لندو'" description="پل بین فاکتورهای بارزپخش و قفسهٔ لندو" />
+      <PageHeader :title="dash.store_name ?? 'پل لاندا'" description="پل بین فاکتورهای بارزپخش و قفسهٔ لاندا" />
       <SetupChecklist v-if="!dash.settings_complete && settings" :settings="settings" />
       <BridgeHero v-else :dash="dash" />
 
@@ -57,6 +57,6 @@ const statusColor = (j: JobRow) => (j.status === 'DONE' ? 'success' : j.status =
         </div>
       </section>
     </template>
-    <PageHeader v-else title="پل لندو" description="پل بین فاکتورهای بارزپخش و قفسهٔ لندو" />
+    <PageHeader v-else title="پل لاندا" description="پل بین فاکتورهای بارزپخش و قفسهٔ لاندا" />
   </div>
 </template>

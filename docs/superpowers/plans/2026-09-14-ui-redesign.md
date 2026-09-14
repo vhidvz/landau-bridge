@@ -469,7 +469,7 @@ export default defineNuxtConfig({
   app: {
     head: {
       htmlAttrs: { dir: 'rtl', lang: 'fa' },
-      title: 'پل لندو',
+      title: 'پل لاندا',
       meta: [{ name: 'color-scheme', content: 'light dark' }],
       link: [{ rel: 'icon', type: 'image/svg+xml', href: '/brand/logo.svg' }],
     },
@@ -491,7 +491,7 @@ export default defineNuxtConfig({
 In `src-tauri/tauri.conf.json`, change the window entry to:
 
 ```json
-{ "title": "پل لندو", "width": 1200, "height": 800, "minWidth": 960, "minHeight": 640, "backgroundColor": "#F2F5F7" }
+{ "title": "پل لاندا", "width": 1200, "height": 800, "minWidth": 960, "minHeight": 640, "backgroundColor": "#F2F5F7" }
 ```
 
 - [ ] **Step 11: Run tests and typecheck**
@@ -605,7 +605,7 @@ const doneItems: JobItemRow[] = [
   item(3, 'BP-33005', 'شمع NGK BKR6E', 48, { product_id: 'p_9', product_name: 'شمع NGK BKR6E', action: 'PATCH', qty_before: 20, qty_after: 68, cost: 1_210_000, price_before: 1_500_000, price_after: 1_500_000, reprice_verdict: 'SKIPPED:MANUAL' }),
   item(4, 'BP-44120', 'تسمه تایم ۴۰۵', 6, { status: 'FAILED', error_kind: 'NoCurrentPrice', error_msg: 'بارزپخش برای این کد قیمت روز ندارد' }),
   item(5, 'BP-51002', 'دیسک ترمز جلو سمند', 4, { product_id: 'p_12', product_name: 'دیسک ترمز جلو سمند', action: 'ATTACH', qty_after: 4, cost: 2_960_000, price_after: 3_650_000, reprice_verdict: 'REPRICED:3650000' }),
-  item(6, 'BP-60233', 'روغن موتور ۴ لیتری بهران', 24, { status: 'SKIPPED', error_kind: 'NoneDecision', error_msg: 'در فهرست لندو نیست' }),
+  item(6, 'BP-60233', 'روغن موتور ۴ لیتری بهران', 24, { status: 'SKIPPED', error_kind: 'NoneDecision', error_msg: 'در فهرست لاندا نیست' }),
   item(7, 'BP-71850', 'واشر سرسیلندر ۲۰۶', 10, { product_id: 'p_15', product_name: 'واشر سرسیلندر پژو ۲۰۶', action: 'ATTACH', qty_after: 10, cost: 940_000, price_after: 1_170_000, reprice_verdict: 'REPRICED:1170000' }),
   item(8, 'BP-80017', 'پمپ بنزین پراید', 5, { product_id: 'p_16', product_name: 'پمپ بنزین پراید', action: 'PATCH', qty_before: 2, qty_after: 7, cost: 1_650_000, price_before: 2_050_000, price_after: 2_050_000, reprice_verdict: 'UNCHANGED' }),
 ];
@@ -613,13 +613,13 @@ const doneItems: JobItemRow[] = [
 const ev = (id: number, level: JobEventRow['level'], phase: string, message: string, minutesAgo: number): JobEventRow =>
   ({ id, at: new Date(Date.now() - minutesAgo * 60_000).toISOString(), level, phase, message, detail: null });
 const doneEvents: JobEventRow[] = [
-  ev(1, 'INFO', 'PREFLIGHT', 'اتصال به لندو و بارزپخش برقرار است', 40),
+  ev(1, 'INFO', 'PREFLIGHT', 'اتصال به لاندا و بارزپخش برقرار است', 40),
   ev(2, 'INFO', 'FETCH', '۱۲۴ فاکتور خوانده شد؛ ۳ فاکتور پرداخت‌نشده رد شد', 37),
   ev(3, 'INFO', 'AGGREGATE', '۲۱۷ قلم در ۸۹ کد جمع‌بندی شد', 36),
   ev(4, 'INFO', 'MATCH', '۷۱ کد خودکار تطبیق داده شد، ۱۸ کد به تصمیم شما نیاز داشت', 35),
   ev(5, 'WARN', 'PRICE', 'برای BP-44120 قیمت روز پیدا نشد', 30),
   ev(6, 'INFO', 'WRITE', '۸۱ ردیف روی قفسه نوشته شد', 26),
-  ev(7, 'INFO', 'REPRICE', 'قواعد قیمت‌گذاری لندو روی ۴۱۲ ردیف اجرا شد؛ ۹۶ قیمت تغییر کرد', 24),
+  ev(7, 'INFO', 'REPRICE', 'قواعد قیمت‌گذاری لاندا روی ۴۱۲ ردیف اجرا شد؛ ۹۶ قیمت تغییر کرد', 24),
   ev(8, 'INFO', 'REPORT', JSON.stringify(doneSummary), 23),
 ];
 const runningEvents: JobEventRow[] = doneEvents.slice(0, 3);
@@ -645,10 +645,10 @@ const err = (id: number, days: number, job_id: number | null, kind: string, mess
   ({ id, at: ago(days, 9, 12), job_id, kind, message, context });
 const errors: ErrorRow[] = [
   err(61, 0, 42, 'NoCurrentPrice', 'بارزپخش برای BP-44120 قیمت روز ندارد', { code: 'BP-44120' }),
-  err(60, 0, 42, 'NoneDecision', 'BP-60233 در فهرست لندو نیست؛ برای افزودن آن تیکت ثبت کنید'),
+  err(60, 0, 42, 'NoneDecision', 'BP-60233 در فهرست لاندا نیست؛ برای افزودن آن تیکت ثبت کنید'),
   err(59, 1, 41, 'RepriceSkipped', '۱۲ ردیف با قیمت دستی دست نخورد', { skipped: 'MANUAL', rows: 12 }),
   err(58, 3, 40, 'SupplierUnreachable', 'پاسخی از بارزپخش نیامد (timeout after 30s)', { url: 'https://barezpakhsh.ir/invoices' }),
-  err(57, 5, null, 'LandauUnauthorized', 'کلید API لندو پذیرفته نشد'),
+  err(57, 5, null, 'LandauUnauthorized', 'کلید API لاندا پذیرفته نشد'),
   err(56, 12, 38, 'JobCancelled', 'به درخواست شما متوقف شد'),
 ];
 
@@ -666,7 +666,7 @@ const dashboard = (state: State): Dashboard => {
 const detail = (id: number, state: State): JobDetail => {
   if (id === 43 && state === 'running') return { job: runningJob, items: [], events: runningEvents };
   if (id === 43 && state === 'review') return { job: reviewJob, items: reviewItems, events: doneEvents.slice(0, 4) };
-  if (id === 44 && state === 'refreshing') return { job: refreshJob, items: [], events: [ev(1, 'INFO', 'PREFLIGHT', 'اتصال به لندو و بارزپخش برقرار است', 6), ev(2, 'INFO', 'PRICE', 'قیمت روز ۴۱۲ کد از بارزپخش خوانده شد', 3)] };
+  if (id === 44 && state === 'refreshing') return { job: refreshJob, items: [], events: [ev(1, 'INFO', 'PREFLIGHT', 'اتصال به لاندا و بارزپخش برقرار است', 6), ev(2, 'INFO', 'PRICE', 'قیمت روز ۴۱۲ کد از بارزپخش خوانده شد', 3)] };
   const j = jobs.find((x) => x.id === id) ?? jobs[0]!;
   return { job: j, items: j.status === 'DONE' ? doneItems : [], events: j.status === 'DONE' ? doneEvents : doneEvents.slice(0, 2) };
 };
@@ -704,7 +704,7 @@ export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {
 export function mockEvents(h: JobHandlers): () => void {
   const state = devState();
   if (state === 'running') {
-    setTimeout(() => h.progress?.({ job_id: 43, phase: 'MATCH', done: 37, total: 89, message: 'تطبیق با فهرست لندو' }), 200);
+    setTimeout(() => h.progress?.({ job_id: 43, phase: 'MATCH', done: 37, total: 89, message: 'تطبیق با فهرست لاندا' }), 200);
   } else if (state === 'refreshing') {
     setTimeout(() => h.progress?.({ job_id: 44, phase: 'WRITE', done: 210, total: 412, message: 'نوشتن قیمت خرید روی قفسه' }), 200);
   }
@@ -889,7 +889,7 @@ withDefaults(defineProps<{ size?: number; withWordmark?: boolean; dots?: 'accent
 
 <template>
   <span class="inline-flex items-center gap-3">
-    <svg :width="size" :height="size" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="پل لندو">
+    <svg :width="size" :height="size" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="پل لاندا">
       <path d="M8 16H56" />
       <path d="M14 16C14 44 50 44 50 16" />
       <g :fill="dots === 'accent' ? 'var(--color-zaferan-400)' : 'currentColor'" stroke="none">
@@ -898,7 +898,7 @@ withDefaults(defineProps<{ size?: number; withWordmark?: boolean; dots?: 'accent
         <circle cx="40" cy="48" r="3.5" />
       </g>
     </svg>
-    <span v-if="withWordmark" class="text-xl font-extrabold leading-none tracking-tight">پل لندو</span>
+    <span v-if="withWordmark" class="text-xl font-extrabold leading-none tracking-tight">پل لاندا</span>
   </span>
 </template>
 ```
@@ -910,7 +910,7 @@ Expected: clean.
 
 ```bash
 git add app/components/BrandLogo.vue public/brand src-tauri/icons
-git commit -m "Draw the پل لندو mark and generate the app icon from it
+git commit -m "Draw the پل لاندا mark and generate the app icon from it
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
@@ -1358,7 +1358,7 @@ In `app/pages/refresh.vue`:
 
 - [ ] **Step 7: Screenshot the stepper**
 
-Run: `scripts/shots.sh "$SCRATCH/shots-06-stepper" "import?state=running"` and Read both PNGs. Check: nine piers under one deck line, the first three turquoise with the deck filled up to them, «تطبیق با فهرست لندو» saffron and bold, the progress bar «۳۷ از ۸۹», three events with grey dots. Then `scripts/shots.sh "$SCRATCH/shots-06-stepper" "refreshing"` and Read `light-refresh_state_refreshing.png`: exactly five piers (بررسی اتصال‌ها، قیمت روز بارزپخش، نوشتن روی قفسه، اعمال قواعد قیمت‌گذاری لندو، گزارش نهایی), the third one saffron, «۲۱۰ از ۴۱۲».
+Run: `scripts/shots.sh "$SCRATCH/shots-06-stepper" "import?state=running"` and Read both PNGs. Check: nine piers under one deck line, the first three turquoise with the deck filled up to them, «تطبیق با فهرست لاندا» saffron and bold, the progress bar «۳۷ از ۸۹», three events with grey dots. Then `scripts/shots.sh "$SCRATCH/shots-06-stepper" "refreshing"` and Read `light-refresh_state_refreshing.png`: exactly five piers (بررسی اتصال‌ها، قیمت روز بارزپخش، نوشتن روی قفسه، اعمال قواعد قیمت‌گذاری لاندا، گزارش نهایی), the third one saffron, «۲۱۰ از ۴۱۲».
 
 - [ ] **Step 8: Typecheck, test, commit**
 
@@ -1392,7 +1392,7 @@ import type { SettingsView } from '~/types/bridge';
 
 const props = defineProps<{ settings: SettingsView }>();
 const steps = computed(() => [
-  { label: 'کلید API لندو', done: props.settings.has_landau_token, hint: 'در لندو: حساب کاربری ← کلیدهای API؛ کلید فقط یک بار نمایش داده می‌شود' },
+  { label: 'کلید API لاندا', done: props.settings.has_landau_token, hint: 'در لاندا: حساب کاربری ← کلیدهای API؛ کلید فقط یک بار نمایش داده می‌شود' },
   { label: 'فروشگاه مقصد', done: !!props.settings.store, hint: 'بعد از «بررسی اتصال»، فروشگاهی را که ردیف‌ها روی قفسه‌اش نوشته می‌شود انتخاب کنید' },
   { label: 'ورود بارزپخش', done: !!props.settings.supplier_user && props.settings.has_supplier_password, hint: 'نام کاربری و کلمه عبور بارزپخش، سپس «آزمایش ورود»' },
 ]);
@@ -1466,7 +1466,7 @@ const busy = computed(() => !!props.dash.running);
 
       <!-- left bank (end side): Landau -->
       <div class="min-w-0 md:text-left">
-        <p class="text-sm font-medium text-muted">لندو</p>
+        <p class="text-sm font-medium text-muted">لاندا</p>
         <p class="mt-1 truncate text-2xl font-bold leading-tight text-highlighted">{{ dash.store_name ?? '—' }}</p>
         <p class="tabular mt-3 text-[2rem] font-extrabold leading-none text-highlighted">{{ faNumber(dash.decided_matches) }}</p>
         <p class="mt-1 text-sm">تطبیق ثبت‌شده</p>
@@ -1510,7 +1510,7 @@ const statusColor = (j: JobRow) => (j.status === 'DONE' ? 'success' : j.status =
 
 <template>
   <div>
-    <PageHeader :title="dash?.store_name ?? 'پل لندو'" description="پل بین فاکتورهای بارزپخش و قفسهٔ لندو" />
+    <PageHeader :title="dash?.store_name ?? 'پل لاندا'" description="پل بین فاکتورهای بارزپخش و قفسهٔ لاندا" />
     <ErrorBanner :error="error" />
 
     <template v-if="dash">
@@ -1588,7 +1588,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```vue
 <template>
   <div>
-    <PageHeader title="وارد کردن فاکتورهای بارزپخش" description="فاکتورهای پرداخت‌شده خوانده می‌شود، هر قلم به قطعهٔ لندو وصل می‌شود و با قیمت روز روی قفسه می‌نشیند.">
+    <PageHeader title="وارد کردن فاکتورهای بارزپخش" description="فاکتورهای پرداخت‌شده خوانده می‌شود، هر قلم به قطعهٔ لاندا وصل می‌شود و با قیمت روز روی قفسه می‌نشیند.">
       <template #actions>
         <UButton v-if="active" color="error" variant="soft" icon="i-lucide-square" @click="cancel">توقف</UButton>
       </template>
@@ -1613,7 +1613,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
           <span class="mt-1 block text-sm text-muted">همهٔ اقلام همهٔ فاکتورهای پرداخت‌شده تا امروز با تعداد صفر و قیمت روز روی قفسه می‌آیند تا خودتان تعداد را اصلاح کنید. موجودی ردیف‌های موجود دست نمی‌خورد؛ فقط قیمت خریدشان به‌روز می‌شود.</span>
         </label>
       </div>
-      <p class="max-w-prose text-sm text-muted">در هر دو حالت قیمت قفسه با قواعد قیمت‌گذاری خودتان در لندو از روی قیمت روز بارزپخش با ارزش افزوده محاسبه می‌شود، نه قیمت روی فاکتور.</p>
+      <p class="max-w-prose text-sm text-muted">در هر دو حالت قیمت قفسه با قواعد قیمت‌گذاری خودتان در لاندا از روی قیمت روز بارزپخش با ارزش افزوده محاسبه می‌شود، نه قیمت روی فاکتور.</p>
       <UButton size="lg" icon="i-lucide-play" :loading="starting" :disabled="mode === 'QUANTITY' && !sinceOk" @click="start">شروع وارد کردن</UButton>
     </section>
 
@@ -1649,7 +1649,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```vue
 <template>
   <div>
-    <PageHeader title="به‌روزرسانی قیمت‌های قفسه" description="قیمت خرید هر ردیف از قیمت روز بارزپخش تازه می‌شود و قواعد قیمت‌گذاری لندو دوباره اجرا می‌شود.">
+    <PageHeader title="به‌روزرسانی قیمت‌های قفسه" description="قیمت خرید هر ردیف از قیمت روز بارزپخش تازه می‌شود و قواعد قیمت‌گذاری لاندا دوباره اجرا می‌شود.">
       <template #actions>
         <UButton v-if="active" color="error" variant="soft" icon="i-lucide-square" @click="cancel">توقف</UButton>
       </template>
@@ -1658,8 +1658,8 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
     <section v-if="!job.jobId.value || finished" class="surface">
       <div class="surface-body space-y-5">
-        <p class="max-w-prose text-sm text-muted">برای هر ردیف قفسه که به یک کد بارزپخش وصل است، قیمت روز بارزپخش با ارزش افزوده به عنوان قیمت خرید ثبت می‌شود و سپس قواعد قیمت‌گذاری لندو روی کل فروشگاه اجرا می‌شود. ردیف‌هایی که به بارزپخش وصل نیستند در گزارش فهرست می‌شوند و دست نمی‌خورند.</p>
-        <UFormField label="قیمت‌های دستی لندو را هم بازنویسی کن" hint="لندو قیمتی را که خودتان در پنل تایپ کرده باشید حفظ می‌کند مگر این گزینه روشن باشد">
+        <p class="max-w-prose text-sm text-muted">برای هر ردیف قفسه که به یک کد بارزپخش وصل است، قیمت روز بارزپخش با ارزش افزوده به عنوان قیمت خرید ثبت می‌شود و سپس قواعد قیمت‌گذاری لاندا روی کل فروشگاه اجرا می‌شود. ردیف‌هایی که به بارزپخش وصل نیستند در گزارش فهرست می‌شوند و دست نمی‌خورند.</p>
+        <UFormField label="قیمت‌های دستی لاندا را هم بازنویسی کن" hint="لاندا قیمتی را که خودتان در پنل تایپ کرده باشید حفظ می‌کند مگر این گزینه روشن باشد">
           <USwitch v-model="overwrite" />
         </UFormField>
         <UButton size="lg" icon="i-lucide-refresh-cw" :loading="starting" @click="start">شروع به‌روزرسانی</UButton>
@@ -1691,7 +1691,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 <template>
   <div class="space-y-4">
     <ErrorBanner :error="error" />
-    <p class="max-w-prose text-sm text-muted">برای هر قلم، قطعهٔ درست را از فهرست لندو انتخاب کنید. «هیچ‌کدام» یعنی این قطعه در لندو نیست: دیگر پرسیده نمی‌شود و باید برای افزودنش تیکتی برای پشتیبانی لندو ثبت کنید. «بعداً» آن را برای اجرای بعدی نگه می‌دارد.</p>
+    <p class="max-w-prose text-sm text-muted">برای هر قلم، قطعهٔ درست را از فهرست لاندا انتخاب کنید. «هیچ‌کدام» یعنی این قطعه در لاندا نیست: دیگر پرسیده نمی‌شود و باید برای افزودنش تیکتی برای پشتیبانی لاندا ثبت کنید. «بعداً» آن را برای اجرای بعدی نگه می‌دارد.</p>
     <section v-for="(item, n) in items" :key="item.id" class="surface">
       <div class="surface-head flex-wrap">
         <div class="min-w-0">
@@ -1706,10 +1706,10 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
       </div>
       <div class="surface-body space-y-3">
         <div class="flex gap-2">
-          <UInput v-model="terms[item.id]" placeholder="جست‌وجوی دوباره در لندو با عبارت دیگر" class="flex-1" @keyup.enter="research(item)" />
+          <UInput v-model="terms[item.id]" placeholder="جست‌وجوی دوباره در لاندا با عبارت دیگر" class="flex-1" @keyup.enter="research(item)" />
           <UButton :loading="searching === item.id" variant="soft" icon="i-lucide-search" @click="research(item)">جست‌وجو</UButton>
         </div>
-        <p v-if="!candidatesOf(item).length" class="text-sm text-muted">لندو پیشنهادی نداشت. عبارت دیگری را امتحان کنید یا «هیچ‌کدام» را بزنید.</p>
+        <p v-if="!candidatesOf(item).length" class="text-sm text-muted">لاندا پیشنهادی نداشت. عبارت دیگری را امتحان کنید یا «هیچ‌کدام» را بزنید.</p>
         <ul v-else class="divide-y divide-default">
           <li v-for="c in candidatesOf(item)" :key="c.candidate.id" class="flex items-center justify-between gap-3 py-2.5">
             <div class="min-w-0">
@@ -1814,7 +1814,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - [ ] **Step 1: Add the filter items to the script** (after `const howLabel = …`):
 
 ```ts
-const filters = [{ value: 'ALL', label: 'همه' }, { value: 'AUTO', label: 'خودکار' }, { value: 'USER', label: 'انتخاب شما' }, { value: 'NONE', label: 'در لندو نیست' }] as const;
+const filters = [{ value: 'ALL', label: 'همه' }, { value: 'AUTO', label: 'خودکار' }, { value: 'USER', label: 'انتخاب شما' }, { value: 'NONE', label: 'در لاندا نیست' }] as const;
 ```
 
 - [ ] **Step 2: Rewrite the template**
@@ -1822,7 +1822,7 @@ const filters = [{ value: 'ALL', label: 'همه' }, { value: 'AUTO', label: 'خ�
 ```vue
 <template>
   <div>
-    <PageHeader title="تطبیق‌های ثبت‌شده" description="هر کد بارزپخش یک بار به یک قطعهٔ لندو وصل می‌شود و دیگر پرسیده نمی‌شود." />
+    <PageHeader title="تطبیق‌های ثبت‌شده" description="هر کد بارزپخش یک بار به یک قطعهٔ لاندا وصل می‌شود و دیگر پرسیده نمی‌شود." />
     <ErrorBanner :error="error" />
 
     <div class="mb-4 flex flex-wrap items-center gap-3">
@@ -1835,7 +1835,7 @@ const filters = [{ value: 'ALL', label: 'همه' }, { value: 'AUTO', label: 'خ�
         <tr>
           <th>نام در فاکتور</th>
           <th>کد</th>
-          <th>قطعهٔ لندو</th>
+          <th>قطعهٔ لاندا</th>
           <th>نحوه</th>
           <th>شباهت</th>
           <th>تاریخ</th>
@@ -1857,7 +1857,7 @@ const filters = [{ value: 'ALL', label: 'همه' }, { value: 'AUTO', label: 'خ�
     <div v-else class="surface">
       <EmptyState
         :title="rows.length ? 'تطبیقی با این فیلتر نیست' : 'هنوز تطبیقی ثبت نشده'"
-        :description="rows.length ? 'فیلتر یا عبارت جست‌وجو را عوض کنید.' : 'با اولین وارد کردن فاکتورها، تطبیق‌های خودکار و تصمیم‌های شما اینجا جمع می‌شود. برای اقلامی که «در لندو نیست» علامت خورده‌اند، تیکتی برای پشتیبانی لندو ثبت کنید و بعد تصمیم را همین‌جا تغییر دهید.'"
+        :description="rows.length ? 'فیلتر یا عبارت جست‌وجو را عوض کنید.' : 'با اولین وارد کردن فاکتورها، تطبیق‌های خودکار و تصمیم‌های شما اینجا جمع می‌شود. برای اقلامی که «در لاندا نیست» علامت خورده‌اند، تیکتی برای پشتیبانی لاندا ثبت کنید و بعد تصمیم را همین‌جا تغییر دهید.'"
       >
         <template v-if="!rows.length" #action><UButton to="/import" variant="soft" icon="i-lucide-file-input">وارد کردن فاکتورها</UButton></template>
       </EmptyState>
@@ -1869,7 +1869,7 @@ const filters = [{ value: 'ALL', label: 'همه' }, { value: 'AUTO', label: 'خ�
           <p><span class="font-medium text-highlighted">{{ editing.name_seen }}</span> <span dir="ltr" class="text-sm text-muted">{{ editing.code }}</span></p>
           <div class="flex gap-2">
             <UInput v-model="term" class="flex-1" @keyup.enter="search" />
-            <UButton :loading="searching" icon="i-lucide-search" @click="search">جست‌وجو در لندو</UButton>
+            <UButton :loading="searching" icon="i-lucide-search" @click="search">جست‌وجو در لاندا</UButton>
           </div>
           <ul class="max-h-72 divide-y divide-default overflow-auto">
             <li v-for="c in candidates" :key="c.candidate.id" class="flex items-center justify-between gap-3 py-2.5">
@@ -1878,7 +1878,7 @@ const filters = [{ value: 'ALL', label: 'همه' }, { value: 'AUTO', label: 'خ�
             </li>
           </ul>
           <div class="flex flex-wrap justify-between gap-2 border-t border-default pt-4">
-            <UButton color="error" variant="soft" @click="setNone">در لندو نیست</UButton>
+            <UButton color="error" variant="soft" @click="setNone">در لاندا نیست</UButton>
             <UButton color="neutral" variant="ghost" @click="clear">حذف تصمیم، دوباره پرسیده شود</UButton>
           </div>
         </div>
@@ -2059,18 +2059,18 @@ and in `testSupplier`, after `await bridge.supplierTestLogin();` add `supplierOk
     <div class="surface divide-y divide-default">
       <section class="p-6">
         <div class="mb-4 flex items-center justify-between gap-3">
-          <h2>لندو</h2>
+          <h2>لاندا</h2>
           <UBadge :color="landauChip.color" variant="soft">{{ landauChip.label }}</UBadge>
         </div>
         <div class="space-y-4">
-          <UFormField label="نشانی درگاه لندو" hint="مثال: https://api.landau.ir">
+          <UFormField label="نشانی درگاه لاندا" hint="مثال: https://api.landau.ir">
             <UInput v-model="form.landau_url" dir="ltr" class="w-full" />
           </UFormField>
-          <UFormField label="کلید API لندو" :hint="view?.has_landau_token ? 'کلیدی ذخیره شده است؛ برای تغییر، کلید تازه را وارد کنید' : 'در لندو: حساب کاربری ← کلیدهای API'">
+          <UFormField label="کلید API لاندا" :hint="view?.has_landau_token ? 'کلیدی ذخیره شده است؛ برای تغییر، کلید تازه را وارد کنید' : 'در لاندا: حساب کاربری ← کلیدهای API'">
             <UInput v-model="form.landau_token" type="password" dir="ltr" placeholder="apt-…" class="w-full" />
           </UFormField>
           <UButton :loading="busy === 'landau'" variant="soft" icon="i-lucide-plug-zap" @click="validateLandau">بررسی اتصال و دریافت فروشگاه‌ها</UButton>
-          <p v-if="landau && landau.active_rules === 0" class="text-sm text-warning">هیچ قاعدهٔ قیمت‌گذاری فعالی ندارید؛ تا زمانی که در لندو قاعده‌ای بسازید، قیمت قفسه برابر قیمت خرید خواهد بود.</p>
+          <p v-if="landau && landau.active_rules === 0" class="text-sm text-warning">هیچ قاعدهٔ قیمت‌گذاری فعالی ندارید؛ تا زمانی که در لاندا قاعده‌ای بسازید، قیمت قفسه برابر قیمت خرید خواهد بود.</p>
           <p v-else-if="landau" class="tabular text-sm text-muted">{{ faNumber(landau.active_rules) }} قاعدهٔ قیمت‌گذاری فعال</p>
           <UFormField label="فروشگاه مقصد" hint="ردیف‌ها روی قفسهٔ این فروشگاه نوشته می‌شوند">
             <USelect v-model="form.store" :items="storeItems" :disabled="!storeItems.length" placeholder="ابتدا اتصال را بررسی کنید" class="w-full" />
@@ -2107,7 +2107,7 @@ and in `testSupplier`, after `await bridge.supplierTestLogin();` add `supplierOk
               <UInput v-model.number="form.vat_percent" type="number" min="0" max="100" step="0.5" dir="ltr" class="w-32" />
             </UFormField>
           </div>
-          <UFormField label="قیمت‌های دستی لندو را هم بازنویسی کن" hint="لندو قیمتی را که خودتان تایپ کرده باشید نگه می‌دارد؛ این گزینه همان «بازنویسی» لندوست">
+          <UFormField label="قیمت‌های دستی لاندا را هم بازنویسی کن" hint="لاندا قیمتی را که خودتان تایپ کرده باشید نگه می‌دارد؛ این گزینه همان «بازنویسی» لانداست">
             <USwitch v-model="form.overwrite_manual" />
           </UFormField>
         </div>
@@ -2170,7 +2170,7 @@ Expected: `mock not in bundle`.
 
 - [ ] **Step 5: Run the real app once**
 
-Run: `pnpm tauri dev` (background). With the fixtures from `docs/RUNBOOK.md` and memory (`landau-fixtures-for-bridge-tests`), walk: dashboard → settings (check chips, save) → import (ZERO mode, follow progress, review one item, finish) → matches (change one, revert it) → refresh → logs (open the job). Confirm the window icon is the new mark and the window title stays «پل لندو». Take one screenshot of the running app with `import -window root "$SCRATCH/real-app.png"` (X11) and Read it. Leave the fixture store as found (see the memory note).
+Run: `pnpm tauri dev` (background). With the fixtures from `docs/RUNBOOK.md` and memory (`landau-fixtures-for-bridge-tests`), walk: dashboard → settings (check chips, save) → import (ZERO mode, follow progress, review one item, finish) → matches (change one, revert it) → refresh → logs (open the job). Confirm the window icon is the new mark and the window title stays «پل لاندا». Take one screenshot of the running app with `import -window root "$SCRATCH/real-app.png"` (X11) and Read it. Leave the fixture store as found (see the memory note).
 
 - [ ] **Step 6: Docs**
 

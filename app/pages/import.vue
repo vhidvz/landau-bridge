@@ -70,7 +70,7 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
 
 <template>
   <div>
-    <PageHeader title="وارد کردن فاکتورهای بارزپخش" description="فاکتورهای پرداخت‌شده خوانده می‌شود، هر قلم به قطعهٔ لندو وصل می‌شود و با قیمت روز روی قفسه می‌نشیند.">
+    <PageHeader title="وارد کردن فاکتورهای بارزپخش" description="فاکتورهای پرداخت‌شده خوانده می‌شود، هر قلم به قطعهٔ لاندا وصل می‌شود و با قیمت روز روی قفسه می‌نشیند.">
       <template #actions>
         <UButton v-if="active" color="error" variant="soft" icon="i-lucide-square" @click="cancel">توقف</UButton>
       </template>
@@ -94,7 +94,7 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
           <span class="mt-1 block text-sm text-muted">همهٔ اقلام همهٔ فاکتورهای پرداخت‌شده تا امروز با تعداد صفر و قیمت روز روی قفسه می‌آیند تا خودتان تعداد را اصلاح کنید. موجودی ردیف‌های موجود دست نمی‌خورد؛ فقط قیمت خریدشان به‌روز می‌شود.</span>
         </label>
       </div>
-      <p class="max-w-prose text-sm text-muted">در هر دو حالت قیمت قفسه با قواعد قیمت‌گذاری خودتان در لندو از روی قیمت روز بارزپخش با ارزش افزوده محاسبه می‌شود، نه قیمت روی فاکتور.</p>
+      <p class="max-w-prose text-sm text-muted">در هر دو حالت قیمت قفسه با قواعد قیمت‌گذاری خودتان در لاندا از روی قیمت روز بارزپخش با ارزش افزوده محاسبه می‌شود، نه قیمت روی فاکتور.</p>
       <UButton size="lg" icon="i-lucide-play" :loading="starting" :disabled="mode === 'QUANTITY' && !sinceOk" @click="start">شروع وارد کردن</UButton>
     </section>
 

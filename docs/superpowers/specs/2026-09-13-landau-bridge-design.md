@@ -183,7 +183,7 @@ landau-bridge/
   and the reasoning to `docs/matching-threshold.md`, and set that value as the default in code.
 - Decisions persist in `matches(supplier, code, product_id, product_name, how: AUTO|USER|NONE,
   similarity, name_seen, decided_at)`. An item with a decision is never searched again. `NONE`
-  shows: «این قطعه در فهرست لندو نیست — برای افزودن آن یک تیکت برای پشتیبانی لندو ثبت کنید» and
+  shows: «این قطعه در فهرست لاندا نیست — برای افزودن آن یک تیکت برای پشتیبانی لاندا ثبت کنید» and
   the item stays excluded until the seller changes the decision on the matches screen.
 
 ## 7. Jobs

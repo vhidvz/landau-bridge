@@ -78,7 +78,7 @@ const doneItems: JobItemRow[] = [
   item(3, 'BP-33005', 'شمع NGK BKR6E', 48, { product_id: 'p_9', product_name: 'شمع NGK BKR6E', action: 'PATCH', qty_before: 20, qty_after: 68, cost: 1_210_000, price_before: 1_500_000, price_after: 1_500_000, reprice_verdict: 'SKIPPED:MANUAL' }),
   item(4, 'BP-44120', 'تسمه تایم ۴۰۵', 6, { status: 'FAILED', error_kind: 'NoCurrentPrice', error_msg: 'بارزپخش برای این کد قیمت روز ندارد' }),
   item(5, 'BP-51002', 'دیسک ترمز جلو سمند', 4, { product_id: 'p_12', product_name: 'دیسک ترمز جلو سمند', action: 'ATTACH', qty_after: 4, cost: 2_960_000, price_after: 3_650_000, reprice_verdict: 'REPRICED:3650000' }),
-  item(6, 'BP-60233', 'روغن موتور ۴ لیتری بهران', 24, { status: 'SKIPPED', error_kind: 'NoneDecision', error_msg: 'در فهرست لندو نیست' }),
+  item(6, 'BP-60233', 'روغن موتور ۴ لیتری بهران', 24, { status: 'SKIPPED', error_kind: 'NoneDecision', error_msg: 'در فهرست لاندا نیست' }),
   item(7, 'BP-71850', 'واشر سرسیلندر ۲۰۶', 10, { product_id: 'p_15', product_name: 'واشر سرسیلندر پژو ۲۰۶', action: 'ATTACH', qty_after: 10, cost: 940_000, price_after: 1_170_000, reprice_verdict: 'REPRICED:1170000' }),
   item(8, 'BP-80017', 'پمپ بنزین پراید', 5, { product_id: 'p_16', product_name: 'پمپ بنزین پراید', action: 'PATCH', qty_before: 2, qty_after: 7, cost: 1_650_000, price_before: 2_050_000, price_after: 2_050_000, reprice_verdict: 'UNCHANGED' }),
 ];
@@ -86,13 +86,13 @@ const doneItems: JobItemRow[] = [
 const ev = (id: number, level: JobEventRow['level'], phase: string, message: string, minutesAgo: number): JobEventRow =>
   ({ id, at: new Date(Date.now() - minutesAgo * 60_000).toISOString(), level, phase, message, detail: null });
 const doneEvents: JobEventRow[] = [
-  ev(1, 'INFO', 'PREFLIGHT', 'اتصال به لندو و بارزپخش برقرار است', 40),
+  ev(1, 'INFO', 'PREFLIGHT', 'اتصال به لاندا و بارزپخش برقرار است', 40),
   ev(2, 'INFO', 'FETCH', '۱۲۴ فاکتور خوانده شد؛ ۳ فاکتور پرداخت‌نشده رد شد', 37),
   ev(3, 'INFO', 'AGGREGATE', '۲۱۷ قلم در ۸۹ کد جمع‌بندی شد', 36),
   ev(4, 'INFO', 'MATCH', '۷۱ کد خودکار تطبیق داده شد، ۱۸ کد به تصمیم شما نیاز داشت', 35),
   ev(5, 'WARN', 'PRICE', 'برای BP-44120 قیمت روز پیدا نشد', 30),
   ev(6, 'INFO', 'WRITE', '۸۱ ردیف روی قفسه نوشته شد', 26),
-  ev(7, 'INFO', 'REPRICE', 'قواعد قیمت‌گذاری لندو روی ۴۱۲ ردیف اجرا شد؛ ۹۶ قیمت تغییر کرد', 24),
+  ev(7, 'INFO', 'REPRICE', 'قواعد قیمت‌گذاری لاندا روی ۴۱۲ ردیف اجرا شد؛ ۹۶ قیمت تغییر کرد', 24),
   ev(8, 'INFO', 'REPORT', JSON.stringify(doneSummary), 23),
 ];
 const runningEvents: JobEventRow[] = doneEvents.slice(0, 3);
@@ -118,10 +118,10 @@ const err = (id: number, days: number, job_id: number | null, kind: string, mess
   ({ id, at: ago(days, 9, 12), job_id, kind, message, context });
 const errors: ErrorRow[] = [
   err(61, 0, 42, 'NoCurrentPrice', 'بارزپخش برای BP-44120 قیمت روز ندارد', { code: 'BP-44120' }),
-  err(60, 0, 42, 'NoneDecision', 'BP-60233 در فهرست لندو نیست؛ برای افزودن آن تیکت ثبت کنید'),
+  err(60, 0, 42, 'NoneDecision', 'BP-60233 در فهرست لاندا نیست؛ برای افزودن آن تیکت ثبت کنید'),
   err(59, 1, 41, 'RepriceSkipped', '۱۲ ردیف با قیمت دستی دست نخورد', { skipped: 'MANUAL', rows: 12 }),
   err(58, 3, 40, 'SupplierUnreachable', 'پاسخی از بارزپخش نیامد (timeout after 30s)', { url: 'https://barezpakhsh.ir/invoices' }),
-  err(57, 5, null, 'LandauUnauthorized', 'کلید API لندو پذیرفته نشد'),
+  err(57, 5, null, 'LandauUnauthorized', 'کلید API لاندا پذیرفته نشد'),
   err(56, 12, 38, 'JobCancelled', 'به درخواست شما متوقف شد'),
 ];
 
@@ -139,7 +139,7 @@ const dashboard = (state: State): Dashboard => {
 const detail = (id: number, state: State): JobDetail => {
   if (id === 43 && state === 'running') return { job: runningJob, items: [], events: runningEvents };
   if (id === 43 && state === 'review') return { job: reviewJob, items: reviewItems, events: doneEvents.slice(0, 4) };
-  if (id === 44 && state === 'refreshing') return { job: refreshJob, items: [], events: [ev(1, 'INFO', 'PREFLIGHT', 'اتصال به لندو و بارزپخش برقرار است', 6), ev(2, 'INFO', 'PRICE', 'قیمت روز ۴۱۲ کد از بارزپخش خوانده شد', 3)] };
+  if (id === 44 && state === 'refreshing') return { job: refreshJob, items: [], events: [ev(1, 'INFO', 'PREFLIGHT', 'اتصال به لاندا و بارزپخش برقرار است', 6), ev(2, 'INFO', 'PRICE', 'قیمت روز ۴۱۲ کد از بارزپخش خوانده شد', 3)] };
   const j = jobs.find((x) => x.id === id) ?? jobs[0]!;
   return { job: j, items: j.status === 'DONE' ? doneItems : [], events: j.status === 'DONE' ? doneEvents : doneEvents.slice(0, 2) };
 };
@@ -178,8 +178,8 @@ export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {
 export function mockEvents(h: JobHandlers): () => void {
   const state = devState();
   if (state === 'running') {
-    setTimeout(() => h.progress?.({ job_id: 43, phase: 'MATCH', done: 37, total: 89, message: 'تطبیق با فهرست لندو' }), 200);
-    setTimeout(() => h.event?.({ job_id: 43, level: 'INFO', phase: 'PREFLIGHT', message: 'اتصال به لندو و بارزپخش برقرار است' }), 250);
+    setTimeout(() => h.progress?.({ job_id: 43, phase: 'MATCH', done: 37, total: 89, message: 'تطبیق با فهرست لاندا' }), 200);
+    setTimeout(() => h.event?.({ job_id: 43, level: 'INFO', phase: 'PREFLIGHT', message: 'اتصال به لاندا و بارزپخش برقرار است' }), 250);
     setTimeout(() => h.event?.({ job_id: 43, level: 'INFO', phase: 'FETCH', message: '۱۲۴ فاکتور خوانده شد؛ ۳ فاکتور پرداخت‌نشده رد شد' }), 300);
     setTimeout(() => h.event?.({ job_id: 43, level: 'WARN', phase: 'MATCH', message: 'برای BP-44120 چند نامزد نزدیک هم پیدا شد' }), 350);
   } else if (state === 'refreshing') {

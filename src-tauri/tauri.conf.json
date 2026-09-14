@@ -11,7 +11,7 @@
   },
   "app": {
     "windows": [
-      { "title": "پل لندو", "width": 1200, "height": 800, "minWidth": 960, "minHeight": 640, "backgroundColor": "#F2F5F7" }
+      { "title": "پل لاندا", "width": 1200, "height": 800, "minWidth": 960, "minHeight": 640, "backgroundColor": "#F2F5F7" }
     ],
     "security": {
       "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'"

@@ -233,7 +233,7 @@ async fn match_phase(ctx: &JobCtx, svc: &Services) -> Result<usize> {
                     &[
                         ("status", t("SKIPPED")),
                         ("error_kind", t(kinds::NONE_DECISION)),
-                        ("error_msg", t("این قطعه در لندو نیست (تصمیم قبلی).")),
+                        ("error_msg", t("این قطعه در لاندا نیست (تصمیم قبلی).")),
                     ],
                 )?;
             }
@@ -248,7 +248,7 @@ async fn match_phase(ctx: &JobCtx, svc: &Services) -> Result<usize> {
                 )?;
             }
         }
-        ctx.progress("MATCH", n as u32 + 1, total, "تطبیق با فهرست لندو");
+        ctx.progress("MATCH", n as u32 + 1, total, "تطبیق با فهرست لاندا");
     }
     if pending > 0 {
         ctx.warn(
@@ -570,7 +570,7 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                 )?;
             }
         }
-        ctx.progress("WRITE", n as u32 + 1, total, "نوشتن روی قفسه لندو");
+        ctx.progress("WRITE", n as u32 + 1, total, "نوشتن روی قفسه لاندا");
     }
 
     reprice_items(ctx, svc, &store, &written).await?;

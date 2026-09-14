@@ -107,7 +107,7 @@ both modes.
 ```
 ┌──────────────────────────────────────────────┬────────────────┐
 │ main (scrolls)                               │ aside 256px    │
-│ ┌ PageHeader ──────────────────────────────┐ │ [mark] پل لندو │
+│ ┌ PageHeader ──────────────────────────────┐ │ [mark] پل لاندا │
 │ │ title(32/700)                  [action]  │ │                │
 │ │ one sentence: what this page does        │ │ ▣ داشبورد      │
 │ └──────────────────────────────────────────┘ │   وارد کردن…   │
@@ -144,7 +144,7 @@ four rendered variants — towers made it read as a hanging basket, so there are
 - Dots: three circles r=3.5 at (24,48), (32,52), (40,48) — the three dots of «پ» and the piers'
   reflection. The whole sits between y=13.5 and y=55.5, so it is optically centred in the box.
 
-**Wordmark**: «پل لندو» in Vazirmatn 800, 20 px, letter-spacing 0, next to the mark. Optional second
+**Wordmark**: «پل لاندا» in Vazirmatn 800, 20 px, letter-spacing 0, next to the mark. Optional second
 line «Landau Bridge» is *not* shown (Persian-only UI).
 
 **App icon** (`public/brand/icon.svg`, 1024×1024): firoozeh-500→700 diagonal gradient on a
@@ -160,13 +160,13 @@ one job per sentence) and every action keeps the same name from button to toast.
 
 ### 5.1 Dashboard `/`
 
-- Header: title = store name (or «پل لندو» when none); description «پل بین فاکتورهای بارزپخش و قفسهٔ لندو».
+- Header: title = store name (or «پل لاندا» when none); description «پل بین فاکتورهای بارزپخش و قفسهٔ لاندا».
 - If `!settings_complete`: `SetupChecklist` replaces the hero. Three steps from `settingsGet()`:
-  کلید لندو (`has_landau_token`), فروشگاه مقصد (`store`), ورود بارزپخش (`has_supplier_password`),
+  کلید لاندا (`has_landau_token`), فروشگاه مقصد (`store`), ورود بارزپخش (`has_supplier_password`),
   each with a check/ring and a link to `/settings`. Large mark at 96 px beside it.
 - Otherwise `BridgeHero`: an SVG bridge spanning the surface. Right bank «بارزپخش»: display number
   `invoices_cached` labelled «فاکتور ذخیره‌شده», small «N پرداخت‌نشده» under it, and the supplier user
-  (LTR). Left bank «لندو»: store name and `decided_matches` «تطبیق ثبت‌شده». On the deck: the two
+  (LTR). Left bank «لاندا»: store name and `decided_matches` «تطبیق ثبت‌شده». On the deck: the two
   actions as buttons — «وارد کردن فاکتورها» (solid) and «به‌روزرسانی قیمت‌ها» (soft) — disabled while
   a job runs; when `running` exists the deck shows the `RunningJobCard` content instead.
 - Below the hero, one surface with two rows «آخرین وارد کردن» / «آخرین به‌روزرسانی»: status badge, local
@@ -218,7 +218,7 @@ REPRICE, REPORT (`src-tauri/src/jobs/refresh.rs`, `jobs/mod.rs`). Today all nine
 ### 5.6 Settings `/settings`
 
 - Header «تنظیمات»; description «اتصال‌ها و قواعد وارد کردن».
-- One surface with three sections separated by dividers: لندو, بارزپخش, قواعد وارد کردن; a fourth
+- One surface with three sections separated by dividers: لاندا, بارزپخش, قواعد وارد کردن; a fourth
   quiet section «داده‌ها». Each connection section shows a status chip on its title: «متصل — <business>»
   after a successful check this session, «ذخیره‌شده» when a secret exists, «آزمایش‌نشده» otherwise.
 - Field widths: URLs and secrets full width; numbers 8 rem; all LTR data fields `dir="ltr"`.

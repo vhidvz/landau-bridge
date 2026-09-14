@@ -17,7 +17,7 @@ export default defineNuxtConfig({
   app: {
     head: {
       htmlAttrs: { dir: 'rtl', lang: 'fa' },
-      title: 'پل لندو',
+      title: 'پل لاندا',
       meta: [{ name: 'color-scheme', content: 'light dark' }],
       link: [{ rel: 'icon', type: 'image/svg+xml', href: '/brand/logo.svg' }],
     },

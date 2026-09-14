@@ -3,7 +3,7 @@ import type { SettingsView } from '~/types/bridge';
 
 const props = defineProps<{ settings: SettingsView }>();
 const steps = computed(() => [
-  { label: 'کلید API لندو', done: props.settings.has_landau_token, hint: 'در لندو: حساب کاربری ← کلیدهای API؛ کلید فقط یک بار نمایش داده می‌شود' },
+  { label: 'کلید API لاندا', done: props.settings.has_landau_token, hint: 'در لاندا: حساب کاربری ← کلیدهای API؛ کلید فقط یک بار نمایش داده می‌شود' },
   { label: 'فروشگاه مقصد', done: !!props.settings.store, hint: 'بعد از «بررسی اتصال»، فروشگاهی را که ردیف‌ها روی قفسه‌اش نوشته می‌شود انتخاب کنید' },
   { label: 'ورود بارزپخش', done: !!props.settings.supplier_user && props.settings.has_supplier_password, hint: 'نام کاربری و کلمه عبور بارزپخش، سپس «آزمایش ورود»' },
 ]);

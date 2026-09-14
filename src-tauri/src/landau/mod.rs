@@ -203,7 +203,7 @@ impl LandauClient {
             .build()
             .map_err(|e| BridgeError::LandauUnreachable(e.to_string()))?;
         let base = Url::parse(&format!("{}/", base_url.trim_end_matches('/')))
-            .map_err(|e| BridgeError::SettingsIncomplete(format!("نشانی لندو نامعتبر است: {e}")))?;
+            .map_err(|e| BridgeError::SettingsIncomplete(format!("نشانی لاندا نامعتبر است: {e}")))?;
         Ok(LandauClient {
             http,
             base,

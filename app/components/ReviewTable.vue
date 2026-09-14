@@ -31,7 +31,7 @@ const research = async (item: JobItemRow) => {
 <template>
   <div class="space-y-4">
     <ErrorBanner :error="error" />
-    <p class="max-w-prose text-sm text-muted">برای هر قلم، قطعهٔ درست را از فهرست لندو انتخاب کنید. «هیچ‌کدام» یعنی این قطعه در لندو نیست: دیگر پرسیده نمی‌شود و باید برای افزودنش تیکتی برای پشتیبانی لندو ثبت کنید. «بعداً» آن را برای اجرای بعدی نگه می‌دارد.</p>
+    <p class="max-w-prose text-sm text-muted">برای هر قلم، قطعهٔ درست را از فهرست لاندا انتخاب کنید. «هیچ‌کدام» یعنی این قطعه در لاندا نیست: دیگر پرسیده نمی‌شود و باید برای افزودنش تیکتی برای پشتیبانی لاندا ثبت کنید. «بعداً» آن را برای اجرای بعدی نگه می‌دارد.</p>
     <section v-for="(item, n) in items" :key="item.id" class="surface">
       <div class="surface-head flex-wrap">
         <div class="min-w-0">
@@ -46,10 +46,10 @@ const research = async (item: JobItemRow) => {
       </div>
       <div class="surface-body space-y-3">
         <div class="flex gap-2">
-          <UInput v-model="terms[item.id]" placeholder="جست‌وجوی دوباره در لندو با عبارت دیگر" class="flex-1" @keyup.enter="research(item)" />
+          <UInput v-model="terms[item.id]" placeholder="جست‌وجوی دوباره در لاندا با عبارت دیگر" class="flex-1" @keyup.enter="research(item)" />
           <UButton :loading="searching === item.id" variant="soft" icon="i-lucide-search" @click="research(item)">جست‌وجو</UButton>
         </div>
-        <p v-if="!candidatesOf(item).length" class="text-sm text-muted">لندو پیشنهادی نداشت. عبارت دیگری را امتحان کنید یا «هیچ‌کدام» را بزنید.</p>
+        <p v-if="!candidatesOf(item).length" class="text-sm text-muted">لاندا پیشنهادی نداشت. عبارت دیگری را امتحان کنید یا «هیچ‌کدام» را بزنید.</p>
         <ul v-else class="divide-y divide-default">
           <li v-for="c in candidatesOf(item)" :key="c.candidate.id" class="flex items-center justify-between gap-3 py-2.5">
             <div class="min-w-0">

@@ -52,7 +52,7 @@ const validateLandau = async () => {
     form.landau_token = '';
     landau.value = await bridge.landauValidate();
     if (!form.store && landau.value.stores.length === 1) form.store = landau.value.stores[0]!.id;
-    toast.add({ title: `اتصال به لندو برقرار است — ${landau.value.business_name ?? landau.value.business}`, color: 'success' });
+    toast.add({ title: `اتصال به لاندا برقرار است — ${landau.value.business_name ?? landau.value.business}`, color: 'success' });
   } catch (e) { error.value = e as BridgeError; } finally { busy.value = null; }
 };
 
@@ -79,18 +79,18 @@ const authItems = [{ label: 'اصلی (ORIGINAL)', value: 'ORIGINAL' }, { label:
     <div class="surface divide-y divide-default">
       <section class="p-6">
         <div class="mb-4 flex items-center justify-between gap-3">
-          <h2 class="text-xl">لندو</h2>
+          <h2 class="text-xl">لاندا</h2>
           <UBadge :color="landauChip.color" variant="soft">{{ landauChip.label }}</UBadge>
         </div>
         <div class="space-y-4">
-          <UFormField label="نشانی درگاه لندو" hint="مثال: https://api.landau.ir">
+          <UFormField label="نشانی درگاه لاندا" hint="مثال: https://api.landau.ir">
             <UInput v-model="form.landau_url" dir="ltr" class="w-full" />
           </UFormField>
-          <UFormField label="کلید API لندو" :hint="view?.has_landau_token ? 'کلیدی ذخیره شده است؛ برای تغییر، کلید تازه را وارد کنید' : 'در لندو: حساب کاربری ← کلیدهای API'">
+          <UFormField label="کلید API لاندا" :hint="view?.has_landau_token ? 'کلیدی ذخیره شده است؛ برای تغییر، کلید تازه را وارد کنید' : 'در لاندا: حساب کاربری ← کلیدهای API'">
             <UInput v-model="form.landau_token" type="password" dir="ltr" placeholder="apt-…" class="w-full" />
           </UFormField>
           <UButton :loading="busy === 'landau'" variant="soft" icon="i-lucide-plug-zap" @click="validateLandau">بررسی اتصال و دریافت فروشگاه‌ها</UButton>
-          <p v-if="landau && landau.active_rules === 0" class="text-sm text-warning">هیچ قاعدهٔ قیمت‌گذاری فعالی ندارید؛ تا زمانی که در لندو قاعده‌ای بسازید، قیمت قفسه برابر قیمت خرید خواهد بود.</p>
+          <p v-if="landau && landau.active_rules === 0" class="text-sm text-warning">هیچ قاعدهٔ قیمت‌گذاری فعالی ندارید؛ تا زمانی که در لاندا قاعده‌ای بسازید، قیمت قفسه برابر قیمت خرید خواهد بود.</p>
           <p v-else-if="landau" class="tabular text-sm text-muted">{{ faNumber(landau.active_rules) }} قاعدهٔ قیمت‌گذاری فعال</p>
           <UFormField label="فروشگاه مقصد" hint="ردیف‌ها روی قفسهٔ این فروشگاه نوشته می‌شوند">
             <USelect v-model="form.store" :items="storeItems" :disabled="!storeItems.length" placeholder="ابتدا اتصال را بررسی کنید" class="w-full" />
@@ -127,7 +127,7 @@ const authItems = [{ label: 'اصلی (ORIGINAL)', value: 'ORIGINAL' }, { label:
               <UInput v-model.number="form.vat_percent" type="number" min="0" max="100" step="0.5" dir="ltr" class="w-32" />
             </UFormField>
           </div>
-          <UFormField label="قیمت‌های دستی لندو را هم بازنویسی کن" hint="لندو قیمتی را که خودتان تایپ کرده باشید نگه می‌دارد؛ این گزینه همان «بازنویسی» لندوست">
+          <UFormField label="قیمت‌های دستی لاندا را هم بازنویسی کن" hint="لاندا قیمتی را که خودتان تایپ کرده باشید نگه می‌دارد؛ این گزینه همان «بازنویسی» لانداست">
             <USwitch v-model="form.overwrite_manual" />
           </UFormField>
         </div>

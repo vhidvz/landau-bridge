@@ -39,7 +39,7 @@ fn landau(s: &Settings) -> Result<LandauClient> {
         .landau_token
         .as_deref()
         .filter(|t| !t.is_empty())
-        .ok_or_else(|| BridgeError::SettingsIncomplete("کلید API لندو".into()))?;
+        .ok_or_else(|| BridgeError::SettingsIncomplete("کلید API لاندا".into()))?;
     LandauClient::new(&s.landau_url, token)
 }
 
@@ -325,7 +325,7 @@ pub async fn review_decide(state: State<'_, AppState>, decision: ReviewDecision)
             Some(item.job_id),
             kinds::NONE_DECISION,
             &format!(
-                "«{}» در فهرست لندو نیست؛ برای افزودن آن یک تیکت برای پشتیبانی لندو ثبت کنید.",
+                "«{}» در فهرست لاندا نیست؛ برای افزودن آن یک تیکت برای پشتیبانی لاندا ثبت کنید.",
                 item.name
             ),
             Some(serde_json::json!({"code": item.code})),
@@ -335,7 +335,7 @@ pub async fn review_decide(state: State<'_, AppState>, decision: ReviewDecision)
             &[
                 ("status", jobs::t("SKIPPED")),
                 ("error_kind", jobs::t(kinds::NONE_DECISION)),
-                ("error_msg", jobs::t("این قطعه در لندو نیست.")),
+                ("error_msg", jobs::t("این قطعه در لاندا نیست.")),
             ],
         );
     }

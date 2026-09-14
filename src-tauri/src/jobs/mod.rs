@@ -258,7 +258,7 @@ pub async fn preflight(ctx: &JobCtx, svc: &Services, store: &str) -> Result<()> 
         ctx.warn(
             "PREFLIGHT",
             kinds::NO_PRICING_RULE,
-            "در لندو هیچ قاعده قیمت‌گذاری فعالی ندارید؛ قیمت قفسه برابر قیمت خرید خواهد بود.",
+            "در لاندا هیچ قاعده قیمت‌گذاری فعالی ندارید؛ قیمت قفسه برابر قیمت خرید خواهد بود.",
             None,
         );
     }

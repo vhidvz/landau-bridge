@@ -14,8 +14,8 @@ const load = async () => { try { rows.value = await bridge.matchesList(); } catc
 onMounted(load);
 
 const shown = computed(() => rows.value.filter((r) => (filter.value === 'ALL' || r.how === filter.value) && (!query.value || r.name_seen.includes(query.value) || r.code.includes(query.value) || (r.product_name ?? '').includes(query.value))));
-const howLabel: Record<string, string> = { AUTO: 'خودکار', USER: 'انتخاب شما', NONE: 'در لندو نیست' };
-const filters = [{ value: 'ALL', label: 'همه' }, { value: 'AUTO', label: 'خودکار' }, { value: 'USER', label: 'انتخاب شما' }, { value: 'NONE', label: 'در لندو نیست' }] as const;
+const howLabel: Record<string, string> = { AUTO: 'خودکار', USER: 'انتخاب شما', NONE: 'در لاندا نیست' };
+const filters = [{ value: 'ALL', label: 'همه' }, { value: 'AUTO', label: 'خودکار' }, { value: 'USER', label: 'انتخاب شما' }, { value: 'NONE', label: 'در لاندا نیست' }] as const;
 
 const openEdit = (r: MatchRow) => { editing.value = r; term.value = r.name_seen; candidates.value = []; };
 const search = async () => {
@@ -50,7 +50,7 @@ const clear = async () => {
 
 <template>
   <div>
-    <PageHeader title="تطبیق‌های ثبت‌شده" description="هر کد بارزپخش یک بار به یک قطعهٔ لندو وصل می‌شود و دیگر پرسیده نمی‌شود." />
+    <PageHeader title="تطبیق‌های ثبت‌شده" description="هر کد بارزپخش یک بار به یک قطعهٔ لاندا وصل می‌شود و دیگر پرسیده نمی‌شود." />
     <ErrorBanner :error="error" />
 
     <div class="mb-4 flex flex-wrap items-center gap-3">
@@ -63,7 +63,7 @@ const clear = async () => {
         <tr>
           <th>نام در فاکتور</th>
           <th>کد</th>
-          <th>قطعهٔ لندو</th>
+          <th>قطعهٔ لاندا</th>
           <th>نحوه</th>
           <th>شباهت</th>
           <th>تاریخ</th>
@@ -85,7 +85,7 @@ const clear = async () => {
     <div v-else class="surface">
       <EmptyState
         :title="rows.length ? 'تطبیقی با این فیلتر نیست' : 'هنوز تطبیقی ثبت نشده'"
-        :description="rows.length ? 'فیلتر یا عبارت جست‌وجو را عوض کنید.' : 'با اولین وارد کردن فاکتورها، تطبیق‌های خودکار و تصمیم‌های شما اینجا جمع می‌شود. برای اقلامی که «در لندو نیست» علامت خورده‌اند، تیکتی برای پشتیبانی لندو ثبت کنید و بعد تصمیم را همین‌جا تغییر دهید.'"
+        :description="rows.length ? 'فیلتر یا عبارت جست‌وجو را عوض کنید.' : 'با اولین وارد کردن فاکتورها، تطبیق‌های خودکار و تصمیم‌های شما اینجا جمع می‌شود. برای اقلامی که «در لاندا نیست» علامت خورده‌اند، تیکتی برای پشتیبانی لاندا ثبت کنید و بعد تصمیم را همین‌جا تغییر دهید.'"
       >
         <template v-if="!rows.length" #action><UButton to="/import" variant="soft" icon="i-lucide-file-input">وارد کردن فاکتورها</UButton></template>
       </EmptyState>
@@ -97,7 +97,7 @@ const clear = async () => {
           <p><span class="font-medium text-highlighted">{{ editing.name_seen }}</span> <span dir="ltr" class="whitespace-nowrap text-sm text-muted">{{ editing.code }}</span></p>
           <div class="flex gap-2">
             <UInput v-model="term" class="flex-1" @keyup.enter="search" />
-            <UButton :loading="searching" icon="i-lucide-search" @click="search">جست‌وجو در لندو</UButton>
+            <UButton :loading="searching" icon="i-lucide-search" @click="search">جست‌وجو در لاندا</UButton>
           </div>
           <ul class="max-h-72 divide-y divide-default overflow-auto">
             <li v-for="c in candidates" :key="c.candidate.id" class="flex items-center justify-between gap-3 py-2.5">
@@ -106,7 +106,7 @@ const clear = async () => {
             </li>
           </ul>
           <div class="flex flex-wrap justify-between gap-2 border-t border-default pt-4">
-            <UButton color="error" variant="soft" @click="setNone">در لندو نیست</UButton>
+            <UButton color="error" variant="soft" @click="setNone">در لاندا نیست</UButton>
             <UButton color="neutral" variant="ghost" @click="clear">حذف تصمیم، دوباره پرسیده شود</UButton>
           </div>
         </div>
