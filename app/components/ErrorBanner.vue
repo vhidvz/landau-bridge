@@ -7,14 +7,11 @@ const isUnknownKind = computed(() => !!props.error && title.value === props.erro
 </script>
 
 <template>
-  <UAlert v-if="error" color="error" variant="soft" icon="i-lucide-alert-triangle" class="mb-4">
-    <template #title>
-      <span v-if="isUnknownKind" dir="ltr">{{ title }}</span>
-      <span v-else>{{ title }}</span>
-    </template>
-    <template #description>
-      <p>{{ error.message }}</p>
-      <p v-if="error.detail && error.detail !== error.message" dir="ltr" class="mt-1 text-xs opacity-70">{{ error.detail }}</p>
-    </template>
-  </UAlert>
+  <div v-if="error" role="alert" class="surface mb-6 border-s-[3px] border-s-sorkh-500 px-4 py-3">
+    <p class="font-semibold text-error">
+      <span :dir="isUnknownKind ? 'ltr' : undefined">{{ title }}</span>
+    </p>
+    <p class="mt-0.5 text-sm">{{ error.message }}</p>
+    <p v-if="error.detail && error.detail !== error.message" dir="ltr" class="mt-1 text-xs text-muted">{{ error.detail }}</p>
+  </div>
 </template>
