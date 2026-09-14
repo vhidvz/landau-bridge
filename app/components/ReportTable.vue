@@ -62,19 +62,19 @@ const csv = async () => {
         <tr v-for="i in rows" :key="i.id">
           <td>
             <p class="font-medium text-highlighted">{{ i.product_name ?? i.name }}</p>
-            <p class="text-xs text-muted">{{ i.name }} <span dir="ltr">{{ i.code }}</span></p>
+            <p class="text-xs text-muted">{{ i.name }} <span dir="ltr" class="whitespace-nowrap">{{ i.code }}</span></p>
           </td>
           <td>{{ i.action ? actionLabel[i.action] : '—' }}</td>
-          <td>
+          <td class="whitespace-nowrap">
             <span v-if="i.qty_before != null" class="block text-xs text-muted">{{ faNumber(i.qty_before) }}</span>
             <span class="font-medium">{{ faNumber(i.qty_after ?? i.qty) }}</span>
           </td>
-          <td>{{ rials(i.cost) }}</td>
-          <td>
+          <td class="whitespace-nowrap">{{ rials(i.cost) }}</td>
+          <td class="whitespace-nowrap">
             <span v-if="i.price_before != null" class="block text-xs text-muted">{{ faNumber(i.price_before) }}</span>
             <span class="font-medium">{{ faNumber(i.price_after) }}</span>
           </td>
-          <td>{{ verdictLabel(i.reprice_verdict) }}</td>
+          <td class="whitespace-nowrap">{{ verdictLabel(i.reprice_verdict) }}</td>
           <td>
             <UBadge :color="i.status === 'DONE' ? 'success' : i.status === 'FAILED' ? 'error' : 'neutral'" variant="soft">{{ statusLabel[i.status] ?? i.status }}</UBadge>
             <p v-if="i.error_msg" class="mt-1 text-xs text-error">{{ kindLabel(i.error_kind ?? '') }}: {{ i.error_msg }}</p>

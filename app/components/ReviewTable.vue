@@ -36,7 +36,7 @@ const research = async (item: JobItemRow) => {
       <div class="surface-head flex-wrap">
         <div class="min-w-0">
           <h3 class="text-[1.0625rem]">{{ item.name }}</h3>
-          <p class="tabular text-xs text-muted"><span dir="ltr">{{ item.code }}</span> · تعداد {{ faNumber(item.qty) }} · {{ faNumber(n + 1) }} از {{ faNumber(items.length) }}</p>
+          <p class="tabular text-xs text-muted"><span dir="ltr" class="whitespace-nowrap">{{ item.code }}</span> · تعداد {{ faNumber(item.qty) }} · {{ faNumber(n + 1) }} از {{ faNumber(items.length) }}</p>
         </div>
         <div class="flex items-center gap-2">
           <USelect v-model="auth[item.id]" :items="[{ label: 'اصلی', value: 'ORIGINAL' }, { label: 'غیراصلی', value: 'FAKE' }]" :placeholder="defaultAuthenticity === 'ORIGINAL' ? 'اصلی (پیش‌فرض)' : 'غیراصلی (پیش‌فرض)'" size="sm" class="w-40" />

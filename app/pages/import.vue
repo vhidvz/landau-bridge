@@ -116,11 +116,9 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
       <ReviewTable :items="review" :default-authenticity="settings?.default_authenticity ?? 'ORIGINAL'" @decided="decided" />
     </section>
 
-    <section v-if="finished && job.detail.value" class="surface mt-6">
-      <div class="surface-head"><h2>گزارش</h2></div>
-      <div class="surface-body">
-        <ReportTable :items="job.detail.value.items" kind="IMPORT" />
-      </div>
+    <section v-if="finished && job.detail.value" class="mt-6">
+      <h2 class="mb-3 text-xl">گزارش</h2>
+      <ReportTable :items="job.detail.value.items" kind="IMPORT" />
     </section>
   </div>
 </template>
