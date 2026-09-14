@@ -6,8 +6,9 @@ const settings = ref<SettingsView | null>(null);
 const error = ref<BridgeError | null>(null);
 const load = async () => {
   try {
-    dash.value = await bridge.dashboardGet();
-    settings.value = dash.value.settings_complete ? null : await bridge.settingsGet();
+    const d = await bridge.dashboardGet();
+    settings.value = d.settings_complete ? null : await bridge.settingsGet();
+    dash.value = d;
   } catch (e) { error.value = e as BridgeError; }
 };
 onMounted(load);

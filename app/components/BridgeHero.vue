@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import type { Dashboard } from '~/types/bridge';
 
-const props = defineProps<{ dash: Dashboard }>();
-const busy = computed(() => !!props.dash.running);
+defineProps<{ dash: Dashboard }>();
 </script>
 
 <template>
@@ -32,8 +31,8 @@ const busy = computed(() => !!props.dash.running);
         </svg>
         <RunningJobCard v-if="dash.running" :job="dash.running" class="w-full !bg-firoozeh-600 !text-white hover:!bg-firoozeh-700" />
         <div v-else class="flex flex-wrap justify-center gap-3">
-          <UButton size="lg" icon="i-lucide-file-input" to="/import" :disabled="busy">وارد کردن فاکتورها</UButton>
-          <UButton size="lg" icon="i-lucide-refresh-cw" variant="soft" to="/refresh" :disabled="busy">به‌روزرسانی قیمت‌ها</UButton>
+          <UButton size="lg" icon="i-lucide-file-input" to="/import">وارد کردن فاکتورها</UButton>
+          <UButton size="lg" icon="i-lucide-refresh-cw" variant="soft" to="/refresh">به‌روزرسانی قیمت‌ها</UButton>
         </div>
       </div>
 
