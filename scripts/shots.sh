@@ -11,7 +11,7 @@ for mode in light dark; do
     case "$p" in *"$filter"*) ;; *) continue ;; esac
     name=$(printf '%s' "$p" | tr '/?=&' '____' | sed 's/^_//; s/^$/root/')
     google-chrome-stable --headless=new --no-proxy-server --disable-gpu --hide-scrollbars --no-sandbox \
-      --window-size=1200,800 --virtual-time-budget=6000 --force-device-scale-factor=1 \
+      --window-size=1200,800 --virtual-time-budget=6000 --force-device-scale-factor=1 --force-prefers-reduced-motion \
       --screenshot="$out/$mode-$name.png" "http://localhost:3210$p&mode=$mode" >/dev/null 2>&1
     echo "$out/$mode-$name.png"
   done
