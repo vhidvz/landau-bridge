@@ -135,18 +135,14 @@ both modes.
 
 ## 4. Logo
 
-**Mark** (`app/components/BrandLogo.vue`, inline SVG, `viewBox 0 0 64 64`, stroke-based):
+**Mark** (`app/components/BrandLogo.vue`, inline SVG, `viewBox 0 0 64 64`, stroke-based; chosen from
+four rendered variants — towers made it read as a hanging basket, so there are none):
 
-- Deck: horizontal line y=14 from x=8 to x=56, stroke 5, round caps.
-- Towers: two short verticals at x=14 and x=50 from y=14 down to y=22.
-- Cable: one quadratic curve `M14 22 Q32 54 50 22` (sagging to y=38) — this is the bowl of «پ»,
-  open at the top.
+- Deck: horizontal line y=16 from x=8 to x=56, stroke 5, round caps.
+- Bowl: one cubic `M14 16C14 44 50 44 50 16` hanging from the deck (lowest point y≈37) — the bowl
+  of «پ», open at the top, and the span hanging under the deck.
 - Dots: three circles r=3.5 at (24,48), (32,52), (40,48) — the three dots of «پ» and the piers'
-  reflection. The whole sits between y=11.5 and y=55.5, slightly above centre, which reads right
-  next to text.
-- Colour: deck, towers and cable in `currentColor`; dots in zaferan-400 (prop `dots` can force
-  `currentColor` for single-colour contexts). Default size 28 px in the sidebar, 40 px in the hero,
-  96 px on the setup checklist.
+  reflection. The whole sits between y=13.5 and y=55.5, so it is optically centred in the box.
 
 **Wordmark**: «پل لندو» in Vazirmatn 800, 20 px, letter-spacing 0, next to the mark. Optional second
 line «Landau Bridge» is *not* shown (Persian-only UI).

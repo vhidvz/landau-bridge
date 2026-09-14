@@ -830,9 +830,8 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ```svg
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
-  <path d="M8 14H56"/>
-  <path d="M14 14v8M50 14v8"/>
-  <path d="M14 22Q32 54 50 22"/>
+  <path d="M8 16H56"/>
+  <path d="M14 16C14 44 50 44 50 16"/>
   <g fill="#EDAC46" stroke="none">
     <circle cx="24" cy="48" r="3.5"/>
     <circle cx="32" cy="52" r="3.5"/>
@@ -860,10 +859,9 @@ Read `$SCRATCH/logo-512.png` and `$SCRATCH/logo-32.png`. Check: the bowl reads a
     </linearGradient>
   </defs>
   <rect width="1024" height="1024" rx="225" fill="url(#g)"/>
-  <g transform="translate(194 194) scale(9.94)" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
-    <path d="M8 14H56"/>
-    <path d="M14 14v8M50 14v8"/>
-    <path d="M14 22Q32 54 50 22"/>
+  <g transform="translate(194 170) scale(9.94)" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M8 16H56"/>
+    <path d="M14 16C14 44 50 44 50 16"/>
     <g fill="#EDAC46" stroke="none">
       <circle cx="24" cy="48" r="3.5"/>
       <circle cx="32" cy="52" r="3.5"/>
@@ -892,9 +890,8 @@ withDefaults(defineProps<{ size?: number; withWordmark?: boolean; dots?: 'accent
 <template>
   <span class="inline-flex items-center gap-3">
     <svg :width="size" :height="size" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="پل لندو">
-      <path d="M8 14H56" />
-      <path d="M14 14v8M50 14v8" />
-      <path d="M14 22Q32 54 50 22" />
+      <path d="M8 16H56" />
+      <path d="M14 16C14 44 50 44 50 16" />
       <g :fill="dots === 'accent' ? 'var(--color-zaferan-400)' : 'currentColor'" stroke="none">
         <circle cx="24" cy="48" r="3.5" />
         <circle cx="32" cy="52" r="3.5" />
