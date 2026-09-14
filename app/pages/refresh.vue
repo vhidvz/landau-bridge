@@ -42,33 +42,38 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
 </script>
 
 <template>
-  <div class="space-y-6">
-    <h2 class="text-2xl font-bold">به‌روزرسانی قیمت‌های قفسه</h2>
+  <div>
+    <PageHeader title="به‌روزرسانی قیمت‌های قفسه" description="قیمت خرید هر ردیف از قیمت روز بارزپخش تازه می‌شود و قواعد قیمت‌گذاری لندو دوباره اجرا می‌شود.">
+      <template #actions>
+        <UButton v-if="active" color="error" variant="soft" icon="i-lucide-square" @click="cancel">توقف</UButton>
+      </template>
+    </PageHeader>
     <ErrorBanner :error="error" />
 
-    <UCard v-if="!job.jobId.value || finished">
-      <div class="space-y-4">
-        <p class="text-sm text-neutral-600">برای هر ردیف قفسه که به یک کد بارزپخش وصل است، قیمت روز بارزپخش (با ارزش افزوده) به عنوان قیمت خرید ثبت می‌شود و سپس قواعد قیمت‌گذاری لندو روی کل فروشگاه اجرا می‌شود. ردیف‌هایی که به بارزپخش وصل نیستند در گزارش فهرست می‌شوند و دست نمی‌خورند.</p>
+    <section v-if="!job.jobId.value || finished" class="surface">
+      <div class="surface-body space-y-5">
+        <p class="max-w-prose text-sm text-muted">برای هر ردیف قفسه که به یک کد بارزپخش وصل است، قیمت روز بارزپخش با ارزش افزوده به عنوان قیمت خرید ثبت می‌شود و سپس قواعد قیمت‌گذاری لندو روی کل فروشگاه اجرا می‌شود. ردیف‌هایی که به بارزپخش وصل نیستند در گزارش فهرست می‌شوند و دست نمی‌خورند.</p>
         <UFormField label="قیمت‌های دستی لندو را هم بازنویسی کن" hint="لندو قیمتی را که خودتان در پنل تایپ کرده باشید حفظ می‌کند مگر این گزینه روشن باشد">
           <USwitch v-model="overwrite" />
         </UFormField>
         <UButton size="lg" icon="i-lucide-refresh-cw" :loading="starting" @click="start">شروع به‌روزرسانی</UButton>
       </div>
-    </UCard>
+    </section>
 
-    <UCard v-if="job.jobId.value">
-      <template #header>
-        <div class="flex items-center justify-between">
-          <h3 class="font-semibold">عملیات شماره {{ faNumber(job.jobId.value) }}</h3>
-          <UButton v-if="active" size="sm" color="error" variant="soft" icon="i-lucide-square" @click="cancel">توقف</UButton>
-        </div>
-      </template>
-      <JobProgress kind="REFRESH" :phase="job.phase.value" :progress="job.progress.value" :events="job.events.value" :status="job.status.value" />
-    </UCard>
+    <section v-if="job.jobId.value" class="surface mt-6">
+      <div class="surface-head">
+        <h2>عملیات <span class="tabular">{{ faNumber(job.jobId.value) }}</span></h2>
+      </div>
+      <div class="surface-body">
+        <JobProgress kind="REFRESH" :phase="job.phase.value" :progress="job.progress.value" :events="job.events.value" :status="job.status.value" />
+      </div>
+    </section>
 
-    <UCard v-if="finished && job.detail.value">
-      <template #header><h3 class="font-semibold">گزارش</h3></template>
-      <ReportTable :items="job.detail.value.items" kind="REFRESH" />
-    </UCard>
+    <section v-if="finished && job.detail.value" class="surface mt-6">
+      <div class="surface-head"><h2>گزارش</h2></div>
+      <div class="surface-body">
+        <ReportTable :items="job.detail.value.items" kind="REFRESH" />
+      </div>
+    </section>
   </div>
 </template>

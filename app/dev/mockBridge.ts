@@ -173,13 +173,18 @@ export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {
   return out as T;
 }
 
-/** Emits one progress tick for the running fixtures so the stepper shows its bar; nothing else. */
+/** Emits one progress tick for the running fixtures so the stepper shows its bar, plus a few
+ *  event payloads so the stepper's event list is visible in stills. */
 export function mockEvents(h: JobHandlers): () => void {
   const state = devState();
   if (state === 'running') {
     setTimeout(() => h.progress?.({ job_id: 43, phase: 'MATCH', done: 37, total: 89, message: 'تطبیق با فهرست لندو' }), 200);
+    setTimeout(() => h.event?.({ job_id: 43, level: 'INFO', phase: 'PREFLIGHT', message: 'اتصال به لندو و بارزپخش برقرار است' }), 250);
+    setTimeout(() => h.event?.({ job_id: 43, level: 'INFO', phase: 'FETCH', message: '۱۲۴ فاکتور خوانده شد؛ ۳ فاکتور پرداخت‌نشده رد شد' }), 300);
+    setTimeout(() => h.event?.({ job_id: 43, level: 'WARN', phase: 'MATCH', message: 'برای BP-44120 چند نامزد نزدیک هم پیدا شد' }), 350);
   } else if (state === 'refreshing') {
     setTimeout(() => h.progress?.({ job_id: 44, phase: 'WRITE', done: 210, total: 412, message: 'نوشتن قیمت خرید روی قفسه' }), 200);
+    setTimeout(() => h.event?.({ job_id: 44, level: 'INFO', phase: 'PRICE', message: 'قیمت روز ۴۱۲ کد از بارزپخش خوانده شد' }), 250);
   }
   return () => {};
 }
