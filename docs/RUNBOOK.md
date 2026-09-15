@@ -39,7 +39,15 @@ GDK_BACKEND=x11 DISPLAY=:0 scripts/wk-shot.py \
   "http://localhost:3210/settings?state=done&fx=full" /tmp/settings-webkit.png 1200 800
 ```
 
-It needs `python-gobject` and `webkit2gtk-4.1` (both already required to build the app) and a display — Xwayland is fine; the window is mapped far off-screen, so nothing appears on a workspace. By default it turns GTK animations off (WebKit reports that as `prefers-reduced-motion`, which is what `shots.sh` asks Chrome for) and waits for the DOM to stop changing before it shoots; `--nowait` and `--motion` turn those off. Put a font or alignment change in front of it before believing a Chrome still.
+It needs a display — Xwayland is fine; the window is mapped far off-screen, so nothing appears on a workspace. `webkit2gtk-4.1` you already have (the build needs it), but its **Python bindings are an extra this script alone wants** — they are not in the build prerequisites, and nothing else in the repo uses them. Install them only if you want WebKit stills:
+
+| | |
+| --- | --- |
+| Arch / Manjaro | `sudo pacman -S --needed python-gobject` |
+| Debian / Ubuntu | `sudo apt install python3-gi gir1.2-webkit2-4.1` |
+| Fedora | `sudo dnf install python3-gobject webkit2gtk4.1` |
+
+Check it with `python3 -c "import gi; gi.require_version('WebKit2','4.1')"`. By default it turns GTK animations off (WebKit reports that as `prefers-reduced-motion`, which is what `shots.sh` asks Chrome for) and waits for the DOM to stop changing before it shoots; `--nowait` and `--motion` turn those off. Put a font or alignment change in front of it before believing a Chrome still.
 
 ## Facts worth knowing before debugging
 - A fresh apt answers `401` for a few seconds until the CDC watcher lands it.
