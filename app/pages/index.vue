@@ -19,7 +19,7 @@ const attention = computed(() => {
   const d = dash.value;
   if (!d) return rows;
   if (d.running?.status === 'REVIEW') rows.push({ key: 'review', tone: 'info', text: `${faNumber(d.pending_review)} قلم منتظر تصمیم شماست`, to: `/import?job=${d.running.id}`, action: 'ادامهٔ بازبینی' });
-  if (d.recent_errors > 0) rows.push({ key: 'errors', tone: 'warn', text: `${faNumber(d.recent_errors)} خطا یا هشدار در هفت روز گذشته`, to: '/logs', action: 'مشاهده' });
+  if (d.recent_errors > 0) rows.push({ key: 'errors', tone: 'warn', text: `${faNumber(d.recent_errors)} خطا یا هشدار در هفت روز گذشته`, to: '/errors', action: 'مشاهده' });
   return rows;
 });
 const lastRuns = computed(() => [
@@ -78,7 +78,7 @@ const dismissAppImage = async () => {
           <template v-if="r.job">
             <UBadge :color="statusColor(r.job)" variant="soft">{{ statusLabel[r.job.status] ?? r.job.status }}</UBadge>
             <span class="tabular text-sm">{{ isoToLocal(r.job.started_at) }}</span>
-            <UButton :to="`/logs?job=${r.job.id}`" size="xs" variant="ghost" class="ms-auto">جزئیات</UButton>
+            <UButton :to="`/jobs/${r.job.id}`" size="xs" variant="ghost" class="ms-auto">جزئیات</UButton>
           </template>
           <span v-else class="text-sm text-muted">هنوز اجرا نشده</span>
         </div>
