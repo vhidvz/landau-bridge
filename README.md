@@ -73,16 +73,16 @@ The app uses Microsoft Edge WebView2, which Windows 10 (1803+) and Windows 11 al
 ## First-time setup
 
 1. In Landau: *Account → API keys → create a key*. The key is shown only once — copy it.
-2. Open the app → **تنظیمات** (Settings): enter the Landau gateway address and the key, click **بررسی اتصال** (check connection), pick the destination store; enter your Barezpakhsh username and password and click **آزمایش ورود** (test login); save.
+2. Open the app → **تنظیمات** (Settings): paste the key, click **بررسی اتصال** (check connection), pick the destination store (the gateway address already has a default and sits under **تنظیمات پیشرفته**, advanced); enter your Barezpakhsh username and password and click **آزمایش ورود** (test login); save.
 3. If you have no pricing rule in Landau, create one first — otherwise the shelf price equals the cost (the app warns about this).
 
 ## Good to know
 
-- Prices you typed by hand in Landau are kept, unless you switch on **بازنویسی قیمت‌های دستی** (overwrite manual prices).
+- Prices you typed by hand in Landau are kept, unless you switch on **قیمت‌های دستی لاندا را هم بازنویسی کن** (overwrite Landau's manual prices) on the price-refresh page.
 - Each invoice is added to stock only once; running an import again is safe.
-- A **با تعداد، از تاریخ** (quantities since a date) import asks Barezpakhsh only for invoices from that date on. Switch off **فقط فاکتورهای از تاریخ شروع** (only invoices since the start date) — next to the date, or in Settings — to list and cache the whole statement instead; slower, but only the first time, since every invoice is downloaded once.
+- A **با تعداد، از تاریخ** (quantities since a date) import asks Barezpakhsh only for invoices from that date on. Switch off **فقط فاکتورهای از این تاریخ از بارزپخش خوانده شود** (read only invoices from this date) — next to the date, on the import page — to list and cache the whole statement instead; slower, but only the first time, since every invoice is downloaded once.
 - A part that is not in Landau's catalogue: choose **هیچ‌کدام** (none) and open a ticket with Landau support to have it added.
-- Every error and warning is listed on the **گزارش و خطاها** (report and errors) page and written to the log folder.
+- Every error and warning is listed on the **خطاها و هشدارها** (errors and warnings) page and written to the log folder; **عملیات‌ها** (operations) keeps every run with its report and events.
 - **Where your data lives.** The database, logs and settings are in one folder, shown on the Settings page:
   - Linux: `~/.local/share/ir.landau.bridge/`
   - Windows: `%APPDATA%\ir.landau.bridge\`
@@ -163,6 +163,8 @@ Bundles land in `src-tauri/target/release/bundle/`:
 | Linux | `deb/landau-bridge_0.1.0_amd64.deb`, `rpm/landau-bridge-0.1.0-1.x86_64.rpm`, `appimage/landau-bridge_0.1.0_amd64.AppImage` |
 | Windows | `nsis\landau-bridge_0.1.0_x64-setup.exe`, `msi\landau-bridge_0.1.0_x64_en-US.msi` |
 
+The UI ships two self-hosted variable fonts from the Landau front end, **Mikhak** (headings) and **Estedad** (text), both under the SIL Open Font License 1.1 (`public/fonts/`).
+
 The bare executable is `src-tauri/target/release/landau-bridge` (`.exe` on Windows) — it runs without installing, but only on the machine it was built on or one with the same libraries. To build only some bundles: `pnpm tauri build --bundles appimage` (or `deb`, `rpm`, `nsis`, `msi`).
 
 To install what you just built, follow [Install a release](#install-a-release).
@@ -179,6 +181,6 @@ pnpm test && pnpm typecheck                   # UI utils, TypeScript
 
 Tauri 2 + Nuxt 4 + Rust core. Design: `docs/superpowers/specs/2026-09-13-landau-bridge-design.md`. Plan: `docs/superpowers/plans/2026-09-13-landau-bridge.md`. Live testing and fixtures: `docs/RUNBOOK.md`. Matching threshold and why: `docs/matching-threshold.md`.
 
-Visual design: `docs/superpowers/specs/2026-09-14-ui-redesign-design.md`. To look at the pages without Tauri: `pnpm dev`, open `http://localhost:3210/?state=done&mode=dark` (`state` = `empty|running|review|refreshing|done`; add `&appimage` to see the AppImage install offer; fixtures in `app/dev/mockBridge.ts`); `scripts/shots.sh OUT_DIR` screenshots every page in both modes.
+Visual design: `docs/superpowers/specs/2026-09-14-night-glass-redesign-design.md`, plan `docs/superpowers/plans/2026-09-14-night-glass-redesign.md`. To look at the pages without Tauri: `pnpm dev`, open `http://localhost:3210/?state=done` (`state` = `empty|running|review|refreshing|done`; add `&grid=1` for the alignment overlay, `&fx=full` / `&fx=lite` for full or reduced effects, `&appimage=1` for the install offer; fixtures in `app/dev/mockBridge.ts`); `scripts/shots.sh OUT_DIR [filter] [--grid]` screenshots every page — see `docs/RUNBOOK.md`.
 
 The AppImage install offer lives in `src-tauri/src/appimage.rs` (detection through the runtime's `APPIMAGE`/`APPDIR` variables, the `~/.local` layout, the copy and the `.desktop` entry — all unit-tested against temporary directories) and is wired through `dashboard_get`, `appimage_install` and `appimage_dismiss` in `src-tauri/src/commands/mod.rs`.
