@@ -99,7 +99,7 @@ const doneEvents: JobEventRow[] = [
 const runningEvents: JobEventRow[] = doneEvents.slice(0, 3);
 
 const match = (code: string, name_seen: string, how: MatchRow['how'], product_name: string | null, similarity: number | null, days: number): MatchRow =>
-  ({ supplier: 'barezpakhsh', code, product_id: product_name ? `p_${code}` : null, product_name, how, similarity, name_seen, decided_at: ago(days, 14, 5) });
+  ({ supplier: 'barezpakhsh', name_key: name_seen.toLowerCase(), code, product_id: product_name ? `p_${code}` : null, product_name, how, similarity, name_seen, priced_at: how === 'NONE' ? null : ago(days, 15, 0), decided_at: ago(days, 14, 5) });
 const matches: MatchRow[] = [
   match('BP-10422', 'لنت ترمز جلو پراید', 'USER', 'لنت ترمز جلو پراید ۱۳۱', 91, 0),
   match('BP-20871', 'فیلتر روغن ۲۰۶ تیپ ۵', 'AUTO', 'فیلتر روغن پژو ۲۰۶', 88, 0),
@@ -107,6 +107,7 @@ const matches: MatchRow[] = [
   match('BP-44120', 'تسمه تایم ۴۰۵', 'AUTO', 'تسمه تایم پژو ۴۰۵', 84, 1),
   match('BP-51002', 'دیسک ترمز جلو سمند', 'AUTO', 'دیسک ترمز جلو سمند', 95, 3),
   match('BP-60233', 'روغن موتور ۴ لیتری بهران', 'NONE', null, null, 3),
+  match('BP-70110', 'سیبک فرمان چپ پژو 405 امیرنیا', 'MAP', 'سیبک فرمان چپ پژو ۴۰۵', null, 0),
   match('BP-71850', 'واشر سرسیلندر ۲۰۶', 'USER', 'واشر سرسیلندر پژو ۲۰۶', 78, 9),
   match('BP-80017', 'پمپ بنزین پراید', 'AUTO', 'پمپ بنزین پراید', 100, 9),
   match('BP-90311', 'کمک فنر عقب تیبا', 'AUTO', 'کمک فنر عقب تیبا', 93, 12),

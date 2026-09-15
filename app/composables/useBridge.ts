@@ -42,10 +42,10 @@ export const bridge = {
   jobsList: () => call<JobRow[]>('jobs_list'),
   jobGet: (job_id: number) => call<JobDetail>('job_get', { job_id }),
   matchesList: () => call<MatchRow[]>('matches_list'),
-  matchSet: (code: string, product_id: string, product_name: string, name_seen: string) =>
-    call<void>('match_set', { code, product_id, product_name, name_seen }),
-  matchNone: (code: string, name_seen: string) => call<void>('match_none', { code, name_seen }),
-  matchClear: (code: string) => call<void>('match_clear', { code }),
+  matchSet: (name_seen: string, code: string, product_id: string, product_name: string) =>
+    call<void>('match_set', { name_seen, code, product_id, product_name }),
+  matchNone: (name_seen: string, code: string) => call<void>('match_none', { name_seen, code }),
+  matchClear: (name_seen: string) => call<void>('match_clear', { name_seen }),
   errorsList: (limit = 200) => call<ErrorRow[]>('errors_list', { limit }),
   openLogFolder: () => call<void>('open_log_folder'),
   appimageInstall: () => call<string>('appimage_install'),

@@ -40,8 +40,8 @@ export interface Dashboard {
   appimage_offer: boolean;
 }
 export interface MatchRow {
-  supplier: string; code: string; product_id: string | null; product_name: string | null; how: 'AUTO' | 'USER' | 'NONE';
-  similarity: number | null; name_seen: string; decided_at: string;
+  supplier: string; name_key: string; code: string; product_id: string | null; product_name: string | null; how: 'AUTO' | 'USER' | 'NONE' | 'MAP';
+  similarity: number | null; name_seen: string; priced_at: string | null; decided_at: string;
 }
 export interface ErrorRow { id: number; at: string; job_id: number | null; kind: string; message: string; context: unknown }
 export interface ReviewDecision {
