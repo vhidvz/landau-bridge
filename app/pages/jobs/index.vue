@@ -28,12 +28,12 @@ const open = (j: JobRow) => navigateTo(`/jobs/${j.id}`);
       <tbody>
         <tr v-for="j in shown" :key="j.id" class="cursor-pointer" tabindex="0" @click="open(j)" @keydown.enter="open(j)">
           <td class="tabular">{{ faNumber(j.id) }}</td>
-          <td>{{ jobKindLabel(j) }}<bdi v-if="j.since_date" dir="ltr" class="block text-xs text-paper-mute">{{ j.since_date }}</bdi></td>
+          <td class="whitespace-nowrap">{{ jobKindLabel(j) }}<bdi v-if="j.since_date" dir="ltr" class="block text-xs text-paper-mute">{{ j.since_date }}</bdi></td>
           <td class="whitespace-nowrap">{{ isoToLocal(j.started_at) }}</td>
           <td class="whitespace-nowrap">{{ faDuration(j.started_at, j.finished_at) }}</td>
           <td><StatusPill :tone="statusTone(j.status)" :label="statusLabel[j.status] ?? j.status" /></td>
           <td class="whitespace-nowrap">{{ phaseLabel[j.phase] ?? j.phase }}</td>
-          <td class="max-w-[22rem] truncate text-xs">{{ summaryLabel(j) || '—' }}</td>
+          <td class="w-full max-w-0 truncate text-xs">{{ summaryLabel(j) || '—' }}</td>
           <td class="text-end"><UIcon name="i-lucide-chevron-left" class="size-4 text-paper-mute" /></td>
         </tr>
       </tbody>
