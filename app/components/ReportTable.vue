@@ -71,7 +71,7 @@ const csv = async () => {
             <span class="font-medium text-paper">{{ faNumber(i.price_after) }}</span>
           </td>
           <td class="whitespace-nowrap" :class="priceDelta(i)?.dir === 'up' ? 'text-warn' : priceDelta(i)?.dir === 'down' ? 'text-info' : 'text-paper-mute'">{{ priceDeltaLabel(priceDelta(i)) }}</td>
-          <td class="whitespace-nowrap">{{ verdictLabel(i.reprice_verdict) }}</td>
+          <td>{{ verdictLabel(i.reprice_verdict) }}</td>
           <td>
             <StatusPill :tone="statusTone(i.status)" :label="statusLabel[i.status] ?? i.status" />
             <p v-if="i.error_msg" class="mt-1 text-xs text-danger">{{ kindLabel(i.error_kind ?? '') }}: {{ i.error_msg }}</p>
