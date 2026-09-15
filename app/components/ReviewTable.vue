@@ -31,38 +31,38 @@ const research = async (item: JobItemRow) => {
 <template>
   <div class="space-y-4">
     <ErrorBanner :error="error" />
-    <p class="max-w-prose text-sm text-muted">برای هر قلم، قطعهٔ درست را از فهرست لاندا انتخاب کنید. «هیچ‌کدام» یعنی این قطعه در لاندا نیست: دیگر پرسیده نمی‌شود و باید برای افزودنش تیکتی برای پشتیبانی لاندا ثبت کنید. «بعداً» آن را برای اجرای بعدی نگه می‌دارد.</p>
-    <section v-for="(item, n) in items" :key="item.id" class="surface">
-      <div class="surface-head flex-wrap">
+    <p class="max-w-[58ch] text-sm text-paper-mute">برای هر قلم، قطعهٔ درست را از فهرست لاندا انتخاب کنید. «هیچ‌کدام» یعنی این قطعه در لاندا نیست: دیگر پرسیده نمی‌شود و باید برای افزودنش تیکتی برای پشتیبانی لاندا ثبت کنید. «بعداً» آن را برای اجرای بعدی نگه می‌دارد.</p>
+    <GlassCard v-for="(item, n) in items" :key="item.id" :pad="false">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b hairline px-6 py-4">
         <div class="min-w-0">
-          <h3 class="text-[1.0625rem]">{{ item.name }}</h3>
-          <p class="tabular text-xs text-muted"><span dir="ltr" class="whitespace-nowrap">{{ item.code }}</span> · تعداد {{ faNumber(item.qty) }} · {{ faNumber(n + 1) }} از {{ faNumber(items.length) }}</p>
+          <h3 class="display text-[1.0625rem] text-paper">{{ item.name }}</h3>
+          <p class="tabular text-xs text-paper-mute"><bdi dir="ltr" class="whitespace-nowrap">{{ item.code }}</bdi> · تعداد {{ faNumber(item.qty) }} · {{ faNumber(n + 1) }} از {{ faNumber(items.length) }}</p>
         </div>
         <div class="flex items-center gap-2">
-          <USelect v-model="auth[item.id]" :items="[{ label: 'اصلی', value: 'ORIGINAL' }, { label: 'غیراصلی', value: 'FAKE' }]" :placeholder="defaultAuthenticity === 'ORIGINAL' ? 'اصلی (پیش‌فرض)' : 'غیراصلی (پیش‌فرض)'" size="sm" class="w-40" />
-          <UButton size="sm" color="neutral" variant="ghost" @click="decide(item, { later: true })">بعداً</UButton>
-          <UButton size="sm" color="error" variant="soft" @click="decide(item, { none: true })">هیچ‌کدام</UButton>
+          <USelect v-model="auth[item.id]" :items="[{ label: 'اصلی', value: 'ORIGINAL' }, { label: 'غیراصلی (کپی)', value: 'FAKE' }]" :placeholder="defaultAuthenticity === 'ORIGINAL' ? 'اصلی (پیش‌فرض)' : 'غیراصلی (پیش‌فرض)'" size="sm" class="w-40" />
+          <button type="button" class="btn-ghost btn-sm" @click="decide(item, { later: true })">بعداً</button>
+          <button type="button" class="btn-danger btn-sm" @click="decide(item, { none: true })">هیچ‌کدام</button>
         </div>
       </div>
-      <div class="surface-body space-y-3">
+      <div class="space-y-3 px-6 py-5">
         <div class="flex gap-2">
-          <UInput v-model="terms[item.id]" placeholder="جست‌وجوی دوباره در لاندا با عبارت دیگر" class="flex-1" @keyup.enter="research(item)" />
-          <UButton :loading="searching === item.id" variant="soft" icon="i-lucide-search" @click="research(item)">جست‌وجو</UButton>
+          <input v-model="terms[item.id]" class="field flex-1" placeholder="جست‌وجوی دوباره در لاندا با عبارت دیگر" @keyup.enter="research(item)" />
+          <UButton :loading="searching === item.id" color="neutral" variant="outline" icon="i-lucide-search" @click="research(item)">جست‌وجو</UButton>
         </div>
-        <p v-if="!candidatesOf(item).length" class="text-sm text-muted">لاندا پیشنهادی نداشت. عبارت دیگری را امتحان کنید یا «هیچ‌کدام» را بزنید.</p>
-        <ul v-else class="divide-y divide-default">
+        <p v-if="!candidatesOf(item).length" class="text-sm text-paper-mute">لاندا پیشنهادی نداشت. عبارت دیگری را امتحان کنید یا «هیچ‌کدام» را بزنید.</p>
+        <ul v-else class="divide-y divide-white/5">
           <li v-for="c in candidatesOf(item)" :key="c.candidate.id" class="flex items-center justify-between gap-3 py-2.5">
             <div class="min-w-0">
-              <p class="truncate">{{ c.candidate.name }} <span v-if="c.candidate.brand" class="text-xs text-muted">{{ c.candidate.brand }}</span></p>
-              <p v-if="c.candidate.alias" class="text-xs text-muted" dir="auto">{{ c.candidate.alias }}</p>
+              <p class="truncate text-paper">{{ c.candidate.name }} <span v-if="c.candidate.brand" class="text-xs text-paper-mute">{{ c.candidate.brand }}</span></p>
+              <p v-if="c.candidate.alias" class="text-xs text-paper-mute" dir="auto">{{ c.candidate.alias }}</p>
             </div>
             <div class="flex shrink-0 items-center gap-3">
               <SimilarityBar :value="c.similarity" />
-              <UButton size="sm" @click="decide(item, { product_id: c.candidate.id, product_name: c.candidate.name, similarity: c.similarity })">همین است</UButton>
+              <button type="button" class="btn-primary btn-sm" @click="decide(item, { product_id: c.candidate.id, product_name: c.candidate.name, similarity: c.similarity })">همین است</button>
             </div>
           </li>
         </ul>
       </div>
-    </section>
+    </GlassCard>
   </div>
 </template>

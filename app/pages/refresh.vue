@@ -42,35 +42,46 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
 </script>
 
 <template>
-  <div>
-    <PageHeader kicker="به‌روزرسانی قیمت‌ها" title="به‌روزرسانی قیمت‌های قفسه" lede="قیمت خرید هر ردیف از قیمت روز بارزپخش تازه می‌شود و قواعد قیمت‌گذاری لاندا دوباره اجرا می‌شود.">
-      <template #actions>
-        <UButton v-if="active" color="error" variant="soft" icon="i-lucide-square" @click="cancel">توقف</UButton>
+  <div v-reveal>
+    <PageHeader kicker="به‌روزرسانی قیمت‌ها · ۰۳" title="قیمت‌ها، به روز." lede="قیمت خرید هر ردیف از قیمت روز بارزپخش تازه می‌شود و قواعد قیمت‌گذاری لاندا دوباره اجرا می‌شود.">
+      <template v-if="active" #actions>
+        <button type="button" class="btn-danger" @click="cancel"><UIcon name="i-lucide-square" class="size-4" />توقف</button>
       </template>
     </PageHeader>
     <ErrorBanner :error="error" />
 
-    <section v-if="!job.jobId.value || finished" class="surface">
-      <div class="surface-body space-y-5">
-        <p class="max-w-prose text-sm text-muted">برای هر ردیف قفسه که به یک کد بارزپخش وصل است، قیمت روز بارزپخش با ارزش افزوده به عنوان قیمت خرید ثبت می‌شود و سپس قواعد قیمت‌گذاری لاندا روی کل فروشگاه اجرا می‌شود. ردیف‌هایی که به بارزپخش وصل نیستند در گزارش فهرست می‌شوند و دست نمی‌خورند.</p>
-        <UFormField label="قیمت‌های دستی لاندا را هم بازنویسی کن" hint="لاندا قیمتی را که خودتان در پنل تایپ کرده باشید حفظ می‌کند مگر این گزینه روشن باشد">
-          <USwitch v-model="overwrite" />
-        </UFormField>
+    <GlassCard v-if="!job.jobId.value || finished" data-reveal>
+      <div class="space-y-5">
+        <p class="max-w-[58ch] text-sm text-paper-dim">برای هر ردیف قفسه که به یک کد بارزپخش وصل است، قیمت روز بارزپخش با ارزش افزوده به عنوان قیمت خرید ثبت می‌شود و سپس قواعد قیمت‌گذاری لاندا روی کل فروشگاه اجرا می‌شود. ردیف‌هایی که به بارزپخش وصل نیستند در گزارش فهرست می‌شوند و دست نمی‌خورند.</p>
+        <div class="flex items-center justify-between gap-6 border-t hairline pt-5">
+          <div>
+            <div class="text-sm text-paper">قیمت‌های دستی لاندا را هم بازنویسی کن</div>
+            <p class="text-xs text-paper-mute">لاندا قیمتی را که خودتان در پنل تایپ کرده باشید حفظ می‌کند مگر این گزینه روشن باشد.</p>
+          </div>
+          <USwitch v-model="overwrite" aria-label="بازنویسی قیمت‌های دستی" />
+        </div>
         <UButton size="lg" icon="i-lucide-refresh-cw" :loading="starting" @click="start">شروع به‌روزرسانی</UButton>
       </div>
-    </section>
+    </GlassCard>
 
-    <section v-if="job.jobId.value" class="surface mt-6">
-      <div class="surface-head">
-        <h2>عملیات <span class="tabular">{{ faNumber(job.jobId.value) }}</span></h2>
+    <GlassCard v-if="job.jobId.value" :pad="false" class="mt-6" data-reveal>
+      <div class="flex items-center justify-between border-b hairline px-6 py-4">
+        <h2 class="display text-[1.0625rem] text-paper">عملیات <span class="tabular">{{ faNumber(job.jobId.value) }}</span></h2>
+        <StatusPill v-if="job.status.value" :tone="statusTone(job.status.value)" :label="statusLabel[job.status.value] ?? job.status.value" />
       </div>
-      <div class="surface-body">
-        <JobProgress kind="REFRESH" :phase="job.phase.value" :progress="job.progress.value" :events="job.events.value" :status="job.status.value" />
+      <div class="px-6 py-5">
+        <JobProgress kind="REFRESH" :phase="job.phase.value" :progress="job.progress.value" :events="job.events.value" :status="null" />
       </div>
-    </section>
+    </GlassCard>
 
-    <section v-if="finished && job.detail.value" class="mt-6">
-      <h2 class="mb-3 text-xl">گزارش</h2>
+    <section v-if="finished && job.detail.value" class="mt-6 space-y-3">
+      <div v-if="summaryTiles(job.detail.value.job).length" class="grid grid-cols-3 gap-2">
+        <StatTile v-for="t in summaryTiles(job.detail.value.job)" :key="t.label" :label="t.label" :value="t.value" />
+      </div>
+      <div class="flex items-center justify-between">
+        <h2 class="display text-xl text-paper">گزارش</h2>
+        <NuxtLink :to="`/jobs/${job.jobId.value}`" class="text-xs text-crimson-400 hover:text-crimson-300">برگهٔ عملیات ←</NuxtLink>
+      </div>
       <ReportTable :items="job.detail.value.items" kind="REFRESH" />
     </section>
   </div>
