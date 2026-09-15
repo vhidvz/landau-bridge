@@ -30,7 +30,6 @@ export default defineAppConfig({
       variants: { size: { md: { base: 'h-9 px-3.5 py-0 text-sm/5' } } },
       defaultVariants: { variant: 'none' },
     },
-    // If the type check rejects `variant: 'none'` for the select, use `'ghost'` and add `ring-0` to `base`.
     select: {
       slots: {
         base: 'rounded-xl border border-line-bright bg-ink-900/80 text-paper hover:border-white/28 focus:border-[rgb(224_110_110/0.55)] focus-visible:outline-none data-[state=open]:border-[rgb(224_110_110/0.55)]',
