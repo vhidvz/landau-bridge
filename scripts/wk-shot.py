@@ -33,6 +33,7 @@ while the compositor still drives requestAnimationFrame — the page-enter revea
 rAF-driven, and in a truly unmapped window it never runs and <main> snapshots blank.
 """
 
+import argparse
 import sys
 import os
 
@@ -46,38 +47,54 @@ gi.require_version("WebKit2", "4.1")
 from gi.repository import Gdk, Gtk, WebKit2, GLib  # noqa: E402
 
 
+def parse_args(argv):
+    parser = argparse.ArgumentParser(
+        prog="wk-shot.py",
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("url", help="http(s):// or file:// URL to load")
+    parser.add_argument("out", metavar="OUT.png", help="where to write the PNG")
+    parser.add_argument("width", nargs="?", type=int, default=1440,
+                        help="viewport width (default 1440)")
+    parser.add_argument("height", nargs="?", type=int, default=900,
+                        help="viewport height (default 900)")
+    parser.add_argument("--settle", type=int, default=1200, metavar="MS",
+                        help="ms to wait before the snapshot (default 1200)")
+    parser.add_argument("--nowait", action="store_true",
+                        help="skip the quiet-DOM wait")
+    parser.add_argument("--visible", action="store_true",
+                        help="snapshot the viewport, not the full document")
+    parser.add_argument("--motion", action="store_true",
+                        help="keep animations on")
+    return parser.parse_args(argv[1:])
+
+
 def main(argv):
-    args = [a for a in argv[1:] if not a.startswith("--")]
-    flags = [a for a in argv[1:] if a.startswith("--")]
-
-    if len(args) < 2:
-        print(__doc__, file=sys.stderr)
-        return 2
-
-    url, out = args[0], args[1]
-    width = int(args[2]) if len(args) > 2 else 1440
-    height = int(args[3]) if len(args) > 3 else 900
-
-    settle_ms = 1200
-    for f in flags:
-        if f.startswith("--settle"):
-            settle_ms = int(f.split("=", 1)[1]) if "=" in f else settle_ms
-    if "--settle" in flags:
-        i = flags.index("--settle")
-        if i + 1 < len(flags):
-            settle_ms = int(flags[i + 1])
+    opts = parse_args(argv)
+    url, out = opts.url, opts.out
+    width, height = opts.width, opts.height
+    settle_ms = opts.settle
 
     region = (
         WebKit2.SnapshotRegion.VISIBLE
-        if "--visible" in flags
+        if opts.visible
         else WebKit2.SnapshotRegion.FULL_DOCUMENT
+    )
+
+    print(
+        f"wk-shot: {width}x{height}, settle {settle_ms}ms, "
+        f"{'viewport' if opts.visible else 'full-document'}, "
+        f"{'motion' if opts.motion else 'reduced-motion'}, "
+        f"{'no quiet-DOM wait' if opts.nowait else 'quiet-DOM wait'}",
+        file=sys.stderr,
     )
 
     if not Gtk.init_check(None)[0]:
         print("wk-shot: cannot open a display (need DISPLAY=:0)", file=sys.stderr)
         return 3
 
-    if "--motion" not in flags:
+    if not opts.motion:
         gtk_settings = Gtk.Settings.get_default()
         if gtk_settings is not None:
             gtk_settings.set_property("gtk-enable-animations", False)
@@ -153,7 +170,7 @@ def main(argv):
 
     def on_load_changed(view_, event):
         if event == WebKit2.LoadEvent.FINISHED:
-            if "--nowait" in flags:
+            if opts.nowait:
                 GLib.timeout_add(settle_ms, take_snapshot)
             else:
                 GLib.timeout_add(POLL_MS, poll_quiet)
