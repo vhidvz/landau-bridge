@@ -31,6 +31,16 @@
 ## Design review without Tauri
 To look at the pages without Tauri: `pnpm dev`, open `http://localhost:3210/?state=done` (`state` = `empty|running|review|refreshing|done`; fixtures in `app/dev/mockBridge.ts`; add `&grid=1` for the alignment overlay, `&fx=full` / `&fx=lite` force full or reduced effects (headless Chrome auto-detects as reduced), `&appimage=1` for the install offer); `scripts/shots.sh OUT_DIR [filter] [--grid]` screenshots every page at 1200 × 800 (`SHOT_HEIGHT=1700 scripts/shots.sh …` for a taller viewport — `<main>` scrolls internally, so the default height captures only the top of a long page).
 
+Those shots come from Chrome, which is **not** the engine the app ships on. Anything to do with text — Persian shaping, where a line sits in its box — can differ in WebKitGTK and be perfectly fine in Chrome (that is how Estedad shipped for a whole pass rendering Persian without its dots). To capture the same page in the engine Tauri actually uses:
+
+```sh
+GDK_BACKEND=x11 DISPLAY=:0 scripts/wk-shot.py URL OUT.png [WIDTH HEIGHT] [--settle MS]
+GDK_BACKEND=x11 DISPLAY=:0 scripts/wk-shot.py \
+  "http://localhost:3210/settings?state=done&fx=full" /tmp/settings-webkit.png 1200 800
+```
+
+It needs `python-gobject` and `webkit2gtk-4.1` (both already required to build the app) and a display — Xwayland is fine; the window is mapped far off-screen, so nothing appears on a workspace. By default it turns GTK animations off (WebKit reports that as `prefers-reduced-motion`, which is what `shots.sh` asks Chrome for) and waits for the DOM to stop changing before it shoots; `--nowait` and `--motion` turn those off. Put a font or alignment change in front of it before believing a Chrome still.
+
 ## Facts worth knowing before debugging
 - A fresh apt answers `401` for a few seconds until the CDC watcher lands it.
 - Shelf reads lag writes by ~1 s (mirror); the jobs wait up to 15 s before repricing.
