@@ -128,7 +128,7 @@ const dismissAppImage = async () => {
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <p class="data-label">{{ inReview ? 'در انتظار تصمیم شما' : 'در حال اجرا' }}</p>
-                <h2 class="display text-xl text-paper">{{ jobKindLabel(dash.running) }} <span class="tabular">{{ faNumber(dash.running.id) }}</span></h2>
+                <h2 class="display text-xl text-paper">عملیات <span class="tabular">{{ faNumber(dash.running.id) }}</span> · {{ jobKindLabel(dash.running) }}</h2>
               </div>
               <div class="flex gap-2">
                 <NuxtLink :to="runningTo" class="btn-primary btn-sm">{{ inReview ? 'ادامهٔ بازبینی' : 'مشاهده' }}</NuxtLink>
@@ -163,7 +163,7 @@ const dismissAppImage = async () => {
         <GlassCard :pad="false" data-reveal>
           <div class="flex items-center justify-between px-6 pt-5 pb-3">
             <h2 class="display text-xl text-paper">فعالیت اخیر</h2>
-            <span class="text-xs text-paper-mute">شش عملیات آخر</span>
+            <span class="text-xs text-paper-mute">{{ faNumber(recent.length) }} عملیات آخر</span>
           </div>
           <p v-if="!recent.length" class="px-6 pt-2 pb-8 text-sm text-paper-mute">هنوز عملیاتی اجرا نشده.</p>
           <ul v-else class="divide-y divide-white/5">
