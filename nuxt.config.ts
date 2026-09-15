@@ -14,6 +14,10 @@ export default defineNuxtConfig({
     provider: 'none',
     clientBundle: { scan: true, sizeLimitKb: 512 },
   },
+  // The two faces are self-hosted in `public/fonts` and declared by hand in main.css; the CSP
+  // forbids external fonts anyway. `local` is the only provider, so the build never reaches out
+  // to Google/Bunny/Fontshare/Fontsource/Adobe for a family name it finds in the CSS.
+  fonts: { provider: 'local' },
   runtimeConfig: { public: { version } },
   app: {
     pageTransition: { name: 'page', mode: 'out-in' },
