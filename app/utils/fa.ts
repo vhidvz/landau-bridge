@@ -89,7 +89,8 @@ export const kindLabel = (kind: string): string =>
     ProductNotApproved: 'قطعه تأییدنشده',
     DuplicateRow: 'ردیف تکراری',
     MirrorTimeout: 'تأخیر قفسه لاندا',
-    NoPricingRule: 'بدون قاعده قیمت‌گذاری',
+    NoPricingRule: 'بدون قاعدهٔ قیمت‌گذاری',
+    BelowMinMargin: 'زیر حداقل سود',
     RepriceSkipped: 'قیمت‌گذاری رد شد',
     Unmatched: 'تطبیق‌نشده',
     NoneDecision: 'در فهرست لاندا نیست',
@@ -170,7 +171,7 @@ export type KindFamily = 'supplier' | 'landau' | 'app';
 /** Which side an error kind belongs to — the split that tells the seller whom to call. */
 export const kindFamily = (kind: string): KindFamily => {
   if (/^Supplier|^Invoice|^(NoCurrentPrice|LineNonPositiveQty|VatRateMismatch)$/.test(kind)) return 'supplier';
-  if (/^Landau|^(BusinessNotApproved|NoStore|ProductNotApproved|DuplicateRow|MirrorTimeout|NoPricingRule|RepriceSkipped)$/.test(kind)) return 'landau';
+  if (/^Landau|^(BusinessNotApproved|NoStore|ProductNotApproved|DuplicateRow|MirrorTimeout|NoPricingRule|BelowMinMargin|RepriceSkipped)$/.test(kind)) return 'landau';
   return 'app';
 };
 

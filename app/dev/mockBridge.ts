@@ -21,7 +21,7 @@ const ago = (days: number, hour = 10, minute = 20): string => {
 const settings: SettingsView = {
   landau_url: 'https://api.landau.ir', has_landau_token: true, store: 'st_01', store_name: 'یدکی مرکزی',
   supplier_user: 'yadaki.markazi', has_supplier_password: true, default_authenticity: 'ORIGINAL', threshold: 80,
-  vat_percent: 10, overwrite_manual: false, fetch_since_only: true, secret_backend: 'keyring', data_dir: '/home/vahid/.local/share/ir.landau.bridge',
+  vat_percent: 10, min_margin_percent: 15, overwrite_manual: false, fetch_since_only: true, secret_backend: 'keyring', data_dir: '/home/vahid/.local/share/ir.landau.bridge',
   name_map: { rows: 29472, products: 28643, loaded_at: ago(1, 12, 0), file: '/home/vahid/WorkSpace/landau-parts/output/parts_map.csv' },
 };
 const settingsEmpty: SettingsView = {

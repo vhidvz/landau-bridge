@@ -24,7 +24,7 @@ const supplierPill = computed(() =>
 // overwrite_manual and fetch_since_only are edited where they apply (refresh / import pages), not here.
 const form = reactive({
   landau_url: '', landau_token: '', store: '', supplier_user: '', supplier_password: '',
-  default_authenticity: 'ORIGINAL' as 'ORIGINAL' | 'FAKE', threshold: 80, vat_percent: 10,
+  default_authenticity: 'ORIGINAL' as 'ORIGINAL' | 'FAKE', threshold: 80, vat_percent: 10, min_margin_percent: 15,
 });
 
 const load = async () => {
@@ -33,7 +33,7 @@ const load = async () => {
     Object.assign(form, {
       landau_url: view.value.landau_url, store: view.value.store ?? '', supplier_user: view.value.supplier_user ?? '',
       default_authenticity: view.value.default_authenticity, threshold: view.value.threshold, vat_percent: view.value.vat_percent,
-      landau_token: '', supplier_password: '',
+      min_margin_percent: view.value.min_margin_percent, landau_token: '', supplier_password: '',
     });
     advancedOpen.value = view.value.landau_url !== DEFAULT_URL;
   } catch (e) { error.value = e as BridgeError; }
@@ -47,7 +47,7 @@ const save = async () => {
     view.value = await bridge.settingsSave({
       landau_url: form.landau_url, landau_token: form.landau_token || undefined, store: form.store || undefined, store_name: storeName ?? undefined,
       supplier_user: form.supplier_user, supplier_password: form.supplier_password || undefined,
-      default_authenticity: form.default_authenticity, threshold: form.threshold, vat_percent: form.vat_percent,
+      default_authenticity: form.default_authenticity, threshold: form.threshold, vat_percent: form.vat_percent, min_margin_percent: form.min_margin_percent,
     });
     form.landau_token = ''; form.supplier_password = '';
     savedTick.value++;
@@ -146,6 +146,9 @@ const authItems = [{ label: 'اصلی', value: 'ORIGINAL' }, { label: 'غیرا�
           </UFormField>
           <UFormField label="نرخ ارزش افزوده (٪)" hint="قیمت خرید = قیمت فهرست بارزپخش × (۱ + نرخ)">
             <UInput v-model.number="form.vat_percent" type="number" min="0" max="100" step="0.5" dir="ltr" class="w-32" />
+          </UFormField>
+          <UFormField label="حداقل سود خرده‌فروش (٪)" hint="ردیف تازه با این سود روی قفسه می‌آید تا قاعدهٔ لاندا قیمت نهایی را بگذارد؛ ردیفی که زیر این سود بماند در گزارش هشدار می‌گیرد">
+            <UInput v-model.number="form.min_margin_percent" type="number" min="0" max="1000" step="0.5" dir="ltr" class="w-32" />
           </UFormField>
           <UFormField label="نگاشت نام‌های بارزپخش" hint="فایل parts_map.csv خروجی landau-parts؛ ردیف‌های قفسه‌ای که هیچ فاکتوری ندارند از این نگاشت به نام بارزپخش وصل می‌شوند">
             <div class="flex flex-wrap items-center gap-3">

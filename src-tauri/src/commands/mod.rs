@@ -79,6 +79,7 @@ pub async fn settings_get(state: State<'_, AppState>) -> Result<SettingsView> {
         default_authenticity: s.default_authenticity,
         threshold: s.threshold,
         vat_percent: s.vat_percent,
+        min_margin_percent: s.min_margin_percent,
         overwrite_manual: s.overwrite_manual,
         fetch_since_only: s.fetch_since_only,
         name_map: state.db.name_map_info()?,

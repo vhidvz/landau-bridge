@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use serde_json::json;
 
 use super::{
-    cost_for, fatal, i, opt_i, preflight, readback, reprice_items, t, JobCtx, Services,
+    fatal, i, opt_i, preflight, quote_for, readback, reprice_items, t, JobCtx, Services,
     VatMismatches,
 };
 use crate::errors::{kinds, BridgeError, Result};
@@ -97,8 +97,9 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
                 ("qty_before", i(row.inventory)),
             ],
         )?;
-        match cost_for(ctx, svc, code, &mut vat).await {
-            Ok(Some(cost)) => {
+        match quote_for(ctx, svc, &name, code, &mut vat).await {
+            Ok(Some(c)) => {
+                let cost = c.cost;
                 ctx.item(id, &[("cost", i(cost))])?;
                 // still repriced below (a rule may have changed even when the cost has not).
                 to_write.push((id, row.id.clone(), cost, row.cost == Some(cost)));

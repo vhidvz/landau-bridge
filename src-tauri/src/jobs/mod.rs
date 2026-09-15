@@ -2,6 +2,7 @@
 
 pub mod import;
 pub mod planner;
+pub mod pricing;
 pub mod refresh;
 
 use std::collections::HashMap;
@@ -240,7 +241,7 @@ impl JobRegistry {
 // ------------------------------------------------------------ shared phases
 
 /// Preflight of both jobs: the key acts for the store's approved business; the supplier logs in;
-/// zero active rules is a warning (spec §7.1).
+/// zero active rules stops the job (spec §14 e — the shelf is never at cost).
 pub async fn preflight(ctx: &JobCtx, svc: &Services, store: &str) -> Result<()> {
     ctx.phase("PREFLIGHT")?;
     let memberships = svc.landau.memberships().await?;
@@ -255,12 +256,7 @@ pub async fn preflight(ctx: &JobCtx, svc: &Services, store: &str) -> Result<()> 
     let rules = svc.landau.pricing_rules().await?;
     let active = rules.iter().filter(|r| r.active).count();
     if active == 0 {
-        ctx.warn(
-            "PREFLIGHT",
-            kinds::NO_PRICING_RULE,
-            "در لاندا هیچ قاعده قیمت‌گذاری فعالی ندارید؛ قیمت قفسه برابر قیمت خرید خواهد بود.",
-            None,
-        );
+        return Err(BridgeError::NoPricingRule);
     }
     ctx.info(
         "PREFLIGHT",
@@ -309,39 +305,66 @@ impl VatMismatches {
     }
 }
 
-/// Today's cost of one code; records the snapshot, and notes the code in `vat` when the site's
-/// rate differs from the setting (the setting wins — spec Global Constraints; the caller warns
-/// once per run through [`VatMismatches::warn`]).
-pub async fn cost_for(
+/// One priced supplier row for an item (spec §14 b): by name first, then by code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Costed {
+    /// Whole rials, VAT applied per the setting (before the §14 d hold, which needs the row).
+    pub cost: i64,
+    pub available: bool,
+    /// The row's code and name as the site lists them today.
+    pub code: String,
+    pub name: String,
+    /// Found by code under a different name — the site renamed the SKU.
+    pub renamed: bool,
+}
+
+/// Today's quote for `name`/`code`: the equal-name row of a name search, else the exact code
+/// (§14 b). Records the snapshot, notes a VAT-rate difference in `vat`, and stamps the link as
+/// priced. `None` when the site lists neither.
+pub async fn quote_for(
     ctx: &JobCtx,
     svc: &Services,
+    name: &str,
     code: &str,
     vat: &mut VatMismatches,
-) -> Result<Option<i64>> {
-    let Some(q) = svc.supplier.price_of(code).await? else {
-        return Ok(None);
+) -> Result<Option<Costed>> {
+    let by_name = pricing::pick_by_name(name, svc.supplier.quotes_by_name(name).await?);
+    let (q, renamed) = match by_name {
+        Some(q) => (q, false),
+        None if code.is_empty() => return Ok(None),
+        None => match svc.supplier.price_of(code).await? {
+            Some(q) => (q, true),
+            None => return Ok(None),
+        },
     };
     let setting = svc.settings.vat_percent;
     let applied = if q.has_vat { setting } else { 0.0 };
     if q.has_vat {
         if let Some(site) = q.vat_percent {
             if (site - setting).abs() > 0.01 {
-                tracing::warn!(code, site, setting, "vat rate differs from the setting");
-                vat.codes.push((code.to_string(), site));
+                tracing::warn!(code = %q.code, site, setting, "vat rate differs from the setting");
+                vat.codes.push((q.code.clone(), site));
             }
         }
     }
     let cost = cost_of(q.list_price, applied);
     ctx.db.add_price_snapshot(
         SUPPLIER_ID,
-        code,
+        &q.code,
         q.list_price,
         cost,
         q.vat_percent,
         q.available,
         &crate::db::now(),
     )?;
-    Ok(Some(cost))
+    ctx.db.touch_priced(SUPPLIER_ID, name)?;
+    Ok(Some(Costed {
+        cost,
+        available: q.available,
+        code: q.code,
+        name: q.name,
+        renamed,
+    }))
 }
 
 /// Wait for the mirror, run Landau's rules over the store, and stamp each item's verdict.

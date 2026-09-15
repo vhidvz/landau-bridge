@@ -7,7 +7,7 @@ use serde_json::json;
 
 use super::planner::{aggregate, find_row, floored, plan_write, shortfall, WriteAction};
 use super::{
-    cost_for, fatal, i, opt_i, preflight, readback, reprice_items, t, JobCtx, Services,
+    fatal, i, opt_i, preflight, quote_for, readback, reprice_items, t, JobCtx, Services,
     VatMismatches,
 };
 use crate::domain::{Authenticity, ImportMode};
@@ -325,8 +325,8 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
     let mut vat = VatMismatches::default();
     for (n, item) in items.iter().enumerate() {
         ctx.check_cancel()?;
-        match cost_for(ctx, svc, &item.code, &mut vat).await {
-            Ok(Some(cost)) => ctx.item(item.id, &[("cost", i(cost))])?,
+        match quote_for(ctx, svc, &item.name, &item.code, &mut vat).await {
+            Ok(Some(c)) => ctx.item(item.id, &[("cost", i(c.cost))])?,
             Ok(None) => {
                 let e = BridgeError::NoCurrentPrice {
                     code: item.code.clone(),

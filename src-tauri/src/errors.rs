@@ -46,6 +46,9 @@ pub enum BridgeError {
     JobBusy(String),
     #[error("settings incomplete: {0}")]
     SettingsIncomplete(String),
+    /// The seller has no active pricing rule in Landau (spec §14 e): the job stops in preflight.
+    #[error("no active pricing rule")]
+    NoPricingRule,
     #[error("database: {0}")]
     Db(String),
     #[error("keyring unavailable: {0}")]
@@ -56,7 +59,6 @@ pub enum BridgeError {
 
 /// Warning kinds recorded in `errors`/`job_events` that are not failures of a call.
 pub mod kinds {
-    pub const NO_PRICING_RULE: &str = "NoPricingRule";
     pub const REPRICE_SKIPPED: &str = "RepriceSkipped";
     pub const INVOICE_UNPAID: &str = "InvoiceUnpaid";
     pub const INVOICE_ALREADY_IMPORTED: &str = "InvoiceAlreadyImported";
@@ -69,6 +71,7 @@ pub mod kinds {
     pub const AMBIGUOUS_SUPPLIER_LINK: &str = "AmbiguousSupplierLink";
     pub const NO_SUPPLIER_LINK: &str = "NoSupplierLink";
     pub const MIRROR_TIMEOUT: &str = "MirrorTimeout";
+    pub const BELOW_MIN_MARGIN: &str = "BelowMinMargin";
 }
 
 impl BridgeError {
@@ -94,6 +97,7 @@ impl BridgeError {
             JobNotFound(_) => "JobNotFound",
             JobBusy(_) => "JobBusy",
             SettingsIncomplete(_) => "SettingsIncomplete",
+            NoPricingRule => "NoPricingRule",
             Db(_) => "Db",
             KeyringUnavailable(_) => "KeyringUnavailable",
             Other(_) => "Other",
@@ -123,6 +127,7 @@ impl BridgeError {
             JobNotFound(id) => format!("عملیات شماره {id} پیدا نشد."),
             JobBusy(w) => format!("عملیات دیگری در حال اجراست: {w}"),
             SettingsIncomplete(w) => format!("تنظیمات ناقص است: {w}"),
+            NoPricingRule => "در لاندا هیچ قاعدهٔ قیمت‌گذاری فعالی ندارید. اول یک قاعده بسازید تا قفسه بدون سود نماند.".into(),
             Db(_) => "خطای پایگاه داده برنامه. جزئیات در گزارش خطاها ثبت شد.".into(),
             KeyringUnavailable(_) => "ذخیره‌ساز امن سیستم در دسترس نیست؛ رمزها در پرونده برنامه نگه داشته می‌شوند.".into(),
             Other(d) => d.clone(),

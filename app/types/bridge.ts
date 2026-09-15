@@ -8,12 +8,12 @@ export interface NameMapInfo { rows: number; products: number; loaded_at: string
 export interface SettingsView {
   landau_url: string; has_landau_token: boolean; store: string | null; store_name: string | null;
   supplier_user: string | null; has_supplier_password: boolean; default_authenticity: Authenticity;
-  threshold: number; vat_percent: number; overwrite_manual: boolean; fetch_since_only: boolean; name_map: NameMapInfo;
+  threshold: number; vat_percent: number; min_margin_percent: number; overwrite_manual: boolean; fetch_since_only: boolean; name_map: NameMapInfo;
   secret_backend: 'keyring' | 'file'; data_dir: string;
 }
 export interface SettingsPatch {
   landau_url?: string; landau_token?: string; store?: string; store_name?: string; supplier_user?: string;
-  supplier_password?: string; default_authenticity?: Authenticity; threshold?: number; vat_percent?: number; overwrite_manual?: boolean;
+  supplier_password?: string; default_authenticity?: Authenticity; threshold?: number; vat_percent?: number; min_margin_percent?: number; overwrite_manual?: boolean;
   fetch_since_only?: boolean;
 }
 export interface Store { id: string; name: string | null; kind: string | null; state: string | null; status: string | null }

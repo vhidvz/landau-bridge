@@ -18,6 +18,7 @@ pub struct SettingsView {
     pub default_authenticity: Authenticity,
     pub threshold: u8,
     pub vat_percent: f64,
+    pub min_margin_percent: f64,
     pub overwrite_manual: bool,
     pub fetch_since_only: bool,
     /// The landau-parts map loaded from Settings (spec §14 c).
