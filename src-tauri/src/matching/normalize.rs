@@ -45,6 +45,26 @@ pub fn key_text(s: &str) -> String {
         .to_string()
 }
 
+/// The key a supplier link is stored under (spec §14 a): glyphs, digits, ZWNJ and whitespace
+/// unified, Latin lower-cased, punctuation kept — two catalogue names that differ only in a
+/// pack marker or a «<2>» stay two keys.
+pub fn name_key(s: &str) -> String {
+    normalize_text(s).to_lowercase()
+}
+
+/// How many words the site's search accepts; an eighth makes it answer its error page (§14 b).
+pub const SEARCH_WORDS: usize = 7;
+
+/// The search term for a raw name: the first [`SEARCH_WORDS`] words of the normalised name.
+pub fn search_words(name: &str) -> String {
+    normalize_text(name)
+        .split(' ')
+        .filter(|w| !w.is_empty())
+        .take(SEARCH_WORDS)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 /// The invoice name as a search term: normalised, pack markers and a trailing SKU removed.
 pub fn search_term(name: &str, code: &str) -> String {
     let mut s = normalize_text(name);
@@ -118,5 +138,34 @@ mod tests {
             search_term("  واشر 10 عددی  سرسیلندر ", ""),
             "واشر سرسیلندر"
         );
+    }
+
+    #[test]
+    fn name_key_unifies_glyphs_digits_and_case_but_keeps_punctuation() {
+        assert_eq!(
+            name_key("لنت جلو پژو ۴۰۵ عظام* (16)"),
+            name_key("لنت جلو پژو 405 عظام* (16)")
+        );
+        assert_eq!(name_key("سيبک فرمان ISPCO"), "سیبک فرمان ispco");
+        assert_ne!(
+            name_key("پژو 405<2> (20)"),
+            name_key("پژو 405 2 20"),
+            "punctuation stays significant"
+        );
+        assert_eq!(name_key("  آینه\u{200c}دستی  چپ "), "آینه دستی چپ");
+    }
+
+    #[test]
+    fn search_words_sends_at_most_seven_words() {
+        let long = "بلبرینگ کوچک بیرونی چرخ عقب 32011 نیسان NTN Z24 ژاپن";
+        assert_eq!(
+            search_words(long),
+            "بلبرینگ کوچک بیرونی چرخ عقب 32011 نیسان"
+        );
+        assert_eq!(
+            search_words("سپر جلو زرد کوروش يدک سمند"),
+            "سپر جلو زرد کوروش یدک سمند"
+        );
+        assert_eq!(search_words(""), "");
     }
 }
