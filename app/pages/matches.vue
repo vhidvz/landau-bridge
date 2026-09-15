@@ -49,65 +49,58 @@ const clear = async () => {
 </script>
 
 <template>
-  <div>
-    <PageHeader kicker="تطبیق‌ها" title="تطبیق‌های ثبت‌شده" lede="هر کد بارزپخش یک بار به یک قطعهٔ لاندا وصل می‌شود و دیگر پرسیده نمی‌شود." />
+  <div v-reveal>
+    <PageHeader kicker="تطبیق‌ها · ۰۴" title="هر کد، یک قطعه." lede="هر کد بارزپخش یک بار به یک قطعهٔ لاندا وصل می‌شود و دیگر پرسیده نمی‌شود." />
     <ErrorBanner :error="error" />
 
-    <div class="mb-4 flex flex-wrap items-center gap-3">
+    <div class="mb-4 flex flex-wrap items-center gap-3" data-reveal>
       <SegmentedControl v-model="filter" :items="filters" aria-label="نوع تطبیق" />
-      <UInput v-model="query" icon="i-lucide-search" placeholder="جست‌وجو در نام یا کد" class="ms-auto w-72" />
+      <span class="tabular text-xs text-paper-mute">{{ faNumber(shown.length) }} تطبیق</span>
+      <input v-model="query" class="field ms-auto w-72" placeholder="جست‌وجو در نام یا کد" aria-label="جست‌وجو در تطبیق‌ها" />
     </div>
 
-    <LedgerTable v-if="shown.length">
+    <LedgerTable v-if="shown.length" class="glass" data-reveal>
       <thead>
-        <tr>
-          <th>نام در فاکتور</th>
-          <th>کد</th>
-          <th>قطعهٔ لاندا</th>
-          <th>نحوه</th>
-          <th>شباهت</th>
-          <th>تاریخ</th>
-          <th></th>
-        </tr>
+        <tr><th>نام در فاکتور</th><th>کد</th><th>قطعهٔ لاندا</th><th>نحوه</th><th>شباهت</th><th>تاریخ</th><th></th></tr>
       </thead>
       <tbody>
         <tr v-for="r in shown" :key="r.code">
-          <td class="font-medium text-highlighted">{{ r.name_seen }}</td>
-          <td><span dir="ltr" class="whitespace-nowrap">{{ r.code }}</span></td>
+          <td class="font-medium text-paper">{{ r.name_seen }}</td>
+          <td><bdi dir="ltr" class="whitespace-nowrap">{{ r.code }}</bdi></td>
           <td>{{ r.product_name ?? '—' }}</td>
-          <td class="whitespace-nowrap"><UBadge :color="r.how === 'NONE' ? 'error' : r.how === 'USER' ? 'info' : 'success'" variant="soft">{{ howLabel[r.how] }}</UBadge></td>
-          <td><SimilarityBar v-if="r.similarity != null" :value="r.similarity" /><span v-else class="text-muted">—</span></td>
+          <td class="whitespace-nowrap"><StatusPill :tone="r.how === 'NONE' ? 'danger' : r.how === 'USER' ? 'ok' : 'info'" :label="howLabel[r.how] ?? r.how" /></td>
+          <td><SimilarityBar v-if="r.similarity != null" :value="r.similarity" /><span v-else class="text-paper-mute">—</span></td>
           <td class="whitespace-nowrap">{{ isoToLocal(r.decided_at) }}</td>
-          <td class="text-end"><UButton size="xs" variant="soft" @click="openEdit(r)">تغییر</UButton></td>
+          <td class="text-end"><button type="button" class="btn-ghost btn-sm" @click="openEdit(r)">تغییر</button></td>
         </tr>
       </tbody>
     </LedgerTable>
-    <div v-else class="surface">
+    <GlassCard v-else :pad="false" data-reveal>
       <EmptyState
         :title="rows.length ? 'تطبیقی با این فیلتر نیست' : 'هنوز تطبیقی ثبت نشده'"
         :description="rows.length ? 'فیلتر یا عبارت جست‌وجو را عوض کنید.' : 'با اولین وارد کردن فاکتورها، تطبیق‌های خودکار و تصمیم‌های شما اینجا جمع می‌شود. برای اقلامی که «در لاندا نیست» علامت خورده‌اند، تیکتی برای پشتیبانی لاندا ثبت کنید و بعد تصمیم را همین‌جا تغییر دهید.'"
       >
-        <template v-if="!rows.length" #action><UButton to="/import" variant="soft" icon="i-lucide-file-input">وارد کردن فاکتورها</UButton></template>
+        <template v-if="!rows.length" #action><NuxtLink to="/import" class="btn-ghost"><UIcon name="i-lucide-file-input" class="size-4" />وارد کردن فاکتورها</NuxtLink></template>
       </EmptyState>
-    </div>
+    </GlassCard>
 
     <UModal :open="!!editing" title="تغییر تطبیق" @update:open="(v: boolean) => { if (!v) editing = null; }">
       <template #body>
         <div v-if="editing" class="space-y-4">
-          <p><span class="font-medium text-highlighted">{{ editing.name_seen }}</span> <span dir="ltr" class="whitespace-nowrap text-sm text-muted">{{ editing.code }}</span></p>
+          <p><span class="font-medium text-paper">{{ editing.name_seen }}</span> <bdi dir="ltr" class="whitespace-nowrap text-sm text-paper-mute">{{ editing.code }}</bdi></p>
           <div class="flex gap-2">
-            <UInput v-model="term" class="flex-1" @keyup.enter="search" />
+            <input v-model="term" class="field flex-1" aria-label="عبارت جست‌وجو" @keyup.enter="search" />
             <UButton :loading="searching" icon="i-lucide-search" @click="search">جست‌وجو در لاندا</UButton>
           </div>
-          <ul class="max-h-72 divide-y divide-default overflow-auto">
+          <ul class="max-h-72 divide-y divide-white/5 overflow-auto">
             <li v-for="c in candidates" :key="c.candidate.id" class="flex items-center justify-between gap-3 py-2.5">
-              <span class="min-w-0 truncate">{{ c.candidate.name }} <span v-if="c.candidate.brand" class="text-xs text-muted">{{ c.candidate.brand }}</span></span>
-              <span class="flex shrink-0 items-center gap-3"><SimilarityBar :value="c.similarity" /><UButton size="xs" @click="pick(c)">انتخاب</UButton></span>
+              <span class="min-w-0 truncate text-paper">{{ c.candidate.name }} <span v-if="c.candidate.brand" class="text-xs text-paper-mute">{{ c.candidate.brand }}</span></span>
+              <span class="flex shrink-0 items-center gap-3"><SimilarityBar :value="c.similarity" /><button type="button" class="btn-primary btn-sm" @click="pick(c)">انتخاب</button></span>
             </li>
           </ul>
-          <div class="flex flex-wrap justify-between gap-2 border-t border-default pt-4">
-            <UButton color="error" variant="soft" @click="setNone">در لاندا نیست</UButton>
-            <UButton color="neutral" variant="ghost" @click="clear">حذف تصمیم، دوباره پرسیده شود</UButton>
+          <div class="flex flex-wrap justify-between gap-2 border-t hairline pt-4">
+            <button type="button" class="btn-danger" @click="setNone">در لاندا نیست</button>
+            <button type="button" class="btn-ghost" @click="clear">حذف تصمیم، دوباره پرسیده شود</button>
           </div>
         </div>
       </template>
