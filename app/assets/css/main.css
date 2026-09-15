@@ -1,14 +1,20 @@
 @import "tailwindcss";
 @import "@nuxt/ui";
 
-/* ---- Fonts: Landau's two faces, self-hosted (OFL 1.1) ---------------------- */
+/* ---- Fonts: Mikhak, self-hosted (OFL 1.1) ---------------------------------
+   One face for display and text. Estedad — the spec's text face — cannot ship:
+   it draws no dotted Arabic letter as a single glyph, splitting every one into a
+   dotless skeleton plus a free-standing dot mark that GPOS re-attaches, and
+   WebKitGTK (the engine Tauri uses) drops those attached above-dots, so «تنظیمات»
+   renders «ٮںطىماٮ». Its metrics also put button/nav text 6 px above its icon
+   there. Mikhak draws dotted letters as whole glyphs and renders identically in
+   both engines. See .superpowers/sdd/2026-09-14-night-glass-redesign/task-14-report.md. */
 @font-face { font-family: 'Mikhak'; src: url('/fonts/mikhak-var.woff2') format('woff2'); font-weight: 100 900; font-style: normal; font-display: swap; }
-@font-face { font-family: 'Estedad'; src: url('/fonts/estedad-var.woff2') format('woff2'); font-weight: 100 900; font-style: normal; font-display: swap; }
 
 /* ---- Tokens (spec §2) ------------------------------------------------------ */
 @theme static {
-  --font-display: 'Mikhak', 'Estedad', system-ui, sans-serif;
-  --font-sans: 'Estedad', system-ui, sans-serif;
+  --font-display: 'Mikhak', system-ui, sans-serif;
+  --font-sans: 'Mikhak', system-ui, sans-serif;
   --font-mono: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Menlo, monospace;
 
   /* graphite — the blue-cast neutral (Landau) */
