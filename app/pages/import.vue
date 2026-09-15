@@ -24,9 +24,13 @@ const loadReview = async () => {
 onMounted(async () => {
   try {
     settings.value = await bridge.settingsGet();
-    dash.value = await bridge.dashboardGet();
-    since.value = nextSinceDate(dash.value.last_import);
     sinceOnly.value = settings.value.fetch_since_only;
+    // Kept out of the try above: this only feeds the smart default and the first-run hint, so a
+    // failure here must not skip the since-only sync or leave a running job unfollowed below.
+    try {
+      dash.value = await bridge.dashboardGet();
+      since.value = nextSinceDate(dash.value.last_import);
+    } catch (e) { error.value = e as BridgeError; }
     const fromQuery = Number(route.query.job);
     const current = Number.isFinite(fromQuery) && fromQuery > 0 ? { id: fromQuery } : await bridge.jobCurrent();
     if (current) {
