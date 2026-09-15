@@ -52,7 +52,11 @@ const toggle = (e: ErrorRow) => { if (e.context != null) opened.value = opened.v
       <thead><tr><th>زمان</th><th>عملیات</th><th>نوع</th><th>پیام</th><th></th></tr></thead>
       <tbody>
         <template v-for="e in shown" :key="e.id">
-          <tr class="ledger-roomy" :class="e.context != null && 'cursor-pointer'" @click="toggle(e)">
+          <tr
+            class="ledger-roomy" :class="e.context != null && 'cursor-pointer'"
+            :tabindex="e.context != null ? 0 : undefined" :aria-expanded="e.context != null ? opened === e.id : undefined"
+            @click="toggle(e)" @keydown.enter="toggle(e)"
+          >
             <td class="whitespace-nowrap">{{ isoToLocal(e.at) }}</td>
             <td>
               <NuxtLink v-if="e.job_id != null" :to="`/jobs/${e.job_id}`" @click.stop><StatusPill tone="muted" :label="faNumber(e.job_id)" /></NuxtLink>
