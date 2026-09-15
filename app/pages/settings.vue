@@ -168,7 +168,7 @@ const authItems = [{ label: 'اصلی', value: 'ORIGINAL' }, { label: 'غیرا�
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div class="min-w-0">
             <div class="data-label mb-1">پوشهٔ داده</div>
-            <button type="button" class="max-w-full cursor-pointer truncate font-mono text-xs text-paper-dim transition-colors hover:text-crimson-300" dir="ltr" title="برای کپی کلیک کنید" @click="copyPath">{{ view?.data_dir ?? '—' }}</button>
+            <button type="button" class="max-w-full cursor-pointer truncate font-mono text-xs text-paper-dim transition-colors hover:text-paper" dir="ltr" title="برای کپی کلیک کنید" @click="copyPath">{{ view?.data_dir ?? '—' }}</button>
           </div>
         </div>
         <p class="mt-3 text-xs" :class="view?.secret_backend === 'file' ? 'text-warn' : 'text-paper-mute'">
