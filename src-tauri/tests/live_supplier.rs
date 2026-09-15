@@ -51,6 +51,16 @@ async fn logs_in_reads_the_ledger_an_invoice_and_a_price() {
     assert!(quote.list_price > 0);
     assert_eq!(quote.vat_percent, Some(10.0));
 
+    // The site's search is a substring match that does not rank the exact code first: «1012» sits
+    // inside hundreds of longer codes (page 7 of the search on 2026-09-15), so a first-page-only
+    // lookup answers `None` for a listed part. This walks the pages.
+    let deep = supplier
+        .price_of("1012")
+        .await
+        .expect("price")
+        .expect("«1012» is still in the price list");
+    assert_eq!(deep.code, "1012");
+
     assert!(supplier
         .price_of("00000000-does-not-exist")
         .await

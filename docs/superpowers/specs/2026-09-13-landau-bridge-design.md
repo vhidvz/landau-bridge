@@ -144,7 +144,9 @@ landau-bridge/
   `{number, date_jalali, date_iso, paid, url}` and lines `{code, name, qty, unit, unit_price}`.
   Invoices are cached by number and never refetched unless the seller presses "fetch everything
   again". Lines with non-positive quantity are kept in the cache but excluded from aggregation.
-- `price_of(code)`: search by code, `JustAvailable = false`; the row whose code equals the query →
+- `price_of(code)`: search by code, `JustAvailable = false`; the row whose code equals the query
+  (walking the search's 50-row pages until it appears or the results run out — see the 2026-09-15
+  ruling below) →
   `{list_price, available}`; `cost = round(list_price × 1.10)`. Cached in `price_snapshots`; a job
   asks the site once per distinct code. No row → `NoCurrentPrice`.
 - Text normalisation on read: Arabic ye/kaf → Persian, Persian/Arabic digits → Latin, ZWNJ → space,
@@ -290,4 +292,75 @@ bridge, creating registry definitions, a non-Persian UI, automated UI end-to-end
 - **Search surface (user decision 2026-09-13, option A).** Through the client gateway `POST /-/career/products/search` is Landau's *technician* search (Elasticsearch fuzziness, but joined store→stock→product, so only parts some store already stocks appear — «لنت» answered 1 hit against 116 registry rows), and the platform's raw search is unreachable with a strict key. The bridge therefore matches against the seller's picker, `GET /career/stocks/registry?term=&limit=&skip=`: a case-insensitive substring match over `name`/`alias`/`brand` of every APPROVED definition, alphabetical, ≤ 100 a page, with `total`. Candidates are gathered by querying the whole normalised term, then its adjacent bigrams, then single tokens (a single token matching more than 300 rows is too generic and is skipped unless nothing else matched), unioned by id (≤ 500), and scored locally with the token-set similarity; the threshold and calibration of §6 are unchanged. §2.1's search description and §5's `search()` are superseded by this.
 - **Similarity (calibration finding, 2026-09-13).** A 100-sample live trial showed fuzzywuzzy-style `token_set_ratio` answering 100 whenever a candidate's tokens are a subset of the invoice name's, so every shorter variant («…پژو 206» against the correct «…پژو 206 SD») tied with the right part and auto-accept precision stayed near 40 % at every threshold. An offline measurement over 600 mapped SKUs against the whole registry showed token-set **Jaccard** — the invoice name's tokens against the candidate's name, the name with its brand, and each alias with and without the brand — reaching 93 % top-1 and ≥ 98 % precision at 85. §6's similarity is therefore Jaccard; a tie between the two best candidates sends the item to review; `token_set_ratio` stays in the code only as a tested utility.
 - **Final-review rulings (2026-09-14).** (a) A return is a negative transfer: the aggregation keeps the signed net per code and a quantity-mode write sets `inventory = max(existing + net, 0)`, recording `NegativeQuantity` only when the floor bites (§1's "clamped to 0" is superseded). (b) On a 409 whose tuple is not on the visible shelf, the import restores the soft-deleted row from the trash and treats it as a fresh attach (`inventory = net ≥ 0` in quantity mode, 0 in zero mode; `qty_before` = the trashed figure). (c) A registry-search failure sends that item to review instead of failing the job; a Barezpakhsh page or form answering a non-2xx after retries is `SupplierUnreachable`. (d) The report's CSV export goes through the native save dialog and the fs plugin (scoped to Downloads/Documents), not a blob download. (e) The app ships with a default CSP; icons are bundled locally. (f) The runbook lists the small deviations from this spec (data folder displayed only, no "fetch again" control, refresh report shows the new cost only, stores not restricted to RETAIL, one price lookup per shelf row, event/command names).
+- **Price search walks pages (comparison with the reference scraper, 2026-09-15).** `ItemsSearchGradual` is a substring match over codes and names that does not rank the exact code first: probed live against the reference's 54 515-row catalogue, «50053» sat on page 2 behind fifty longer codes containing it, «1012» on page 7 and the deepest of 396 sampled codes on page 30, so a first-page-only lookup answered `NoCurrentPrice` for parts the site lists. `price_of` now walks the 50-row pages in order until the exact code turns up, a page comes back short (results exhausted) or 100 pages are read (never reached: the most substring-prone code, «A7», sits inside ~2 100 rows = 43 pages). Only 91 of the catalogue's codes are contained in more than 50 other rows, so nearly every lookup is still one request. The reference scraper crawls the whole catalogue group by group because an ungrouped listing renders at most 200 pager buttons (10 000 rows of 54 000); that cap is irrelevant to a per-code search, and the ledger read already pages `GradualMoein2Load` by the statement's row count (the equivalent of the reference's scroll-to-bottom, plus the partial last page the site's own script skips). Two of 300 sampled catalogue codes were absent from every search, grouped or not, and from their groups' full listings; both were marked unavailable in the reference's 1405/06/13 snapshot, i.e. delisted since — `NoCurrentPrice` is the right answer for them.
 - **AppImage menu offer (user decision 2026-09-14).** There is no separate installer or script for Linux; the AppImage is the package for every distribution without a `.deb`/`.rpm`. On Linux, when the app finds the AppImage runtime's `APPIMAGE`/`APPDIR` variables and no copy of the same build sits at `~/.local/bin/landau-bridge.AppImage`, the dashboard offers to install: copy the file there (0755, copied then renamed), mirror the AppDir's hicolor icons under `~/.local/share/icons`, write `~/.local/share/applications/ir.landau.bridge.desktop`, then nudge `update-desktop-database` (best effort). "Don't ask again" is the settings key `appimage_install_dismissed`. Nothing outside `$HOME` is touched; the data folder does not move. A newer build (different size) is offered again and replaces the copy. `src-tauri/src/appimage.rs`; commands `appimage_install`, `appimage_dismiss`; `dashboard_get.appimage_offer`.
+
+## 14. Rulings of 2026-09-15 (names instead of codes, unavailable quotes, a shelf never at cost)
+
+Decisions taken with the user on 2026-09-15 after comparing the bridge with the reference scraper
+(`barezpakhsh-scraper/price.py`, `stock.py`) and after the Landau plan 107 landed the same evening
+(commits `lnd-backend 4d40088`, `lnd-sdk 15bdfe7`, served by the running `:6150`). Where a ruling
+below contradicts an earlier section, the ruling wins.
+
+**(a) The supplier link is keyed on the raw Barezpakhsh name, not the code.** Landau's registry was
+built from `landau-parts/all-parts-valuable.csv`, which carries no codes: a product's identity there
+is *name + alias + brand* (28 643 products; 3 341 names repeat under several brands). Codes on the site
+can change while the name stays, so `matches` is re-keyed on `name_key(name_seen)` —
+`normalize_text` lower-cased — and `code` becomes an attribute. A stored decision is found by name
+first, then by code (a code hit with a different name means the site renamed the SKU; the decision is
+reused and the name updated). Everything else about matching (§6, §13's registry-picker search, the
+threshold) is unchanged. Migration `0002` rebuilds the table and the app backfills `name_key` from
+`name_seen` on the next launch, so existing decisions survive.
+
+**(b) A price is looked up by name, with the code as fallback.** `ItemsSearchGradual` is a per-word
+AND substring match, order-free, and answers the site's generic «خطا» page (HTTP 200, HTML) for a
+term of more than seven words — never for a long term of few words; measured 2026-09-15 on 150 raw
+names (64/64 under the cap found exactly one row with the equal normalised name, 86/86 over it
+answered the error page). So `quotes_by_name(name)` sends the first seven words of the normalised
+name and pages the reply; the bridge picks the row whose `name_key` equals the query's — several (pack
+variants under one name never occurred) → available first, then the highest list price. No equal name
+and a known code → `price_of(code)` (§13's page walk); a hit there means the site renamed the SKU
+and the item is noted «نام در بارزپخش عوض شد». The «خطا» page also appears transiently on short
+terms (~0.3 % of requests); the client retries it with the §3 delays and only then fails the item as
+`SupplierParse` — never the job, never as a session expiry.
+
+**(c) Shelf rows never invoiced are linked through the landau-parts map.** `landau-parts/output/
+parts_map.csv` records, for every raw Barezpakhsh name, the Landau product name and brand it was
+imported under. Settings gains «بارگذاری نگاشت نام‌ها»: the seller picks that file, the bridge loads
+its rows with a product name (state `done`/`alias`) into `name_map(product_key, brand_key, raw_name,
+code, available)` and shows the count and date. In a refresh, a shelf row with no link is looked up by
+`(name_key(product.name), name_key(product.brand))` — the shelf projection carries both — and its raw
+names are tried in map order, available first; the first that prices becomes a `how = MAP` link. A row
+in neither the invoices nor the map is reported «بدون پیوند», as today, and is not searched fuzzily.
+
+**(d) An unavailable quote only raises the cost.** The reference keeps every catalogue row with its
+status. A «ناموجود» quote is stale and will be relisted higher, so it is applied when it raises a
+row's cost and held back when it would lower it: `effective_cost(quote, available, current)` keeps
+`current` in that one case and the item is noted «ناموجود؛ قیمت پایین‌تر نادیده گرفته شد». A new row
+(no current cost) takes the quote as-is. Availability is stored per item and shown in the report.
+
+**(e) The shelf is never at cost.** §1's "no pricing rule → price = cost with a warning" is
+superseded: preflight fails the job (`NoPricingRule`) when the seller has no active rule. A new
+setting «حداقل سود خرده‌فروش» (`min_margin_percent`, default 15) gives every attach a provisional
+`price = ceil(cost × (1 + m) / 1000) × 1000` — harmless, because a price sent on create is not stamped
+MANUAL (only a PATCHed price is) and Landau's rule overrides it on the write. The report audits every
+written row: `price + 500 < cost × (1 + m)` is noted «زیر حداقل سود» and counted in one
+`BelowMinMargin` warning, which is how a manual price or a thin rule becomes visible.
+
+**(f) Landau prices at write (plan 107, decision 144), and the bridge stops waiting for the mirror.**
+`POST/PATCH /career/stocks` carrying `cost` apply the matching active rule on the write and reply
+with `price`, `cost` and the whole `priced` object (`source: 'RULE'`; absent when no rule reached the
+row or the provisional price already equalled the rule's — LND-479 — so its absence is never an
+error). `POST /career/pricing-rules/reprice {stocks: [≤ 50 ids], commit, overwrite}` prices exactly
+those rows from the authoritative store: every existing id comes back with `price`/`cost`, changed
+rows with `next`, skipped ones with `skipped`, a foreign id is a `403` for the whole call (a bridge
+bug), a deleted id is simply absent. Therefore: `price_after` is read from the write reply; the
+REPRICE phase calls the targeted form over the written ids in chunks of 50 (`next ?? price` is the
+final figure, an absent id is verdict `MISSING` with one warning); `await_visible`, the store-wide
+reprice, readback's shelf read and its sleep are removed. The "reprice every 50 rows during WRITE"
+idea discussed before plan 107 is moot: a rule-priced row is never at cost between the write and the
+reprice, and a MANUAL row waits at the seller's own price. Refresh's earlier defect — repricing off
+the mirror's stale cost and reporting the old price as DONE — disappears with the mirror wait.
+
+**(g) Report columns.** `job_items` gains `available` and `note`; the report shows the availability
+pill and the note beside the item; the CSV export carries both.

@@ -24,6 +24,13 @@ const USER_AGENT: &str = "LandauBridge/0.1 (+https://landau.ir)";
 /// Up to 3 attempts total, sleeping 1s then 3s between them; see [`retryable`] for what qualifies.
 const RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(3)];
 
+/// Rows per `/Shop/Share/ItemsSearchGradual` page — the largest size the site's own form offers.
+const SEARCH_PAGE_SIZE: usize = 50;
+/// Upper bound on search pages walked for one code. The catalogue's most substring-prone code
+/// («A7») sits inside ~2 100 other codes and names, i.e. 43 pages, so this is never reached in
+/// practice; it only guards against a server that keeps answering full pages.
+pub(crate) const MAX_SEARCH_PAGES: u32 = 100;
+
 /// Retry policy for the transport layer (spec §3): a transport error (`None`) and statuses 404,
 /// 408, 429 and any 5xx are retried. A redirect/success is never retried, and neither is a 403 —
 /// a 403 with the block page becomes [`BridgeError::SupplierBlocked`] immediately and any other
@@ -47,6 +54,38 @@ pub(crate) fn dedup_headers(mut headers: Vec<InvoiceHeader>) -> Vec<InvoiceHeade
     let mut seen: HashSet<(String, &'static str)> = HashSet::new();
     headers.retain(|h| seen.insert((h.number.clone(), h.kind.as_str())));
     headers
+}
+
+/// The row whose code is exactly `code`, walking the search pages in order. The site's search is
+/// a substring match over codes and names that does not rank the exact code first — verified
+/// live on 2026-09-15: «50053» sat on page 2 behind fifty longer codes containing it, «1012» on
+/// page 7 — so the first page alone answers `None` for a code the site does list. Stops at a page
+/// shorter than `page_size` (the results ran out) or at [`MAX_SEARCH_PAGES`].
+pub(crate) async fn find_across_pages<F, Fut>(
+    code: &str,
+    page_size: usize,
+    fetch: F,
+) -> Result<Option<PriceQuote>>
+where
+    F: Fn(u32) -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<PriceQuote>>>,
+{
+    for index in 1..=MAX_SEARCH_PAGES {
+        let page = fetch(index).await?;
+        let rows = page.len();
+        if let Some(quote) = page.into_iter().find(|q| q.code == code) {
+            return Ok(Some(quote));
+        }
+        if rows < page_size {
+            return Ok(None);
+        }
+    }
+    tracing::warn!(
+        code,
+        pages = MAX_SEARCH_PAGES,
+        "barezpakhsh price search gave up: every page was full"
+    );
+    Ok(None)
 }
 
 /// Defaults the price search needs, learned once per session from the «ثبت فاکتور» page.
@@ -398,25 +437,33 @@ impl Supplier for Client {
 
     async fn price_of(&self, code: &str) -> Result<Option<PriceQuote>> {
         let s = self.buy_session().await?;
-        let body = self
-            .post_json_authed(
-                "/Shop/Share/ItemsSearchGradual",
-                &json!({
-                    "selectedGroupCode": s.group,
-                    "selectedCarCode": s.car,
-                    "selectedBrandCode": s.brand,
-                    "SpecialItemsId": "",
-                    "searchTerm": code,
-                    "businessId": s.ctx.business_id,
-                    "pageIndex": 1,
-                    "userGroupId": s.ctx.user_group_id,
-                    "justAvailable": false,
-                    "pageSize": "50"
-                }),
-            )
-            .await?;
-        let quotes = parse::price_quotes(&body)?;
-        Ok(quotes.into_iter().find(|q| q.code == code))
+        find_across_pages(code, SEARCH_PAGE_SIZE, |index| {
+            let s = s.clone();
+            async move {
+                if index > 1 {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                let body = self
+                    .post_json_authed(
+                        "/Shop/Share/ItemsSearchGradual",
+                        &json!({
+                            "selectedGroupCode": s.group,
+                            "selectedCarCode": s.car,
+                            "selectedBrandCode": s.brand,
+                            "SpecialItemsId": "",
+                            "searchTerm": code,
+                            "businessId": s.ctx.business_id,
+                            "pageIndex": index,
+                            "userGroupId": s.ctx.user_group_id,
+                            "justAvailable": false,
+                            "pageSize": SEARCH_PAGE_SIZE.to_string()
+                        }),
+                    )
+                    .await?;
+                parse::price_quotes(&body)
+            }
+        })
+        .await
     }
 }
 
@@ -527,5 +574,82 @@ mod tests {
         assert_eq!(result[0].date_jalali, "1401/01/01");
         assert_eq!(result[1].kind, InvoiceKind::Return);
         assert_eq!(result[1].date_jalali, "1401/01/02");
+    }
+
+    fn quote(code: &str) -> PriceQuote {
+        PriceQuote {
+            code: code.into(),
+            name: String::new(),
+            list_price: 1,
+            vat_percent: None,
+            has_vat: false,
+            available: true,
+            unit: String::new(),
+        }
+    }
+
+    /// Fifty quotes whose codes all contain `stem`, none equal to it.
+    fn full_page(stem: &str) -> Vec<PriceQuote> {
+        (0..50).map(|i| quote(&format!("{stem}{i:02}"))).collect()
+    }
+
+    /// Verified live on 2026-09-15: the site's search is a substring match that does not rank the
+    /// exact code first — «50053» sat on page 2 behind fifty longer codes containing it.
+    #[tokio::test]
+    async fn price_search_walks_past_the_first_page_for_a_code_hidden_among_longer_ones() {
+        let mut second = full_page("50053");
+        second[7] = quote("50053");
+        let pages = [full_page("50053"), second, vec![quote("never-asked")]];
+        let asked = std::sync::Mutex::new(Vec::new());
+        let found = find_across_pages("50053", 50, |index| {
+            asked.lock().unwrap().push(index);
+            let page = pages.get(index as usize - 1).cloned().unwrap_or_default();
+            async move { Ok(page) }
+        })
+        .await
+        .unwrap();
+        assert_eq!(found.map(|q| q.code), Some("50053".to_string()));
+        assert_eq!(*asked.lock().unwrap(), vec![1, 2]);
+    }
+
+    #[tokio::test]
+    async fn price_search_ends_on_a_short_page_without_a_match() {
+        let pages = [full_page("88002"), vec![quote("8800283x"), quote("8800283y")]];
+        let asked = std::sync::Mutex::new(Vec::new());
+        let found = find_across_pages("8800283", 50, |index| {
+            asked.lock().unwrap().push(index);
+            let page = pages.get(index as usize - 1).cloned().unwrap_or_default();
+            async move { Ok(page) }
+        })
+        .await
+        .unwrap();
+        assert_eq!(found, None);
+        assert_eq!(*asked.lock().unwrap(), vec![1, 2]);
+    }
+
+    #[tokio::test]
+    async fn price_search_is_none_after_an_empty_first_page() {
+        let asked = std::sync::Mutex::new(Vec::new());
+        let found = find_across_pages("00000000-does-not-exist", 50, |index| {
+            asked.lock().unwrap().push(index);
+            async move { Ok(Vec::new()) }
+        })
+        .await
+        .unwrap();
+        assert_eq!(found, None);
+        assert_eq!(*asked.lock().unwrap(), vec![1]);
+    }
+
+    #[tokio::test]
+    async fn price_search_gives_up_after_the_page_cap() {
+        let asked = std::sync::Mutex::new(Vec::new());
+        let found = find_across_pages("36", 50, |index| {
+            asked.lock().unwrap().push(index);
+            async move { Ok(full_page("36")) }
+        })
+        .await
+        .unwrap();
+        assert_eq!(found, None);
+        assert_eq!(asked.lock().unwrap().len(), MAX_SEARCH_PAGES as usize);
     }
 }
