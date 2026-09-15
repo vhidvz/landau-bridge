@@ -36,12 +36,8 @@ const toggle = (e: ErrorRow) => { if (e.context != null) opened.value = opened.v
 
     <div class="mb-4 flex flex-wrap items-center gap-3" data-reveal>
       <SegmentedControl v-model="family" :items="families" aria-label="خانوادهٔ خطا" />
-      <button
-        v-if="jobFilter != null" type="button"
-        class="inline-flex items-center gap-1.5 rounded-full border border-crimson-500/35 bg-crimson-500/8 px-2.5 py-[4px] text-[0.6875rem] leading-[12px] font-medium text-crimson-300"
-        @click="clearJob"
-      >
-        فقط عملیات {{ faNumber(jobFilter) }}
+      <button v-if="jobFilter != null" type="button" class="inline-flex items-center gap-1.5" @click="clearJob">
+        <StatusPill tone="brand" :label="`فقط عملیات ${faNumber(jobFilter)}`" />
         <UIcon name="i-lucide-x" class="size-3" aria-hidden="true" /><span class="sr-only">حذف فیلتر</span>
       </button>
       <span class="tabular text-xs text-paper-mute">{{ faNumber(shown.length) }} مورد</span>
