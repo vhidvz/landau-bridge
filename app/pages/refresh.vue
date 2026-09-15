@@ -70,7 +70,7 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
         <StatusPill v-if="job.status.value" :tone="statusTone(job.status.value)" :label="statusLabel[job.status.value] ?? job.status.value" />
       </div>
       <div class="px-6 py-5">
-        <JobProgress kind="REFRESH" :phase="job.phase.value" :progress="job.progress.value" :events="job.events.value" :status="null" />
+        <JobProgress kind="REFRESH" :phase="job.phase.value" :progress="job.progress.value" :events="job.events.value" :status="job.status.value" :show-status="false" />
       </div>
     </GlassCard>
 
