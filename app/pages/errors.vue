@@ -19,7 +19,7 @@ const shown = computed(() => rows.value.filter((r) =>
 
 const load = async () => { try { rows.value = await bridge.errorsList(300); } catch (e) { error.value = e as BridgeError; } };
 onMounted(load);
-const clearJob = () => router.replace({ query: {} });
+const clearJob = () => router.replace({ query: { ...route.query, job: undefined } });
 const openFolder = async () => { error.value = null; try { await bridge.openLogFolder(); } catch (e) { error.value = e as BridgeError; } };
 const toggle = (e: ErrorRow) => { if (e.context != null) opened.value = opened.value === e.id ? null : e.id; };
 </script>
