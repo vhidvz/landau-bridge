@@ -386,7 +386,7 @@ pub async fn review_decide(state: State<'_, AppState>, decision: ReviewDecision)
         return Ok(()); // stays REVIEW; commit() skips it and the next run asks again
     }
     if decision.none {
-        matcher.record_none(&item.code, &item.name)?;
+        matcher.record_none(&item.name, &item.code)?;
         state.db.record_error(
             Some(item.job_id),
             kinds::NONE_DECISION,
@@ -410,8 +410,8 @@ pub async fn review_decide(state: State<'_, AppState>, decision: ReviewDecision)
         .ok_or_else(|| BridgeError::Other("no product picked".into()))?;
     let product_name = decision.product_name.unwrap_or_default();
     matcher.record_user_pick(
-        &item.code,
         &item.name,
+        &item.code,
         &product_id,
         &product_name,
         decision.similarity,
@@ -550,31 +550,31 @@ pub async fn matches_list(state: State<'_, AppState>) -> Result<Vec<MatchRow>> {
 #[tauri::command(rename_all = "snake_case")]
 pub async fn match_set(
     state: State<'_, AppState>,
+    name_seen: String,
     code: String,
     product_id: String,
     product_name: String,
-    name_seen: String,
 ) -> Result<()> {
     state.db.set_match(
         SUPPLIER_ID,
+        &name_seen,
         &code,
         Some((&product_id, &product_name)),
         "USER",
         None,
-        &name_seen,
     )
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn match_none(state: State<'_, AppState>, code: String, name_seen: String) -> Result<()> {
+pub async fn match_none(state: State<'_, AppState>, name_seen: String, code: String) -> Result<()> {
     state
         .db
-        .set_match(SUPPLIER_ID, &code, None, "NONE", None, &name_seen)
+        .set_match(SUPPLIER_ID, &name_seen, &code, None, "NONE", None)
 }
 
 #[tauri::command(rename_all = "snake_case")]
-pub async fn match_clear(state: State<'_, AppState>, code: String) -> Result<()> {
-    state.db.clear_match(SUPPLIER_ID, &code)
+pub async fn match_clear(state: State<'_, AppState>, name_seen: String) -> Result<()> {
+    state.db.clear_match(SUPPLIER_ID, &name_seen)
 }
 
 #[tauri::command(rename_all = "snake_case")]

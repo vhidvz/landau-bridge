@@ -43,6 +43,10 @@ pub struct JobItemRow {
     /// Invoice ids this item's quantity was aggregated from (empty for a refresh-job row).
     pub invoice_ids: Vec<i64>,
     pub status: String,
+    /// The supplier's availability at pricing time (spec §14 d); `None` before the PRICE phase.
+    pub available: Option<bool>,
+    /// «؛»-joined remarks for the report (spec §14 g).
+    pub note: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -66,6 +70,8 @@ pub struct JobDetail {
 pub type ItemPatch<'a> = (&'a str, rusqlite::types::Value);
 
 const ITEM_COLUMNS: &[&str] = &[
+    "available",
+    "note",
     "product_id",
     "product_name",
     "stock_id",
@@ -105,7 +111,7 @@ fn job_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<JobRow> {
     })
 }
 
-const ITEM_COLS: &str = "id, job_id, code, name, qty, product_id, product_name, stock_id, authenticity, action, qty_before, qty_after, cost, price_before, price_after, reprice_verdict, error_kind, error_msg, candidates_json, invoice_ids_json, status";
+const ITEM_COLS: &str = "id, job_id, code, name, qty, product_id, product_name, stock_id, authenticity, action, qty_before, qty_after, cost, price_before, price_after, reprice_verdict, error_kind, error_msg, candidates_json, invoice_ids_json, status, available, note";
 
 fn item_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<JobItemRow> {
     Ok(JobItemRow {
@@ -135,6 +141,8 @@ fn item_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<JobItemRow> {
             .and_then(|s| serde_json::from_str(&s).ok())
             .unwrap_or_default(),
         status: r.get(20)?,
+        available: r.get::<_, Option<i64>>(21)?.map(|v| v != 0),
+        note: r.get(22)?,
     })
 }
 
@@ -274,6 +282,17 @@ impl Db {
         })
     }
 
+    /// Append a remark to the item's `note`, «؛»-separated (spec §14 g).
+    pub fn add_item_note(&self, item_id: i64, note: &str) -> Result<()> {
+        self.with(|c| {
+            c.execute(
+                "UPDATE job_items SET note = CASE WHEN note IS NULL OR note = '' THEN ?2 ELSE note || '؛ ' || ?2 END WHERE id = ?1",
+                params![item_id, note],
+            )
+            .map(|_| ())
+        })
+    }
+
     pub fn job_items(&self, job_id: i64) -> Result<Vec<JobItemRow>> {
         self.with(|c| {
             let mut st = c.prepare(&format!(
@@ -335,3 +354,26 @@ impl Db {
         Ok(JobDetail { job, items, events })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn item_notes_are_appended_and_availability_is_read_back() {
+        let db = Db::in_memory().unwrap();
+        let job = db.create_job("REFRESH", None, None, "store", false).unwrap();
+        let id = db.add_job_item(job, "1", "قطعه", 0).unwrap();
+        db.add_item_note(id, "ناموجود؛ قیمت پایین‌تر نادیده گرفته شد").unwrap();
+        db.add_item_note(id, "زیر حداقل سود").unwrap();
+        db.update_job_item(id, &[("available", crate::jobs::i(0))])
+            .unwrap();
+        let row = db.job_item(id).unwrap().unwrap();
+        assert_eq!(
+            row.note.as_deref(),
+            Some("ناموجود؛ قیمت پایین‌تر نادیده گرفته شد؛ زیر حداقل سود")
+        );
+        assert_eq!(row.available, Some(false));
+    }
+}
+

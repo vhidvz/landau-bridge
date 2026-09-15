@@ -177,8 +177,20 @@ impl Matcher {
         }
     }
 
-    pub fn stored(&self, code: &str) -> Result<Option<MatchRow>> {
-        self.db.match_for(&self.supplier, code)
+    /// The stored decision for this name, else for this code (§14 a). A name hit with a new code
+    /// refreshes the code on that link. A code hit under another spelling is reused as it is —
+    /// never copied under the new name, so the seller's later edit on either spelling still
+    /// governs the code.
+    pub fn stored(&self, name: &str, code: &str) -> Result<Option<MatchRow>> {
+        if let Some(row) = self.db.match_for_name(&self.supplier, name)? {
+            if !code.is_empty() && row.code != code {
+                let product = row.product_id.as_deref().zip(row.product_name.as_deref());
+                self.db
+                    .set_match(&self.supplier, name, code, product, &row.how, row.similarity)?;
+            }
+            return Ok(Some(row));
+        }
+        self.db.match_for_code(&self.supplier, code)
     }
 
     /// The search term for a name — exposed so the review screen's re-search uses the same rule.
@@ -191,7 +203,7 @@ impl Matcher {
         F: Fn(String, usize, usize) -> Fut,
         Fut: Future<Output = Result<RegistryPage>>,
     {
-        if let Some(row) = self.stored(code)? {
+        if let Some(row) = self.stored(name, code)? {
             return Ok(match row.product_id {
                 Some(product_id) => Decision::Matched {
                     product_id,
@@ -212,11 +224,11 @@ impl Matcher {
             if top.similarity >= self.threshold && !tied {
                 self.db.set_match(
                     &self.supplier,
+                    name,
                     code,
                     Some((&top.candidate.id, &top.candidate.name)),
                     "AUTO",
                     Some(top.similarity as i64),
-                    name,
                 )?;
                 return Ok(Decision::Matched {
                     product_id: top.candidate.id.clone(),
@@ -233,29 +245,29 @@ impl Matcher {
 
     pub fn record_user_pick(
         &self,
-        code: &str,
         name_seen: &str,
+        code: &str,
         product_id: &str,
         product_name: &str,
         similarity: Option<i64>,
     ) -> Result<()> {
         self.db.set_match(
             &self.supplier,
+            name_seen,
             code,
             Some((product_id, product_name)),
             "USER",
             similarity,
-            name_seen,
         )
     }
 
-    pub fn record_none(&self, code: &str, name_seen: &str) -> Result<()> {
+    pub fn record_none(&self, name_seen: &str, code: &str) -> Result<()> {
         self.db
-            .set_match(&self.supplier, code, None, "NONE", None, name_seen)
+            .set_match(&self.supplier, name_seen, code, None, "NONE", None)
     }
 
-    pub fn clear(&self, code: &str) -> Result<()> {
-        self.db.clear_match(&self.supplier, code)
+    pub fn clear(&self, name_seen: &str) -> Result<()> {
+        self.db.clear_match(&self.supplier, name_seen)
     }
 }
 
@@ -512,19 +524,19 @@ mod tests {
         assert_eq!(scored[0].candidate.id, "p1");
         assert!(scored[0].similarity < 95);
 
-        m.record_none("222", "لنت جلو پراید").unwrap();
+        m.record_none("لنت جلو پراید", "222").unwrap();
         assert!(matches!(
             m.decide(&search, "222", "x").await.unwrap(),
             Decision::None
         ));
 
-        m.record_user_pick("222", "لنت جلو پراید", "p9", "picked", Some(70))
+        m.record_user_pick("لنت جلو پراید", "222", "p9", "picked", Some(70))
             .unwrap();
         assert!(
             matches!(m.decide(&search, "222", "x").await.unwrap(), Decision::Matched { ref how, .. } if how == "USER")
         );
 
-        m.clear("222").unwrap();
+        m.clear("لنت جلو پراید").unwrap();
         assert!(matches!(
             m.decide(&search, "222", "لنت جلو پراید").await.unwrap(),
             Decision::Review(_)
@@ -544,5 +556,50 @@ mod tests {
         assert!(
             matches!(m.decide(&search, "3", "چیزی").await.unwrap(), Decision::Review(ref v) if v.is_empty())
         );
+    }
+
+    /// Spec §14 a: a decision is found by name first, then by code. A name hit refreshes the code;
+    /// a code hit is reused without a copy under the new spelling (a copy would go stale the
+    /// moment the seller edits the original).
+    #[tokio::test]
+    async fn a_stored_decision_is_found_by_name_then_by_code_and_re_keyed_under_the_new_name() {
+        let db = Db::in_memory().unwrap();
+        let m = Matcher::new(db.clone(), "s", 80);
+        db.set_match(
+            "s",
+            "لنت جلو پژو 405 عظام* (16)",
+            "3137006",
+            Some(("p1", "لنت جلو پژو 405")),
+            "USER",
+            None,
+        )
+        .unwrap();
+        let never = |_q: String, _l: usize, _s: usize| async {
+            panic!("no search for a stored decision")
+        };
+        // same name, new code → found by name; the code is refreshed
+        let d = m
+            .decide(&never, "NEW-1", "لنت جلو پژو ۴۰۵ عظام* (16)")
+            .await
+            .unwrap();
+        assert!(matches!(d, Decision::Matched { ref product_id, .. } if product_id == "p1"));
+        assert_eq!(
+            db.match_for_name("s", "لنت جلو پژو 405 عظام* (16)")
+                .unwrap()
+                .unwrap()
+                .code,
+            "NEW-1"
+        );
+        // same code, new name → found by code; nothing is stored under the new spelling
+        let d = m
+            .decide(&never, "NEW-1", "لنت جلو 405 عظام (16 عددی)")
+            .await
+            .unwrap();
+        assert!(matches!(d, Decision::Matched { ref product_id, ref how, .. } if product_id == "p1" && how == "USER"));
+        assert!(db
+            .match_for_name("s", "لنت جلو 405 عظام (16 عددی)")
+            .unwrap()
+            .is_none());
+        assert_eq!(db.list_matches("s").unwrap().len(), 1);
     }
 }

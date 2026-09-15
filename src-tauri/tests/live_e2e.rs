@@ -44,8 +44,8 @@ fn accept_top_candidates(db: &Db, settings: &Settings, job_id: i64, picks: usize
         let name = top["candidate"]["name"].as_str().unwrap().to_string();
         matcher
             .record_user_pick(
-                &item.code,
                 &item.name,
+                &item.code,
                 &id,
                 &name,
                 top["similarity"].as_i64(),

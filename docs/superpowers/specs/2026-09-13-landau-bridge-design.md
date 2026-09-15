@@ -307,8 +307,9 @@ built from `landau-parts/all-parts-valuable.csv`, which carries no codes: a prod
 is *name + alias + brand* (28 643 products; 3 341 names repeat under several brands). Codes on the site
 can change while the name stays, so `matches` is re-keyed on `name_key(name_seen)` —
 `normalize_text` lower-cased — and `code` becomes an attribute. A stored decision is found by name
-first, then by code (a code hit with a different name means the site renamed the SKU; the decision is
-reused and the name updated). Everything else about matching (§6, §13's registry-picker search, the
+first, then by code (a code hit under another spelling means the site renamed the SKU; the decision
+is reused as it is, never copied under the new spelling — a copy would go stale the moment the seller
+edits the original; a name hit with a new code refreshes the code on the link). Everything else about matching (§6, §13's registry-picker search, the
 threshold) is unchanged. Migration `0002` rebuilds the table and the app backfills `name_key` from
 `name_seen` on the next launch, so existing decisions survive.
 

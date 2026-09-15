@@ -14,7 +14,10 @@ use rusqlite::Connection;
 
 use crate::errors::{BridgeError, Result};
 
-const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_init.sql")];
+const MIGRATIONS: &[&str] = &[
+    include_str!("migrations/0001_init.sql"),
+    include_str!("migrations/0002_names.sql"),
+];
 
 #[derive(Clone)]
 pub struct Db {
@@ -75,6 +78,74 @@ impl Db {
                 tx.commit()?;
             }
             Ok(())
+        })?;
+        self.backfill_name_keys()
+    }
+
+    /// Migration 0002 renamed the code-keyed `matches` to `matches_old`; move its rows back under
+    /// their name key (spec §14 a). Idempotent: nothing to do once the old table is gone.
+    pub fn backfill_name_keys(&self) -> Result<()> {
+        use crate::matching::normalize::name_key;
+        self.with(|c| {
+            let old: i64 = c.query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'matches_old'",
+                [],
+                |r| r.get(0),
+            )?;
+            if old == 0 {
+                return Ok(());
+            }
+            let tx = c.unchecked_transaction()?;
+            {
+                let mut st = tx.prepare(
+                    "SELECT supplier, code, product_id, product_name, how, similarity, name_seen, decided_at
+                     FROM matches_old ORDER BY decided_at",
+                )?;
+                type Old = (
+                    String,
+                    String,
+                    Option<String>,
+                    Option<String>,
+                    String,
+                    Option<i64>,
+                    String,
+                    String,
+                );
+                let rows: Vec<Old> = st
+                    .query_map([], |r| {
+                        Ok((
+                            r.get(0)?,
+                            r.get(1)?,
+                            r.get(2)?,
+                            r.get(3)?,
+                            r.get(4)?,
+                            r.get(5)?,
+                            r.get(6)?,
+                            r.get(7)?,
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<_>>()?;
+                for (supplier, code, pid, pname, how, sim, name_seen, decided_at) in rows {
+                    tx.execute(
+                        "INSERT OR REPLACE INTO matches(supplier, name_key, code, product_id, product_name, how, similarity, name_seen, decided_at)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                        rusqlite::params![
+                            supplier,
+                            name_key(&name_seen),
+                            code,
+                            pid,
+                            pname,
+                            how,
+                            sim,
+                            name_seen,
+                            decided_at
+                        ],
+                    )?;
+                }
+            }
+            tx.execute_batch("DROP TABLE matches_old")?;
+            tx.commit()?;
+            Ok(())
         })
     }
 }
@@ -108,7 +179,39 @@ mod tests {
         assert_eq!(db.setting("threshold").unwrap().as_deref(), Some("80"));
         // migrating again is a no-op
         db.migrate().unwrap();
-        assert_eq!(db.user_version().unwrap(), 1);
+        assert_eq!(db.user_version().unwrap(), 2);
+    }
+
+    #[test]
+    fn migrates_to_version_2_and_moves_old_links_under_their_name_key() {
+        let db = Db::in_memory().unwrap();
+        assert_eq!(db.user_version().unwrap(), 2);
+        // simulate a row left behind by a v1 database
+        db.with(|c| {
+            c.execute_batch(
+                "CREATE TABLE matches_old (supplier TEXT, code TEXT, product_id TEXT, product_name TEXT, how TEXT, similarity INTEGER, name_seen TEXT, decided_at TEXT);
+                 INSERT INTO matches_old VALUES ('barezpakhsh', '3137006', 'p1', 'لنت جلو', 'AUTO', 91, 'لنت جلو پژو ۴۰۵ عظام* (16)', '2026-09-13T00:00:00Z');",
+            )
+        })
+        .unwrap();
+        db.backfill_name_keys().unwrap();
+        let row = db
+            .match_for_name("barezpakhsh", "لنت جلو پژو 405 عظام* (16)")
+            .unwrap()
+            .expect("found by the normalised name");
+        assert_eq!(row.code, "3137006");
+        assert_eq!(row.product_id.as_deref(), Some("p1"));
+        assert_eq!(row.how, "AUTO");
+        let gone: i64 = db
+            .with(|c| {
+                c.query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE name = 'matches_old'",
+                    [],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap();
+        assert_eq!(gone, 0);
     }
 
     #[test]
@@ -191,21 +294,22 @@ mod tests {
     #[test]
     fn matches_persist_and_none_is_a_decision() {
         let db = Db::in_memory().unwrap();
-        assert!(db.match_for("barezpakhsh", "A").unwrap().is_none());
+        assert!(db.match_for_name("barezpakhsh", "name a").unwrap().is_none());
         db.set_match(
             "barezpakhsh",
+            "name a",
             "A",
             Some(("p1", "part one")),
             "AUTO",
             Some(91),
-            "name a",
         )
         .unwrap();
-        let m = db.match_for("barezpakhsh", "A").unwrap().unwrap();
+        let m = db.match_for_name("barezpakhsh", "name a").unwrap().unwrap();
         assert_eq!(m.product_id.as_deref(), Some("p1"));
-        db.set_match("barezpakhsh", "B", None, "NONE", None, "name b")
+        assert_eq!(m.code, "A");
+        db.set_match("barezpakhsh", "name b", "B", None, "NONE", None)
             .unwrap();
-        let none = db.match_for("barezpakhsh", "B").unwrap().unwrap();
+        let none = db.match_for_name("barezpakhsh", "name b").unwrap().unwrap();
         assert_eq!(none.how, "NONE");
         assert!(none.product_id.is_none());
         assert_eq!(db.list_matches("barezpakhsh").unwrap().len(), 2);
