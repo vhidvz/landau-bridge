@@ -64,7 +64,7 @@ const toggle = (e: ErrorRow) => { if (e.context != null) opened.value = opened.v
             </td>
             <td class="whitespace-nowrap"><StatusPill tone="muted" :label="kindLabel(e.kind)" /></td>
             <td class="break-words">{{ e.message }}</td>
-            <td class="text-end"><UIcon v-if="e.context != null" name="i-lucide-chevron-down" class="size-4 text-paper-mute transition-transform" :class="opened === e.id && 'rotate-180'" /></td>
+            <td class="text-end"><UIcon v-if="e.context != null" name="i-lucide-chevron-down" class="size-4 text-paper-mute transition-transform" :class="opened === e.id && 'rotate-180'" aria-hidden="true" /></td>
           </tr>
           <tr v-if="opened === e.id">
             <td colspan="5" class="!border-t-0 !pt-0">

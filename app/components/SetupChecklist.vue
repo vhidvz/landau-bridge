@@ -18,7 +18,7 @@ const steps = computed(() => [
       <ol class="mt-5 space-y-3">
         <li v-for="(s, i) in steps" :key="s.label" class="flex items-start gap-3">
           <span class="check mt-0.5" :class="s.done && 'is-done'">
-            <UIcon v-if="s.done" name="i-lucide-check" class="size-3.5" />
+            <UIcon v-if="s.done" name="i-lucide-check" class="size-3.5" aria-hidden="true" />
             <template v-else>{{ faNumber(i + 1) }}</template>
           </span>
           <span class="min-w-0">

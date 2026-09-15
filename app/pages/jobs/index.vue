@@ -34,7 +34,7 @@ const open = (j: JobRow) => navigateTo(`/jobs/${j.id}`);
           <td><StatusPill :tone="statusTone(j.status)" :label="statusLabel[j.status] ?? j.status" /></td>
           <td class="whitespace-nowrap">{{ phaseLabel[j.phase] ?? j.phase }}</td>
           <td class="w-full max-w-0 truncate text-xs">{{ summaryLabel(j) || '—' }}</td>
-          <td class="text-end"><UIcon name="i-lucide-chevron-left" class="size-4 text-paper-mute" /></td>
+          <td class="text-end"><UIcon name="i-lucide-chevron-left" class="size-4 text-paper-mute" aria-hidden="true" /></td>
         </tr>
       </tbody>
     </LedgerTable>

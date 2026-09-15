@@ -99,7 +99,7 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
       <div class="grid gap-4 md:grid-cols-2">
         <label class="glass ticket" :data-selected="mode === 'QUANTITY'">
           <input v-model="mode" type="radio" name="mode" value="QUANTITY" class="sr-only" />
-          <UIcon v-if="mode === 'QUANTITY'" name="i-lucide-check-circle-2" class="ticket-check size-5" />
+          <UIcon v-if="mode === 'QUANTITY'" name="i-lucide-check-circle-2" class="ticket-check size-5" aria-hidden="true" />
           <span class="display block text-lg text-paper">با تعداد، از تاریخ</span>
           <span class="mt-1 block text-sm text-paper-mute">تعداد خریداری‌شده در فاکتورهای پرداخت‌شده از این تاریخ به بعد، منهای مرجوعی‌ها، به قفسه اضافه می‌شود. اگر قطعه از قبل روی قفسه باشد به موجودی فعلی افزوده می‌شود. هر فاکتور فقط یک بار منتقل می‌شود.</span>
           <span class="mt-4 block text-sm font-medium text-paper">از تاریخ</span>
@@ -111,7 +111,7 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
         </label>
         <label class="glass ticket" :data-selected="mode === 'ZERO'">
           <input v-model="mode" type="radio" name="mode" value="ZERO" class="sr-only" />
-          <UIcon v-if="mode === 'ZERO'" name="i-lucide-check-circle-2" class="ticket-check size-5" />
+          <UIcon v-if="mode === 'ZERO'" name="i-lucide-check-circle-2" class="ticket-check size-5" aria-hidden="true" />
           <span class="display block text-lg text-paper">با تعداد صفر، برای بازبینی</span>
           <span class="mt-1 block text-sm text-paper-mute">همهٔ اقلام همهٔ فاکتورهای پرداخت‌شده تا امروز با تعداد صفر و قیمت روز روی قفسه می‌آیند تا خودتان تعداد را اصلاح کنید. موجودی ردیف‌های موجود دست نمی‌خورد؛ فقط قیمت خریدشان به‌روز می‌شود.</span>
         </label>
