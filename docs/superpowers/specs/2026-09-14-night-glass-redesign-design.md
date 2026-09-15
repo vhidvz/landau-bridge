@@ -120,7 +120,7 @@ muted text (table header) and no text at all elsewhere. graphite-500 is never a 
 > Estedad, this section's original text face, draws dotted Arabic letters as a dotless skeleton
 > plus a separate GPOS-attached dot mark, and WebKitGTK (the engine Tauri uses) renders that mark
 > detached; Mikhak draws them as single glyphs and was substituted everywhere. See
-> `.superpowers/sdd/2026-09-14-night-glass-redesign/task-14-report.md`.
+> `docs/superpowers/notes/2026-09-15-estedad-webkitgtk.md`.
 
 - `--font-display: "Mikhak", "Estedad", system-ui, sans-serif` — `h1`–`h3`, `.display`, big
   numbers (`StatTile`, stat cards), the wordmark.
