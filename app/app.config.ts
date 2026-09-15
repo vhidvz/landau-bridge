@@ -9,9 +9,9 @@ export default defineAppConfig({
       slots: { base: 'font-medium rounded-xl whitespace-nowrap transition-all duration-300 [transition-timing-function:var(--ease-swift)] active:translate-y-px' },
       variants: {
         size: {
-          sm: { base: 'px-3 py-[6px] text-[0.8125rem]/[18px] gap-1.5', leadingIcon: 'size-4', trailingIcon: 'size-4' },
-          md: { base: 'px-4 py-2 text-sm/5 gap-2', leadingIcon: 'size-4', trailingIcon: 'size-4' },
-          lg: { base: 'px-5 py-3 text-[0.9375rem]/5 gap-2', leadingIcon: 'size-5', trailingIcon: 'size-5' },
+          sm: { base: 'h-[1.875rem] px-3 py-0 text-[0.8125rem]/[18px] gap-1.5', leadingIcon: 'size-4', trailingIcon: 'size-4' },
+          md: { base: 'h-9 px-4 py-0 text-sm/5 gap-2', leadingIcon: 'size-4', trailingIcon: 'size-4' },
+          lg: { base: 'h-11 px-5 py-0 text-[0.9375rem]/5 gap-2', leadingIcon: 'size-5', trailingIcon: 'size-5' },
         },
       },
       compoundVariants: [
@@ -27,7 +27,7 @@ export default defineAppConfig({
     // Fields: the `.field` look, variant "none" so @nuxt/ui's own ring never competes.
     input: {
       slots: { base: 'rounded-xl border border-line-bright bg-ink-900/80 text-paper placeholder:text-paper-mute/60 hover:border-white/28 focus:border-[rgb(224_110_110/0.55)] focus:ring-[3px] focus:ring-[rgb(224_110_110/0.12)] focus-visible:outline-none', leadingIcon: 'text-paper-mute', trailingIcon: 'text-paper-mute' },
-      variants: { size: { md: { base: 'px-3.5 py-[7px] text-sm/5' } } },
+      variants: { size: { md: { base: 'h-9 px-3.5 py-0 text-sm/5' } } },
       defaultVariants: { variant: 'none' },
     },
     // If the type check rejects `variant: 'none'` for the select, use `'ghost'` and add `ring-0` to `base`.
@@ -39,7 +39,7 @@ export default defineAppConfig({
         item: 'rounded-lg text-paper-dim data-highlighted:not-data-disabled:text-paper data-highlighted:not-data-disabled:before:bg-white/6',
         viewport: 'divide-y-0',
       },
-      variants: { size: { md: { base: 'px-3.5 py-[7px] text-sm/5' } } },
+      variants: { size: { sm: { base: 'h-[1.875rem] px-3 py-0 text-[0.8125rem]/[18px]' }, md: { base: 'h-9 px-3.5 py-0 text-sm/5' } } },
       defaultVariants: { variant: 'none' },
     },
     formField: {

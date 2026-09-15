@@ -28,7 +28,7 @@ const open = (j: JobRow) => navigateTo(`/jobs/${j.id}`);
       <tbody>
         <tr v-for="j in shown" :key="j.id" class="cursor-pointer" tabindex="0" @click="open(j)" @keydown.enter="open(j)">
           <td class="tabular">{{ faNumber(j.id) }}</td>
-          <td class="whitespace-nowrap">{{ jobKindLabel(j) }}<bdi v-if="j.since_date" dir="ltr" class="block text-xs text-paper-mute">{{ j.since_date }}</bdi></td>
+          <td class="whitespace-nowrap">{{ jobKindLabel(j) }}<span v-if="j.since_date" class="block text-xs text-paper-mute">از <bdi dir="ltr">{{ j.since_date }}</bdi></span></td>
           <td class="whitespace-nowrap">{{ isoToLocal(j.started_at) }}</td>
           <td class="whitespace-nowrap">{{ faDuration(j.started_at, j.finished_at) }}</td>
           <td><StatusPill :tone="statusTone(j.status)" :label="statusLabel[j.status] ?? j.status" /></td>

@@ -56,7 +56,10 @@ const clear = async () => {
     <div class="mb-4 flex flex-wrap items-center gap-3" data-reveal>
       <SegmentedControl v-model="filter" :items="filters" aria-label="نوع تطبیق" />
       <span class="tabular text-xs text-paper-mute">{{ faNumber(shown.length) }} تطبیق</span>
-      <input v-model="query" class="field ms-auto w-72" placeholder="جست‌وجو در نام یا کد" aria-label="جست‌وجو در تطبیق‌ها" />
+      <div class="relative ms-auto w-72">
+        <input v-model="query" class="field pe-9" placeholder="جست‌وجو در نام یا کد" aria-label="جست‌وجو در تطبیق‌ها" />
+        <UIcon name="i-lucide-search" class="pointer-events-none absolute inset-y-0 end-3 my-auto size-4 text-paper-mute" />
+      </div>
     </div>
 
     <LedgerTable v-if="shown.length" class="glass" data-reveal>

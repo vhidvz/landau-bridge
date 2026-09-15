@@ -91,7 +91,7 @@ const dismissAppImage = async () => {
         <!-- status band -->
         <div class="mb-6 grid gap-4 md:grid-cols-4">
           <GlassCard class="hover-glow flex flex-col" data-reveal>
-            <div class="mb-3 flex items-center justify-between"><span class="data-label">بارزپخش</span><StatusPill :tone="supplierReady ? 'ok' : 'warn'" :label="supplierReady ? 'آماده' : 'تنظیم‌نشده'" /></div>
+            <div class="mb-3 flex min-h-9 items-center justify-between gap-2"><span class="data-label">بارزپخش</span><StatusPill :tone="supplierReady ? 'ok' : 'warn'" :label="supplierReady ? 'آماده' : 'تنظیم‌نشده'" /></div>
             <div class="display tabular text-[1.75rem] leading-none text-paper">{{ faNumber(dash.invoices_cached) }}</div>
             <div class="mt-1.5 text-xs text-paper-mute">فاکتور ذخیره‌شده</div>
             <div class="mt-auto pt-3 text-xs" :class="dash.invoices_unpaid > 0 ? 'text-warn' : 'text-paper-mute'">{{ dash.invoices_unpaid > 0 ? `${faNumber(dash.invoices_unpaid)} پرداخت‌نشده` : 'همه پرداخت‌شده' }}</div>
@@ -99,14 +99,14 @@ const dismissAppImage = async () => {
           </GlassCard>
 
           <GlassCard class="hover-glow flex flex-col" data-reveal>
-            <div class="mb-3 flex items-center justify-between"><span class="data-label">لاندا</span><StatusPill :tone="dash.store_name ? 'ok' : 'warn'" :label="dash.store_name ? 'آماده' : 'تنظیم‌نشده'" /></div>
+            <div class="mb-3 flex min-h-9 items-center justify-between gap-2"><span class="data-label">لاندا</span><StatusPill :tone="dash.store_name ? 'ok' : 'warn'" :label="dash.store_name ? 'آماده' : 'تنظیم‌نشده'" /></div>
             <div class="display truncate text-[1.75rem] leading-none text-paper">{{ dash.store_name ?? '—' }}</div>
             <div class="mt-1.5 text-xs text-paper-mute tabular">{{ faNumber(dash.decided_matches) }} تطبیق ثبت‌شده</div>
             <NuxtLink to="/matches" class="mt-auto pt-3 text-xs text-crimson-400 hover:text-crimson-300">تطبیق‌ها ←</NuxtLink>
           </GlassCard>
 
           <GlassCard class="hover-glow flex flex-col" data-reveal>
-            <div class="mb-3 flex items-center justify-between"><span class="data-label">در انتظار شما</span><StatusPill :tone="dash.pending_review > 0 ? 'warn' : 'ok'" :label="dash.pending_review > 0 ? 'نیاز به تصمیم' : 'چیزی نیست'" /></div>
+            <div class="mb-3 flex min-h-9 items-center justify-between gap-2"><span class="data-label">در انتظار شما</span><StatusPill :tone="dash.pending_review > 0 ? 'warn' : 'ok'" :label="dash.pending_review > 0 ? 'نیاز به تصمیم' : 'چیزی نیست'" /></div>
             <div class="display tabular text-[1.75rem] leading-none text-paper">{{ faNumber(dash.pending_review) }}</div>
             <div class="mt-1.5 text-xs text-paper-mute">قلم منتظر تصمیم</div>
             <NuxtLink v-if="inReview" :to="runningTo" class="mt-auto pt-3 text-xs text-crimson-400 hover:text-crimson-300">ادامهٔ بازبینی ←</NuxtLink>
@@ -114,7 +114,7 @@ const dismissAppImage = async () => {
           </GlassCard>
 
           <GlassCard class="hover-glow flex flex-col" data-reveal>
-            <div class="mb-3 flex items-center justify-between"><span class="data-label">سلامت</span><StatusPill :tone="dash.recent_errors > 0 ? 'danger' : 'ok'" :label="dash.recent_errors > 0 ? 'بررسی کنید' : 'پاک'" /></div>
+            <div class="mb-3 flex min-h-9 items-center justify-between gap-2"><span class="data-label">سلامت</span><StatusPill :tone="dash.recent_errors > 0 ? 'danger' : 'ok'" :label="dash.recent_errors > 0 ? 'بررسی کنید' : 'پاک'" /></div>
             <div class="display tabular text-[1.75rem] leading-none text-paper">{{ faNumber(dash.recent_errors) }}</div>
             <div class="mt-1.5 text-xs text-paper-mute">خطا و هشدار در هفت روز</div>
             <NuxtLink to="/errors" class="mt-auto pt-3 text-xs text-crimson-400 hover:text-crimson-300">خطاها ←</NuxtLink>
@@ -171,7 +171,7 @@ const dismissAppImage = async () => {
               <NuxtLink :to="`/jobs/${j.id}`" class="flex items-center gap-4 px-6 py-3 hover:bg-white/3">
                 <span class="size-2 shrink-0 rounded-full" :class="dotOf(j)" aria-hidden="true" />
                 <div class="min-w-0 flex-1">
-                  <div class="text-[0.8125rem] text-paper">{{ jobKindLabel(j) }} <bdi v-if="j.since_date" dir="ltr" class="text-xs text-paper-mute">{{ j.since_date }}</bdi></div>
+                  <div class="text-[0.8125rem] text-paper">{{ jobKindLabel(j) }} <span v-if="j.since_date" class="text-xs text-paper-mute">از <bdi dir="ltr">{{ j.since_date }}</bdi></span></div>
                   <div class="truncate text-xs text-paper-mute">{{ summaryLabel(j) || (statusLabel[j.status] ?? j.status) }}</div>
                 </div>
                 <div class="shrink-0 text-end text-xs text-paper-mute tabular">
