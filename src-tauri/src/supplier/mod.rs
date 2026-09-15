@@ -29,6 +29,9 @@ pub trait Supplier: Send + Sync {
     async fn invoice_lines(&self, url: &str) -> Result<Vec<InvoiceLine>>;
     /// Today's list price of one code, `None` when the site no longer lists it.
     async fn price_of(&self, code: &str) -> Result<Option<PriceQuote>>;
+    /// Every catalogue row the site's search answers for the first seven words of `name`
+    /// (spec §14 b), all pages; empty when nothing matches. The caller picks the equal name.
+    async fn quotes_by_name(&self, name: &str) -> Result<Vec<PriceQuote>>;
 }
 
 pub fn open(id: &str, creds: Credentials) -> Result<Box<dyn Supplier>> {

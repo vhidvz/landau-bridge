@@ -13,6 +13,7 @@ use tokio::sync::Mutex;
 use super::parse::{self, BuyContext};
 use crate::domain::{InvoiceHeader, InvoiceLine, PriceQuote};
 use crate::errors::{BridgeError, Result};
+use crate::matching::normalize::search_words;
 use crate::supplier::{Credentials, Progress, Supplier};
 
 pub const ID: &str = "barezpakhsh";
@@ -86,6 +87,29 @@ where
         "barezpakhsh price search gave up: every page was full"
     );
     Ok(None)
+}
+
+/// Every row of a search, page after page, until a page comes back short of `page_size` or
+/// [`MAX_SEARCH_PAGES`] is reached (spec §14 b).
+pub(crate) async fn collect_pages<F, Fut>(page_size: usize, fetch: F) -> Result<Vec<PriceQuote>>
+where
+    F: Fn(u32) -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<PriceQuote>>>,
+{
+    let mut all = Vec::new();
+    for index in 1..=MAX_SEARCH_PAGES {
+        let page = fetch(index).await?;
+        let rows = page.len();
+        all.extend(page);
+        if rows < page_size {
+            return Ok(all);
+        }
+    }
+    tracing::warn!(
+        pages = MAX_SEARCH_PAGES,
+        "barezpakhsh search stopped at the page cap"
+    );
+    Ok(all)
 }
 
 /// Defaults the price search needs, learned once per session from the «ثبت فاکتور» page.
@@ -218,26 +242,44 @@ impl Client {
         Ok((url, body))
     }
 
-    async fn post_json(&self, path: &str, body: &serde_json::Value) -> Result<String> {
+    /// POST JSON. The site answers its «خطا» page (HTTP 200, HTML) transiently to any request and
+    /// always to an over-long search term; it is retried with [`RETRY_DELAYS`] and then reported as
+    /// a parse failure of `page` — one item, never the job (spec §14 b).
+    async fn post_json(&self, path: &str, page: &str, body: &serde_json::Value) -> Result<String> {
         let req_url = self.url(path)?;
         let payload = body.to_string();
-        let res = self
-            .send_with_retry(path, || {
-                self.http
-                    .post(req_url.clone())
-                    .header("content-type", "application/json; charset=utf-8")
-                    .header("x-requested-with", "XMLHttpRequest")
-                    .body(payload.clone())
-            })
-            .await?;
-        let status = res.status();
-        tracing::debug!(method = "POST", path, %status, "barezpakhsh json");
-        let text = res.text().await.map_err(Self::unreachable)?;
-        if status.as_u16() == 403 && parse::is_blocked_page(&text) {
-            return Err(BridgeError::SupplierBlocked);
+        let mut attempt: usize = 0;
+        loop {
+            attempt += 1;
+            let res = self
+                .send_with_retry(path, || {
+                    self.http
+                        .post(req_url.clone())
+                        .header("content-type", "application/json; charset=utf-8")
+                        .header("x-requested-with", "XMLHttpRequest")
+                        .body(payload.clone())
+                })
+                .await?;
+            let status = res.status();
+            tracing::debug!(method = "POST", path, %status, "barezpakhsh json");
+            let text = res.text().await.map_err(Self::unreachable)?;
+            if status.as_u16() == 403 && parse::is_blocked_page(&text) {
+                return Err(BridgeError::SupplierBlocked);
+            }
+            Self::check_status(path, status)?;
+            if !parse::is_error_page(&text) {
+                return Ok(text);
+            }
+            if attempt <= RETRY_DELAYS.len() {
+                tracing::warn!(path, attempt, "barezpakhsh answered its error page; retrying");
+                tokio::time::sleep(RETRY_DELAYS[attempt - 1]).await;
+                continue;
+            }
+            return Err(BridgeError::SupplierParse {
+                page: page.into(),
+                field: "error page".into(),
+            });
         }
-        Self::check_status(path, status)?;
-        Ok(text)
     }
 
     async fn do_login(&self) -> Result<()> {
@@ -311,9 +353,14 @@ impl Client {
 
     /// POST authenticated JSON; a session that has expired answers with the login page's HTML
     /// instead of the usual JSON-string body, which `is_login_page` also recognises directly.
-    async fn post_json_authed(&self, path: &str, body: &serde_json::Value) -> Result<String> {
+    async fn post_json_authed(
+        &self,
+        path: &str,
+        page: &str,
+        body: &serde_json::Value,
+    ) -> Result<String> {
         self.ensure_session().await?;
-        let text = self.post_json(path, body).await?;
+        let text = self.post_json(path, page, body).await?;
         if !parse::is_login_page(&text) {
             return Ok(text);
         }
@@ -322,7 +369,7 @@ impl Client {
         self.do_login()
             .await
             .map_err(|_| BridgeError::SupplierSessionExpired)?;
-        let text = self.post_json(path, body).await?;
+        let text = self.post_json(path, page, body).await?;
         if parse::is_login_page(&text) {
             return Err(BridgeError::SupplierSessionExpired);
         }
@@ -393,6 +440,39 @@ impl Client {
     }
 }
 
+impl Client {
+    /// One page of `/Shop/Share/ItemsSearchGradual` for `term`, 100 ms after the previous one.
+    async fn search_page(
+        &self,
+        s: &BuySession,
+        term: &str,
+        index: u32,
+    ) -> Result<Vec<PriceQuote>> {
+        if index > 1 {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let body = self
+            .post_json_authed(
+                "/Shop/Share/ItemsSearchGradual",
+                "items-search",
+                &json!({
+                    "selectedGroupCode": s.group,
+                    "selectedCarCode": s.car,
+                    "selectedBrandCode": s.brand,
+                    "SpecialItemsId": "",
+                    "searchTerm": term,
+                    "businessId": s.ctx.business_id,
+                    "pageIndex": index,
+                    "userGroupId": s.ctx.user_group_id,
+                    "justAvailable": false,
+                    "pageSize": SEARCH_PAGE_SIZE.to_string()
+                }),
+            )
+            .await?;
+        parse::price_quotes(&body)
+    }
+}
+
 #[async_trait::async_trait]
 impl Supplier for Client {
     fn id(&self) -> &'static str {
@@ -416,6 +496,7 @@ impl Supplier for Client {
             let body = self
                 .post_json_authed(
                     "/Shop/Share/GradualMoein2Load",
+                    "moein2-page",
                     &Self::ledger_page(&ctx, index, from),
                 )
                 .await?;
@@ -438,32 +519,18 @@ impl Supplier for Client {
     async fn price_of(&self, code: &str) -> Result<Option<PriceQuote>> {
         let s = self.buy_session().await?;
         find_across_pages(code, SEARCH_PAGE_SIZE, |index| {
-            let s = s.clone();
-            async move {
-                if index > 1 {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-                let body = self
-                    .post_json_authed(
-                        "/Shop/Share/ItemsSearchGradual",
-                        &json!({
-                            "selectedGroupCode": s.group,
-                            "selectedCarCode": s.car,
-                            "selectedBrandCode": s.brand,
-                            "SpecialItemsId": "",
-                            "searchTerm": code,
-                            "businessId": s.ctx.business_id,
-                            "pageIndex": index,
-                            "userGroupId": s.ctx.user_group_id,
-                            "justAvailable": false,
-                            "pageSize": SEARCH_PAGE_SIZE.to_string()
-                        }),
-                    )
-                    .await?;
-                parse::price_quotes(&body)
-            }
+            self.search_page(&s, code, index)
         })
         .await
+    }
+
+    async fn quotes_by_name(&self, name: &str) -> Result<Vec<PriceQuote>> {
+        let term = search_words(name);
+        if term.is_empty() {
+            return Ok(Vec::new());
+        }
+        let s = self.buy_session().await?;
+        collect_pages(SEARCH_PAGE_SIZE, |index| self.search_page(&s, &term, index)).await
     }
 }
 
@@ -651,5 +718,31 @@ mod tests {
         .unwrap();
         assert_eq!(found, None);
         assert_eq!(asked.lock().unwrap().len(), MAX_SEARCH_PAGES as usize);
+    }
+
+    #[tokio::test]
+    async fn search_pages_collects_every_page_until_a_short_one() {
+        let pages = [
+            full_page("سیبک"),
+            vec![quote("سیبک فرمان چپ"), quote("سیبک فرمان راست")],
+        ];
+        let asked = std::sync::Mutex::new(Vec::new());
+        let all = collect_pages(50, |index| {
+            asked.lock().unwrap().push(index);
+            let page = pages.get(index as usize - 1).cloned().unwrap_or_default();
+            async move { Ok(page) }
+        })
+        .await
+        .unwrap();
+        assert_eq!(all.len(), 52);
+        assert_eq!(*asked.lock().unwrap(), vec![1, 2]);
+    }
+
+    #[tokio::test]
+    async fn search_pages_stops_at_the_page_cap() {
+        let all = collect_pages(50, |_| async { Ok(full_page("36")) })
+            .await
+            .unwrap();
+        assert_eq!(all.len(), 50 * MAX_SEARCH_PAGES as usize);
     }
 }

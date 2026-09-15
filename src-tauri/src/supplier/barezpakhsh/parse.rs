@@ -58,6 +58,13 @@ pub fn is_login_page(html: &str) -> bool {
     html.contains(r#"action="/Home/Login""#) && html.contains(r#"name="Username""#)
 }
 
+/// The site's generic error page («بروز خطا لطفا چند دقیقه دیگر دوباره سعی نمایید»): HTTP 200 with
+/// HTML where a JSON string was expected. Deterministic for a search term over seven words,
+/// transient (~0.3 %) for anything else — measured 2026-09-15.
+pub fn is_error_page(body: &str) -> bool {
+    body.trim_start().starts_with("<!DOCTYPE") && body.contains("بروز خطا")
+}
+
 pub fn antiforgery_token(html: &str, page: &str) -> Result<String> {
     TOKEN
         .captures(html)
@@ -366,6 +373,17 @@ mod tests {
     const RETURN: &str = include_str!("../../../fixtures/barezpakhsh/return-9066582.html");
     const BUY_SEARCH: &str = include_str!("../../../fixtures/barezpakhsh/buy-search-3137006.html");
     const ITEMS: &str = include_str!("../../../fixtures/barezpakhsh/items-3137006.json");
+    const ERROR_PAGE: &str = include_str!("../../../fixtures/barezpakhsh/error-page.html");
+
+    /// Measured 2026-09-15: a search term of eight or more words — and, transiently, any request —
+    /// is answered with HTTP 200 and this page instead of the JSON string.
+    #[test]
+    fn recognises_the_sites_error_page_and_nothing_else() {
+        assert!(is_error_page(ERROR_PAGE));
+        assert!(!is_error_page(ITEMS));
+        assert!(!is_error_page(LOGIN));
+        assert!(!is_error_page(BUY_SEARCH));
+    }
 
     #[test]
     fn recognises_login_and_blocked_pages() {

@@ -61,6 +61,26 @@ async fn logs_in_reads_the_ledger_an_invoice_and_a_price() {
         .expect("«1012» is still in the price list");
     assert_eq!(deep.code, "1012");
 
+    // §14 b: the site's search is a per-word AND over at most seven words; the equal-name row is
+    // what the bridge prices by. Measured 2026-09-15 on 150 raw names from the landau-parts map.
+    let by_name = supplier
+        .quotes_by_name(&lines[0].name)
+        .await
+        .expect("name search");
+    assert!(
+        by_name.iter().any(|q| q.code == lines[0].code),
+        "the invoice line's own row is among {} rows for «{}»",
+        by_name.len(),
+        lines[0].name
+    );
+    assert!(
+        !supplier
+            .quotes_by_name("بلبرینگ کوچک بیرونی چرخ عقب 32011 نیسان NTN Z24 ژاپن")
+            .await
+            .expect("an over-long name is cut to seven words, never the error page")
+            .is_empty()
+    );
+
     assert!(supplier
         .price_of("00000000-does-not-exist")
         .await
