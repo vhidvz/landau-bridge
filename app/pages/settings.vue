@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { open } from '@tauri-apps/plugin-dialog';
 import type { BridgeError, LandauStatus, SettingsView } from '~/types/bridge';
 
 const DEFAULT_URL = 'https://api.landau.ir';
@@ -6,7 +7,7 @@ const toast = useToast();
 const view = ref<SettingsView | null>(null);
 const error = ref<BridgeError | null>(null);
 const landau = ref<LandauStatus | null>(null);
-const busy = ref<'landau' | 'supplier' | 'save' | null>(null);
+const busy = ref<'landau' | 'supplier' | 'save' | 'map' | null>(null);
 const savedTick = useSettingsSaved();
 const advancedOpen = ref(false);
 
@@ -51,6 +52,19 @@ const save = async () => {
     form.landau_token = ''; form.supplier_password = '';
     savedTick.value++;
     toast.add({ title: 'تنظیمات ذخیره شد', color: 'success' });
+  } catch (e) { error.value = e as BridgeError; } finally { busy.value = null; }
+};
+
+// The map is read by the Rust side from the path the native dialog answers; nothing is uploaded.
+const loadMap = async () => {
+  error.value = null;
+  try {
+    const path = await open({ multiple: false, directory: false, filters: [{ name: 'CSV', extensions: ['csv'] }] });
+    if (!path) return;
+    busy.value = 'map';
+    const info = await bridge.nameMapLoad(typeof path === 'string' ? path : (path as { path: string }).path);
+    if (view.value) view.value = { ...view.value, name_map: info };
+    toast.add({ title: 'نگاشت نام‌ها بارگذاری شد', color: 'success' });
   } catch (e) { error.value = e as BridgeError; } finally { busy.value = null; }
 };
 
@@ -132,6 +146,13 @@ const authItems = [{ label: 'اصلی', value: 'ORIGINAL' }, { label: 'غیرا�
           </UFormField>
           <UFormField label="نرخ ارزش افزوده (٪)" hint="قیمت خرید = قیمت فهرست بارزپخش × (۱ + نرخ)">
             <UInput v-model.number="form.vat_percent" type="number" min="0" max="100" step="0.5" dir="ltr" class="w-32" />
+          </UFormField>
+          <UFormField label="نگاشت نام‌های بارزپخش" hint="فایل parts_map.csv خروجی landau-parts؛ ردیف‌های قفسه‌ای که هیچ فاکتوری ندارند از این نگاشت به نام بارزپخش وصل می‌شوند">
+            <div class="flex flex-wrap items-center gap-3">
+              <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-file-up" :loading="busy === 'map'" @click="loadMap">بارگذاری فایل نگاشت</UButton>
+              <span v-if="view?.name_map.rows" class="text-sm text-paper-mute">{{ faNumber(view.name_map.rows) }} نام برای {{ faNumber(view.name_map.products) }} محصول · {{ isoToLocal(view.name_map.loaded_at) }}</span>
+              <span v-else class="text-sm text-paper-mute">هنوز بارگذاری نشده</span>
+            </div>
           </UFormField>
         </div>
       </GlassCard>

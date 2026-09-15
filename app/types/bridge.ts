@@ -4,10 +4,12 @@ export type Phase = 'PREFLIGHT' | 'FETCH' | 'AGGREGATE' | 'MATCH' | 'REVIEW' | '
 
 export interface BridgeError { kind: string; message: string; detail: string }
 
+export interface NameMapInfo { rows: number; products: number; loaded_at: string | null; file: string | null }
 export interface SettingsView {
   landau_url: string; has_landau_token: boolean; store: string | null; store_name: string | null;
   supplier_user: string | null; has_supplier_password: boolean; default_authenticity: Authenticity;
-  threshold: number; vat_percent: number; overwrite_manual: boolean; fetch_since_only: boolean; secret_backend: 'keyring' | 'file'; data_dir: string;
+  threshold: number; vat_percent: number; overwrite_manual: boolean; fetch_since_only: boolean; name_map: NameMapInfo;
+  secret_backend: 'keyring' | 'file'; data_dir: string;
 }
 export interface SettingsPatch {
   landau_url?: string; landau_token?: string; store?: string; store_name?: string; supplier_user?: string;

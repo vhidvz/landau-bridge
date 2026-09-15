@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
   BridgeError, Dashboard, ErrorRow, JobDetail, JobDone, JobEvent, JobItemRow, JobRow, LandauStatus, MatchRow,
-  Progress, ReviewDecision, Scored, SettingsPatch, SettingsView,
+  Progress, ReviewDecision, Scored, SettingsPatch, SettingsView, NameMapInfo,
 } from '~/types/bridge';
 
 export const isBridgeError = (e: unknown): e is BridgeError =>
@@ -26,6 +26,7 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
 export const bridge = {
   settingsGet: () => call<SettingsView>('settings_get'),
   settingsSave: (patch: SettingsPatch) => call<SettingsView>('settings_save', { patch }),
+  nameMapLoad: (path: string) => call<NameMapInfo>('name_map_load', { path }),
   landauValidate: () => call<LandauStatus>('landau_validate'),
   supplierTestLogin: () => call<void>('supplier_test_login'),
   dashboardGet: () => call<Dashboard>('dashboard_get'),

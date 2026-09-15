@@ -4,6 +4,7 @@ pub mod errors;
 pub mod invoices;
 pub mod jobs;
 pub mod matches;
+pub mod name_map;
 pub mod prices;
 pub mod settings;
 
