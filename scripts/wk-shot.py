@@ -184,7 +184,12 @@ def main(argv):
     view.connect("load-failed", on_load_failed)
 
     # Hard ceiling so a hung page can never wedge a review run.
-    GLib.timeout_add_seconds(60, lambda: (Gtk.main_quit(), False)[1])
+    def on_hard_timeout():
+        print("wk-shot: hard 60s ceiling hit, quitting", file=sys.stderr)
+        Gtk.main_quit()
+        return False
+
+    GLib.timeout_add_seconds(60, on_hard_timeout)
 
     view.load_uri(url)
     Gtk.main()
