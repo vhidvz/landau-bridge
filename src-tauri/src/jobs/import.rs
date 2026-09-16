@@ -327,10 +327,32 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
     for (n, item) in items.iter().enumerate() {
         ctx.check_cancel()?;
         match quote_for(ctx, svc, &item.name, &item.code, &mut vat).await {
-            Ok(Some(c)) => ctx.item(item.id, &[("cost", i(c.cost))])?,
+            Ok(Some(c)) => {
+                if !item.code.is_empty() && c.code != item.code {
+                    ctx.db.add_item_note(
+                        item.id,
+                        &format!("کد بارزپخش عوض شد: {} ← {}", item.code, c.code),
+                    )?;
+                }
+                if c.renamed {
+                    ctx.db
+                        .add_item_note(item.id, &format!("نام در بارزپخش عوض شد: «{}»", c.name))?;
+                }
+                if !c.available {
+                    ctx.db.add_item_note(item.id, "ناموجود در بارزپخش")?;
+                }
+                ctx.item(
+                    item.id,
+                    &[("cost", i(c.cost)), ("available", i(c.available as i64))],
+                )?
+            }
             Ok(None) => {
                 let e = BridgeError::NoCurrentPrice {
-                    code: item.code.clone(),
+                    code: if item.code.is_empty() {
+                        item.name.clone()
+                    } else {
+                        item.code.clone()
+                    },
                 };
                 ctx.error("PRICE", &e, Some(json!({"item_id": item.id})));
                 ctx.item(
@@ -372,13 +394,23 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
     for (n, item) in items.iter().enumerate() {
         ctx.check_cancel()?;
         let product = item.product_id.clone().unwrap_or_default();
-        let cost = item.cost.unwrap_or(0);
         let authenticity = item
             .authenticity
             .as_deref()
             .and_then(Authenticity::parse)
             .unwrap_or(svc.settings.default_authenticity);
         let existing = find_row(&shelf, &product, authenticity.as_str());
+        // §14 d: an unavailable quote never lowers a row's cost.
+        let (cost, held) = pricing::effective_cost(
+            item.cost.unwrap_or(0),
+            item.available.unwrap_or(true),
+            existing.and_then(|r| r.cost),
+        );
+        if held {
+            ctx.db
+                .add_item_note(item.id, "ناموجود؛ قیمت پایین‌تر نادیده گرفته شد")?;
+            ctx.item(item.id, &[("cost", i(cost))])?;
+        }
         let action = plan_write(existing, item.qty, mode);
         let result: Result<Written> = match &action {
             WriteAction::Attach { inventory } => {
@@ -401,6 +433,7 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                             qty_before: None,
                             qty_after: Some(*inventory),
                             price_before: None,
+                            price_after: row.price,
                             verb: "ATTACH",
                             shortfall: shortfall(0, item.qty),
                         })
@@ -425,11 +458,12 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                                         },
                                     )
                                     .await
-                                    .map(|_| Written {
+                                    .map(|reply| Written {
                                         stock_id: row.id.clone(),
                                         qty_before: Some(row.inventory),
                                         qty_after: inv.or(Some(row.inventory)),
                                         price_before: row.price,
+                                        price_after: reply.price,
                                         verb: "PATCH",
                                         shortfall: shortfall(row.inventory, item.qty),
                                     })
@@ -463,11 +497,12 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                                                 },
                                             )
                                             .await
-                                            .map(|_| Written {
+                                            .map(|reply| Written {
                                                 stock_id: removed.id.clone(),
                                                 qty_before: Some(removed.inventory),
                                                 qty_after: Some(inv),
                                                 price_before: removed.price,
+                                                price_after: reply.price,
                                                 verb: "PATCH",
                                                 shortfall: shortfall(0, item.qty),
                                             });
@@ -509,11 +544,12 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                         },
                     )
                     .await
-                    .map(|_| Written {
+                    .map(|reply| Written {
                         stock_id: stock_id.clone(),
                         qty_before: Some(*qty_before),
                         qty_after: inventory.or(Some(*qty_before)),
                         price_before,
+                        price_after: reply.price,
                         verb: "PATCH",
                         shortfall: shortfall(*qty_before, item.qty),
                     })
@@ -525,6 +561,7 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                 qty_before: before,
                 qty_after: after,
                 price_before,
+                price_after,
                 verb,
                 shortfall: short,
             }) => {
@@ -567,6 +604,7 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                         ("qty_before", opt_i(before)),
                         ("qty_after", opt_i(after)),
                         ("price_before", opt_i(price_before)),
+                        ("price_after", opt_i(price_after)),
                         ("authenticity", t(authenticity.as_str())),
                         ("status", t("WRITTEN")),
                     ],
@@ -618,6 +656,8 @@ struct Written {
     qty_before: Option<i64>,
     qty_after: Option<i64>,
     price_before: Option<i64>,
+    /// The price Landau answered on the write (plan 107); the REPRICE phase confirms it.
+    price_after: Option<i64>,
     verb: &'static str,
     /// Units of a negative transfer the shelf could not absorb (0 unless the floor bit).
     shortfall: i64,
