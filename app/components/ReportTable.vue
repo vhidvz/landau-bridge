@@ -8,7 +8,7 @@ const filter = ref<'ALL' | 'DONE' | 'CHANGED' | 'SKIPPED' | 'FAILED'>('ALL');
 const query = ref('');
 const rows = computed(() => props.items.filter((i) =>
   (filter.value === 'ALL' || (filter.value === 'CHANGED' ? priceDelta(i)?.dir === 'up' || priceDelta(i)?.dir === 'down' : i.status === filter.value))
-  && (!query.value || i.name.includes(query.value) || i.code.includes(query.value) || (i.product_name ?? '').includes(query.value))));
+  && (!query.value || i.name.includes(query.value) || i.code.includes(query.value) || (i.product_name ?? '').includes(query.value) || (i.note ?? '').includes(query.value))));
 const filters = [{ value: 'ALL', label: 'همه' }, { value: 'DONE', label: 'انجام‌شده' }, { value: 'CHANGED', label: 'تغییر قیمت' }, { value: 'SKIPPED', label: 'ردشده' }, { value: 'FAILED', label: 'ناموفق' }] as const;
 const actionLabel: Record<string, string> = { ATTACH: 'افزوده شد', PATCH: 'به‌روزرسانی شد', SKIP: 'بدون تغییر' };
 const error = ref<BridgeError | null>(null);
@@ -17,11 +17,11 @@ const saving = ref(false);
 // A blob download is unreliable in WebKitGTK, so the export goes through the native save dialog
 // and the fs plugin. The BOM makes Excel read the UTF-8 Persian text correctly.
 const csv = async () => {
-  const head = ['کد', 'نام', 'اقدام', 'تعداد قبل', 'تعداد بعد', 'قیمت خرید', 'قیمت قفسه قبل', 'قیمت قفسه بعد', 'تغییر قیمت', 'نتیجه قیمت‌گذاری', 'وضعیت', 'خطا'];
+  const head = ['کد', 'نام', 'اقدام', 'تعداد قبل', 'تعداد بعد', 'قیمت خرید', 'موجودی بارزپخش', 'قیمت قفسه قبل', 'قیمت قفسه بعد', 'تغییر قیمت', 'نتیجه قیمت‌گذاری', 'وضعیت', 'یادداشت', 'خطا'];
   const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const lines = [head.join(','), ...props.items.map((i) => [
-    i.code, i.name, i.action ? actionLabel[i.action] : '—', i.qty_before, i.qty_after, i.cost, i.price_before, i.price_after,
-    priceDeltaLabel(priceDelta(i)), verdictLabel(i.reprice_verdict), statusLabel[i.status] ?? i.status, i.error_msg,
+    i.code, i.name, i.action ? actionLabel[i.action] : '—', i.qty_before, i.qty_after, i.cost, availabilityLabel(i.available), i.price_before, i.price_after,
+    priceDeltaLabel(priceDelta(i)), verdictLabel(i.reprice_verdict), statusLabel[i.status] ?? i.status, i.note, i.error_msg,
   ].map(esc).join(','))];
   error.value = null;
   saving.value = true;
@@ -59,6 +59,10 @@ const csv = async () => {
           <td class="w-full max-w-0">
             <p class="truncate font-medium text-paper">{{ i.product_name ?? i.name }}</p>
             <p class="truncate text-xs text-paper-mute">{{ i.name }} <bdi dir="ltr" class="whitespace-nowrap">{{ i.code }}</bdi></p>
+            <p v-if="i.available != null || i.note" class="mt-1 flex flex-wrap items-center gap-2 text-xs">
+              <StatusPill v-if="i.available != null" :tone="i.available ? 'ok' : 'warn'" :label="availabilityLabel(i.available)" />
+              <span v-if="i.note" class="text-paper-mute">{{ i.note }}</span>
+            </p>
           </td>
           <td>{{ i.action ? actionLabel[i.action] : '—' }}</td>
           <td class="whitespace-nowrap">

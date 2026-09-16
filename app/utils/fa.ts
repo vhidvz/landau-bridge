@@ -66,8 +66,12 @@ export const verdictLabel = (v: string | null | undefined): string => {
   if (v.startsWith('REPRICED:')) return `قیمت‌گذاری شد: ${rials(Number(v.slice(9)))}`;
   if (v.startsWith('SKIPPED:')) return skipLabel[v.slice(8)] ?? v;
   if (v === 'UNCHANGED') return 'بدون تغییر';
+  if (v === 'MISSING') return 'دیگر روی قفسه نیست';
   return v;
 };
+
+/** The supplier's availability at pricing time (spec §14 d); unknown before the PRICE phase. */
+export const availabilityLabel = (a: boolean | null | undefined): string => (a == null ? '' : a ? 'موجود' : 'ناموجود');
 
 export const kindLabel = (kind: string): string =>
   ({

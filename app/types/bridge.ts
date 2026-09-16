@@ -30,7 +30,7 @@ export interface JobItemRow {
   stock_id: string | null; authenticity: Authenticity | null; action: 'ATTACH' | 'PATCH' | 'SKIP' | null;
   qty_before: number | null; qty_after: number | null; cost: number | null; price_before: number | null; price_after: number | null;
   reprice_verdict: string | null; error_kind: string | null; error_msg: string | null; candidates: Scored[] | null; status: string;
-  invoice_ids: number[];
+  invoice_ids: number[]; available: boolean | null; note: string | null;
 }
 export interface JobEventRow { id: number; at: string; level: 'INFO' | 'WARN' | 'ERROR'; phase: string; message: string; detail: unknown }
 export interface JobDetail { job: JobRow; items: JobItemRow[]; events: JobEventRow[] }

@@ -60,7 +60,7 @@ const scored = (id: string, name: string, brand: string | null, similarity: numb
 const item = (id: number, code: string, name: string, qty: number, extra: Partial<JobItemRow>): JobItemRow => ({
   id, job_id: 42, code, name, qty, product_id: null, product_name: null, stock_id: null, authenticity: 'ORIGINAL', action: null,
   qty_before: null, qty_after: null, cost: null, price_before: null, price_after: null, reprice_verdict: null,
-  error_kind: null, error_msg: null, candidates: null, status: 'DONE', invoice_ids: [5121], ...extra,
+  error_kind: null, error_msg: null, candidates: null, status: 'DONE', invoice_ids: [5121], available: null, note: null, ...extra,
 });
 
 const reviewItems: JobItemRow[] = [
@@ -74,14 +74,14 @@ const reviewItems: JobItemRow[] = [
 ];
 
 const doneItems: JobItemRow[] = [
-  item(1, 'BP-10422', 'لنت ترمز جلو پراید', 12, { product_id: 'p_1', product_name: 'لنت ترمز جلو پراید ۱۳۱', action: 'ATTACH', qty_after: 12, cost: 1_430_000, price_after: 1_780_000, reprice_verdict: 'REPRICED:1780000' }),
+  item(1, 'BP-10422', 'لنت ترمز جلو پراید', 12, { product_id: 'p_1', product_name: 'لنت ترمز جلو پراید ۱۳۱', action: 'ATTACH', qty_after: 12, cost: 1_430_000, price_after: 1_780_000, reprice_verdict: 'REPRICED:1780000', available: true }),
   item(2, 'BP-20871', 'فیلتر روغن ۲۰۶ تیپ ۵', 30, { product_id: 'p_4', product_name: 'فیلتر روغن پژو ۲۰۶', action: 'PATCH', qty_before: 8, qty_after: 38, cost: 385_000, price_before: 450_000, price_after: 480_000, reprice_verdict: 'REPRICED:480000' }),
-  item(3, 'BP-33005', 'شمع NGK BKR6E', 48, { product_id: 'p_9', product_name: 'شمع NGK BKR6E', action: 'PATCH', qty_before: 20, qty_after: 68, cost: 1_210_000, price_before: 1_500_000, price_after: 1_500_000, reprice_verdict: 'SKIPPED:MANUAL' }),
+  item(3, 'BP-33005', 'شمع NGK BKR6E', 48, { product_id: 'p_9', product_name: 'شمع NGK BKR6E', action: 'PATCH', qty_before: 20, qty_after: 68, cost: 1_210_000, price_before: 1_500_000, price_after: 1_500_000, reprice_verdict: 'SKIPPED:MANUAL', available: false, note: 'ناموجود؛ قیمت پایین‌تر نادیده گرفته شد؛ زیر حداقل سود' }),
   item(4, 'BP-44120', 'تسمه تایم ۴۰۵', 6, { status: 'FAILED', error_kind: 'NoCurrentPrice', error_msg: 'بارزپخش برای این کد قیمت روز ندارد' }),
   item(5, 'BP-51002', 'دیسک ترمز جلو سمند', 4, { product_id: 'p_12', product_name: 'دیسک ترمز جلو سمند', action: 'ATTACH', qty_after: 4, cost: 2_960_000, price_after: 3_650_000, reprice_verdict: 'REPRICED:3650000' }),
   item(6, 'BP-60233', 'روغن موتور ۴ لیتری بهران', 24, { status: 'SKIPPED', error_kind: 'NoneDecision', error_msg: 'در فهرست لاندا نیست' }),
   item(7, 'BP-71850', 'واشر سرسیلندر ۲۰۶', 10, { product_id: 'p_15', product_name: 'واشر سرسیلندر پژو ۲۰۶', action: 'ATTACH', qty_after: 10, cost: 940_000, price_after: 1_170_000, reprice_verdict: 'REPRICED:1170000' }),
-  item(8, 'BP-80017', 'پمپ بنزین پراید', 5, { product_id: 'p_16', product_name: 'پمپ بنزین پراید', action: 'PATCH', qty_before: 2, qty_after: 7, cost: 1_650_000, price_before: 2_050_000, price_after: 2_050_000, reprice_verdict: 'UNCHANGED' }),
+  item(8, 'BP-80017', 'پمپ بنزین پراید', 5, { product_id: 'p_16', product_name: 'پمپ بنزین پراید', action: 'PATCH', qty_before: 2, qty_after: 7, cost: 1_650_000, price_before: 2_050_000, price_after: 2_050_000, reprice_verdict: 'UNCHANGED', available: true, note: 'از نگاشت نام‌ها وصل شد' }),
 ];
 
 const ev = (id: number, level: JobEventRow['level'], phase: string, message: string, minutesAgo: number): JobEventRow =>

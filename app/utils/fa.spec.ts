@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  faNumber, rials, latinDigits, normalizeJalali, todayJalali, jalaliYearStart, verdictLabel, kindLabel,
+  faNumber, rials, latinDigits, normalizeJalali, todayJalali, jalaliYearStart, verdictLabel, kindLabel, availabilityLabel,
   faPercent, faDuration, faVersion, jobKindLabel, statusTone, summaryTiles, summaryLabel, reportEventText,
   kindFamily, isoToJalali, nextSinceDate, priceDelta, priceDeltaLabel,
 } from './fa';
@@ -28,6 +28,11 @@ describe('fa', () => {
     expect(verdictLabel('REPRICED:173000')).toContain('۱۷۳٬۰۰۰');
     expect(verdictLabel('SKIPPED:MANUAL')).toContain('دستی');
     expect(verdictLabel(null)).toBe('—');
+    expect(verdictLabel('MISSING')).toContain('قفسه');
+    expect(availabilityLabel(true)).toBe('موجود');
+    expect(availabilityLabel(false)).toBe('ناموجود');
+    expect(availabilityLabel(null)).toBe('');
+    expect(kindLabel('BelowMinMargin')).toContain('سود');
     expect(kindLabel('NoCurrentPrice')).toContain('قیمت');
     expect(kindLabel('JobBusy')).toContain('عملیات');
     expect(kindLabel('Whatever')).toBe('Whatever');
