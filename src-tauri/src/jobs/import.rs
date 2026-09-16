@@ -6,8 +6,9 @@ use std::collections::HashSet;
 use serde_json::json;
 
 use super::planner::{aggregate, find_row, floored, plan_write, shortfall, WriteAction};
+use super::pricing;
 use super::{
-    fatal, i, opt_i, preflight, quote_for, readback, reprice_items, t, JobCtx, Services,
+    fatal, i, opt_i, preflight, quote_for, report, reprice_items, t, JobCtx, Services,
     VatMismatches,
 };
 use crate::domain::{Authenticity, ImportMode};
@@ -388,6 +389,7 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                         store: store.clone(),
                         inventory: *inventory,
                         cost,
+                        price: pricing::floor_price(cost, svc.settings.min_margin_percent),
                         authenticity,
                     })
                     .await
@@ -591,8 +593,8 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
         ctx.progress("WRITE", n as u32 + 1, total, "نوشتن روی قفسه لاندا");
     }
 
-    reprice_items(ctx, svc, &store, &written).await?;
-    readback(ctx, svc, &store, &written).await?;
+    reprice_items(ctx, svc, &written).await?;
+    report(ctx, svc, &written)?;
 
     let all = ctx.db.job_items(ctx.job_id)?;
     let count = |status: &str| all.iter().filter(|i| i.status == status).count();
@@ -639,6 +641,7 @@ mod tests {
             id: id.into(),
             product: "p".into(),
             product_name: None,
+            brand: None,
             store: None,
             inventory,
             price: None,

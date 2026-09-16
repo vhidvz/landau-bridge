@@ -50,6 +50,8 @@ pub struct ShelfRow {
     pub id: String,
     pub product: String,
     pub product_name: Option<String>,
+    /// The registry definition's brand, from the shelf projection's `product` object.
+    pub brand: Option<String>,
     pub store: Option<String>,
     pub inventory: i64,
     pub price: Option<i64>,
@@ -103,18 +105,20 @@ pub struct AttachBody {
     pub store: String,
     pub inventory: i64,
     pub cost: i64,
+    /// The provisional price (spec §14 e): cost plus the minimum margin. A price sent on create
+    /// is not stamped MANUAL, and Landau's rule overrides it on the write (plan 107).
+    pub price: i64,
     pub authenticity: Authenticity,
 }
 
 impl AttachBody {
-    /// `price = cost` is what Landau's own delivery writes before rules run (spec §2.1).
     pub fn to_json(&self) -> Value {
         json!({
             "product": self.product,
             "store": self.store,
             "type": "NORMAL",
             "inventory": self.inventory,
-            "price": self.cost,
+            "price": self.price,
             "cost": self.cost,
             "condition": "NEW",
             "authenticity": self.authenticity.as_str(),
@@ -177,6 +181,7 @@ impl ShelfRow {
             id: s(stock, "id")?,
             product: s(stock, "product")?,
             product_name: item.get("product").and_then(|p| s(p, "name")),
+            brand: item.get("product").and_then(|p| s(p, "brand")),
             store: s(stock, "store"),
             inventory: n(stock, "inventory").unwrap_or(0),
             price: n(stock, "price"),
@@ -437,14 +442,20 @@ impl LandauClient {
         })
     }
 
-    pub async fn patch(&self, id: &str, body: &PatchBody) -> Result<()> {
-        self.call(
-            Method::PATCH,
-            &format!("/career/stocks/{id}"),
-            Some(&body.to_json()),
-        )
-        .await
-        .map(|_| ())
+    /// `PATCH /career/stocks/:id` — the reply is the row, priced by Landau's rule when the body
+    /// carried `cost` (plan 107); never send `price` here (it would stamp the row MANUAL).
+    pub async fn patch(&self, id: &str, body: &PatchBody) -> Result<ShelfRow> {
+        let v = self
+            .call(
+                Method::PATCH,
+                &format!("/career/stocks/{id}"),
+                Some(&body.to_json()),
+            )
+            .await?;
+        ShelfRow::from_item(peel(&v)).ok_or_else(|| BridgeError::LandauRejected {
+            status: 200,
+            body: "reply without id".into(),
+        })
     }
 
     pub async fn delete(&self, id: &str) -> Result<()> {
@@ -484,13 +495,17 @@ impl LandauClient {
             .collect())
     }
 
-    /// `POST /career/pricing-rules/reprice {store, commit: true, overwrite, skip}` paged to total.
-    pub async fn reprice(&self, store: &str, overwrite: bool) -> Result<Vec<RepricedRow>> {
+    /// `POST /career/pricing-rules/reprice {stocks, commit: true, overwrite}` in chunks of fifty,
+    /// priced from the authoritative store — no mirror wait (spec §14 f). Every existing id comes
+    /// back; a deleted one is absent.
+    pub async fn reprice_stocks(
+        &self,
+        ids: &[String],
+        overwrite: bool,
+    ) -> Result<Vec<RepricedRow>> {
         let mut rows = Vec::new();
-        let mut skip = 0u64;
-        loop {
-            let body =
-                json!({"store": store, "commit": true, "overwrite": overwrite, "skip": skip});
+        for chunk in reprice_chunks(ids) {
+            let body = json!({"stocks": chunk, "commit": true, "overwrite": overwrite});
             let v = self
                 .call(Method::POST, "/career/pricing-rules/reprice", Some(&body))
                 .await?;
@@ -500,12 +515,6 @@ impl LandauClient {
                 .and_then(|r| r.as_array())
                 .cloned()
                 .unwrap_or_default();
-            let total = page.get("total").and_then(|t| t.as_u64()).unwrap_or(0);
-            let limit = page
-                .get("limit")
-                .and_then(|t| t.as_u64())
-                .unwrap_or(100)
-                .max(1);
             rows.extend(items.iter().filter_map(|r| {
                 Some(RepricedRow {
                     stock: s(r, "stock")?,
@@ -517,33 +526,16 @@ impl LandauClient {
                     skipped: s(r, "skipped"),
                 })
             }));
-            skip += limit;
-            if items.is_empty() || skip >= total {
-                break;
-            }
         }
         Ok(rows)
     }
+}
 
-    /// Poll the shelf until every id is visible. Returns the ids still missing at `timeout`.
-    pub async fn await_visible(
-        &self,
-        store: &str,
-        ids: &[String],
-        timeout: Duration,
-    ) -> Result<Vec<String>> {
-        let deadline = tokio::time::Instant::now() + timeout;
-        let mut missing: Vec<String> = ids.to_vec();
-        loop {
-            let seen: std::collections::HashSet<String> =
-                self.shelf(store).await?.into_iter().map(|r| r.id).collect();
-            missing.retain(|id| !seen.contains(id));
-            if missing.is_empty() || tokio::time::Instant::now() >= deadline {
-                return Ok(missing);
-            }
-            tokio::time::sleep(Duration::from_secs(1)).await;
-        }
-    }
+pub const REPRICE_STOCKS_MAX: usize = 50;
+
+/// `reprice {stocks}` takes at most fifty ids (plan 107).
+pub fn reprice_chunks(ids: &[String]) -> Vec<Vec<String>> {
+    ids.chunks(REPRICE_STOCKS_MAX).map(|c| c.to_vec()).collect()
 }
 
 #[cfg(test)]
@@ -595,13 +587,14 @@ mod tests {
             store: "s".into(),
             inventory: 2,
             cost: 1100,
+            price: 2000,
             authenticity: Authenticity::Fake,
         };
         let v = serde_json::to_value(body.to_json()).unwrap();
         assert_eq!(v["type"], "NORMAL");
         assert_eq!(v["condition"], "NEW");
         assert_eq!(v["authenticity"], "FAKE");
-        assert_eq!(v["price"], 1100);
+        assert_eq!(v["price"], 2000, "the provisional price, not the cost");
         assert_eq!(v["cost"], 1100);
         assert_eq!(v["inventory"], 2);
     }
@@ -641,5 +634,44 @@ mod tests {
         }
         .to_json();
         assert!(v.get("inventory").is_none());
+    }
+
+    #[test]
+    fn a_write_reply_carries_the_rule_price_and_provenance() {
+        // the PATCH reply measured live on 2026-09-15 (plan 107)
+        let reply: Value = serde_json::from_str(
+            r#"{"id":"6aa9","product":"6aa1","store":"6aa6","inventory":0,"price":2300000,"cost":2000000,
+            "priced":{"cost":2000000,"cost_source":"SELLER","cost_at":"2026-09-15T18:01:25.469Z","source":"RULE","rule":"6aa7","at":"2026-09-15T18:01:25.478Z"},
+            "condition":"NEW","authenticity":"ORIGINAL","type":"NORMAL"}"#,
+        )
+        .unwrap();
+        let row = ShelfRow::from_item(&reply).unwrap();
+        assert_eq!((row.price, row.cost), (Some(2_300_000), Some(2_000_000)));
+        assert_eq!(row.price_source.as_deref(), Some("RULE"));
+        assert!(row.brand.is_none(), "a raw row has no product object");
+        let shelf_item: Value = serde_json::from_str(
+            r#"{"stock":{"id":"s","product":"p","price":1,"cost":1},"product":{"id":"p","name":"سیبک","brand":"امیرنیا"}}"#,
+        )
+        .unwrap();
+        let row = ShelfRow::from_item(&shelf_item).unwrap();
+        assert_eq!(row.brand.as_deref(), Some("امیرنیا"));
+        assert_eq!(row.product_name.as_deref(), Some("سیبک"));
+    }
+
+    #[test]
+    fn attach_sends_the_provisional_price_and_reprice_bodies_are_chunked_by_fifty() {
+        let body = AttachBody {
+            product: "p".into(),
+            store: "s".into(),
+            inventory: 3,
+            cost: 1_000_000,
+            price: 1_150_000,
+            authenticity: Authenticity::Original,
+        };
+        assert_eq!(body.to_json()["price"], 1_150_000);
+        assert_eq!(body.to_json()["cost"], 1_000_000);
+        let ids: Vec<String> = (0..120).map(|i| format!("id{i}")).collect();
+        let chunks = reprice_chunks(&ids);
+        assert_eq!(chunks.iter().map(Vec::len).collect::<Vec<_>>(), [50, 50, 20]);
     }
 }

@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use serde_json::json;
 
 use super::{
-    fatal, i, opt_i, preflight, quote_for, readback, reprice_items, t, JobCtx, Services,
+    fatal, i, opt_i, preflight, quote_for, report, reprice_items, t, JobCtx, Services,
     VatMismatches,
 };
 use crate::errors::{kinds, BridgeError, Result};
@@ -153,10 +153,14 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
                 )
                 .await
             {
-                Ok(()) => {
+                Ok(reply) => {
                     ctx.item(
                         *item_id,
-                        &[("action", t("PATCH")), ("status", t("WRITTEN"))],
+                        &[
+                            ("action", t("PATCH")),
+                            ("price_after", opt_i(reply.price)),
+                            ("status", t("WRITTEN")),
+                        ],
                     )?;
                     true
                 }
@@ -186,8 +190,8 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
         );
     }
 
-    reprice_items(ctx, svc, &store, &written).await?;
-    readback(ctx, svc, &store, &written).await?;
+    reprice_items(ctx, svc, &written).await?;
+    report(ctx, svc, &written)?;
 
     let all = ctx.db.job_items(ctx.job_id)?;
     let summary = json!({

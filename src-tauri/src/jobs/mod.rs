@@ -8,7 +8,6 @@ pub mod refresh;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -25,7 +24,6 @@ use crate::supplier::Supplier;
 pub const EVENT_PROGRESS: &str = "job://progress";
 pub const EVENT_EVENT: &str = "job://event";
 pub const EVENT_DONE: &str = "job://done";
-pub const MIRROR_WAIT: Duration = Duration::from_secs(15);
 
 /// Short constructors for [`ItemPatch`] values.
 pub fn t(s: &str) -> rusqlite::types::Value {
@@ -367,65 +365,55 @@ pub async fn quote_for(
     }))
 }
 
-/// Wait for the mirror, run Landau's rules over the store, and stamp each item's verdict.
-/// `items` = (item_id, stock_id).
-pub async fn reprice_items(
-    ctx: &JobCtx,
-    svc: &Services,
-    store: &str,
-    items: &[(i64, String)],
-) -> Result<()> {
+/// `(reprice_verdict, final price)` of one row Landau answered (spec §14 f).
+pub fn verdict_of(row: &RepricedRow) -> (String, Option<i64>) {
+    let verdict = match (&row.next, row.skipped.as_deref()) {
+        (Some(next), _) => format!("REPRICED:{next}"),
+        (None, Some("UNCHANGED")) | (None, None) => "UNCHANGED".to_string(),
+        (None, Some(why)) => format!("SKIPPED:{why}"),
+    };
+    (verdict, row.next.or(row.price))
+}
+
+/// Price the written rows by Landau's rules from the authoritative store (plan 107), stamp each
+/// item's verdict and final price. `items` = (item_id, stock_id). A row Landau no longer has is
+/// `MISSING`, warned once.
+pub async fn reprice_items(ctx: &JobCtx, svc: &Services, items: &[(i64, String)]) -> Result<()> {
     ctx.phase("REPRICE")?;
-    let ids: Vec<String> = items.iter().map(|(_, s)| s.clone()).collect();
-    if !ids.is_empty() {
-        let missing = svc.landau.await_visible(store, &ids, MIRROR_WAIT).await?;
-        if !missing.is_empty() {
-            ctx.warn(
-                "REPRICE",
-                kinds::MIRROR_TIMEOUT,
-                &BridgeError::MirrorTimeout(missing.len()).message_fa(),
-                Some(json!({"missing": missing})),
-            );
-        }
+    if items.is_empty() {
+        return Ok(());
     }
     let job = ctx
         .db
         .job(ctx.job_id)?
         .ok_or(BridgeError::JobNotFound(ctx.job_id))?;
-    let rows: Vec<RepricedRow> = svc.landau.reprice(store, job.overwrite).await?;
+    let ids: Vec<String> = items.iter().map(|(_, s)| s.clone()).collect();
+    let rows = svc.landau.reprice_stocks(&ids, job.overwrite).await?;
     ctx.info(
         "REPRICE",
-        &format!("reprice answered {} row(s)", rows.len()),
+        &format!("reprice answered {} of {} row(s)", rows.len(), ids.len()),
         None,
     );
     let mut skipped: HashMap<String, Vec<String>> = HashMap::new();
+    let mut missing: Vec<String> = Vec::new();
     for (item_id, stock_id) in items {
         ctx.check_cancel()?;
-        let row_match = rows.iter().find(|r| &r.stock == stock_id);
-        let verdict = row_match.map(|r| match (&r.next, &r.skipped) {
-            (Some(next), _) => format!("REPRICED:{next}"),
-            (None, Some(why)) => format!("SKIPPED:{why}"),
-            (None, None) => "UNCHANGED".to_string(),
-        });
-        if let Some(why) = row_match.and_then(|r| r.skipped.clone()) {
-            // Landau can also report `skipped = "UNCHANGED"`, which is not a rejection.
-            if why != "UNCHANGED" {
-                skipped.entry(why).or_default().push(stock_id.clone());
-            }
+        let Some(row) = rows.iter().find(|r| &r.stock == stock_id) else {
+            missing.push(stock_id.clone());
+            ctx.item(*item_id, &[("reprice_verdict", t("MISSING"))])?;
+            continue;
+        };
+        if let Some(why) = row.skipped.as_deref().filter(|w| *w != "UNCHANGED") {
+            skipped
+                .entry(why.to_string())
+                .or_default()
+                .push(stock_id.clone());
         }
-        let mut patch: Vec<(&str, rusqlite::types::Value)> = vec![(
-            "reprice_verdict",
-            verdict
-                .as_deref()
-                .map(t)
-                .unwrap_or(rusqlite::types::Value::Null),
-        )];
-        // the item's final price is already known when Landau just repriced it; `readback`
-        // fills the rest (rows Landau left UNCHANGED or SKIPPED) from a fresh shelf read.
-        if let Some(next) = row_match.and_then(|r| r.next) {
-            patch.push(("price_after", i(next)));
-        }
-        ctx.item(*item_id, &patch)?;
+        let (verdict, price) = verdict_of(row);
+        ctx.item(
+            *item_id,
+            &[("reprice_verdict", t(&verdict)), ("price_after", opt_i(price))],
+        )?;
     }
     if !skipped.is_empty() {
         let count: usize = skipped.values().map(Vec::len).sum();
@@ -436,38 +424,45 @@ pub async fn reprice_items(
             Some(json!(skipped)),
         );
     }
+    if !missing.is_empty() {
+        ctx.warn(
+            "REPRICE",
+            kinds::REPRICE_SKIPPED,
+            &format!("{} ردیف دیگر روی قفسه نیست.", missing.len()),
+            Some(json!({"missing": missing})),
+        );
+    }
     Ok(())
 }
 
-/// Wait out mirror lag, read the shelf once more, and fill any `price_after` still missing —
-/// `reprice_items` already stamped it for rows Landau just repriced. Mark items DONE either way.
-pub async fn readback(
-    ctx: &JobCtx,
-    svc: &Services,
-    store: &str,
-    items: &[(i64, String)],
-) -> Result<()> {
+/// Mark the written items DONE and audit the margin (spec §14 e): a final price under the
+/// minimum is noted on the item and counted in one warning.
+pub fn report(ctx: &JobCtx, svc: &Services, items: &[(i64, String)]) -> Result<()> {
     ctx.phase("REPORT")?;
-    if items.is_empty() {
-        return Ok(());
-    }
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    let shelf = svc.landau.shelf(store).await?;
+    let margin = svc.settings.min_margin_percent;
+    let mut thin: Vec<Value> = Vec::new();
     for (item_id, stock_id) in items {
-        let already_priced = ctx
-            .db
-            .job_item(*item_id)?
-            .and_then(|row| row.price_after)
-            .is_some();
-        let mut patch: Vec<(&str, rusqlite::types::Value)> = vec![("status", t("DONE"))];
-        if !already_priced {
-            let price = shelf
-                .iter()
-                .find(|r| &r.id == stock_id)
-                .and_then(|r| r.price);
-            patch.push(("price_after", opt_i(price)));
+        let Some(row) = ctx.db.job_item(*item_id)? else {
+            continue;
+        };
+        if let (Some(cost), Some(price)) = (row.cost, row.price_after) {
+            if pricing::below_min_margin(price, cost, margin) {
+                ctx.db.add_item_note(*item_id, "زیر حداقل سود")?;
+                thin.push(json!({"item_id": item_id, "stock_id": stock_id, "cost": cost, "price": price}));
+            }
         }
-        ctx.item(*item_id, &patch)?;
+        ctx.item(*item_id, &[("status", t("DONE"))])?;
+    }
+    if !thin.is_empty() {
+        ctx.warn(
+            "REPORT",
+            kinds::BELOW_MIN_MARGIN,
+            &format!(
+                "{} ردیف زیر حداقل سود ({margin}٪) قیمت خورده است؛ قیمت دستی یا قاعدهٔ کم‌سود را بررسی کنید.",
+                thin.len()
+            ),
+            Some(json!(thin)),
+        );
     }
     Ok(())
 }
@@ -487,6 +482,129 @@ mod tests {
             job_id,
             cancel: Default::default(),
         }
+    }
+
+    /// A `Supplier` that is never reached: `report` is offline, and `Services` needs one.
+    struct NoSupplier;
+
+    #[async_trait::async_trait]
+    impl Supplier for NoSupplier {
+        fn id(&self) -> &'static str {
+            "none"
+        }
+        async fn login(&self) -> Result<()> {
+            Err(BridgeError::Other("offline".into()))
+        }
+        async fn ledger(
+            &self,
+            _from: Option<&str>,
+            _progress: crate::supplier::Progress,
+        ) -> Result<Vec<crate::domain::InvoiceHeader>> {
+            Err(BridgeError::Other("offline".into()))
+        }
+        async fn invoice_lines(&self, _url: &str) -> Result<Vec<crate::domain::InvoiceLine>> {
+            Err(BridgeError::Other("offline".into()))
+        }
+        async fn price_of(&self, _code: &str) -> Result<Option<crate::domain::PriceQuote>> {
+            Err(BridgeError::Other("offline".into()))
+        }
+        async fn quotes_by_name(&self, _name: &str) -> Result<Vec<crate::domain::PriceQuote>> {
+            Err(BridgeError::Other("offline".into()))
+        }
+    }
+
+    fn test_services(min_margin_percent: f64) -> Services {
+        Services {
+            landau: LandauClient::new("http://127.0.0.1:1", "apt-test").unwrap(),
+            supplier: Box::new(NoSupplier),
+            settings: Settings {
+                landau_url: "http://127.0.0.1:1".into(),
+                landau_token: Some("apt-test".into()),
+                store: Some("store1".into()),
+                store_name: None,
+                supplier_user: None,
+                supplier_password: None,
+                default_authenticity: crate::domain::Authenticity::Original,
+                threshold: 85,
+                vat_percent: 10.0,
+                min_margin_percent,
+                overwrite_manual: false,
+                fetch_since_only: true,
+            },
+        }
+    }
+
+    fn repriced(
+        stock: &str,
+        price: Option<i64>,
+        next: Option<i64>,
+        skipped: Option<&str>,
+    ) -> RepricedRow {
+        RepricedRow {
+            stock: stock.into(),
+            product: "p".into(),
+            price,
+            next,
+            cost: Some(1),
+            rule: None,
+            skipped: skipped.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn a_reprice_row_yields_a_verdict_and_the_final_price() {
+        assert_eq!(
+            verdict_of(&repriced("a", Some(100), Some(115), None)),
+            ("REPRICED:115".into(), Some(115))
+        );
+        assert_eq!(
+            verdict_of(&repriced("a", Some(100), None, Some("MANUAL"))),
+            ("SKIPPED:MANUAL".into(), Some(100))
+        );
+        assert_eq!(
+            verdict_of(&repriced("a", Some(100), None, Some("UNCHANGED"))),
+            ("UNCHANGED".into(), Some(100))
+        );
+        assert_eq!(
+            verdict_of(&repriced("a", Some(100), None, None)),
+            ("UNCHANGED".into(), Some(100))
+        );
+    }
+
+    #[test]
+    fn the_report_marks_items_done_and_flags_a_thin_margin() {
+        let ctx = ctx();
+        let svc = test_services(15.0);
+        let db = &ctx.db;
+        let fine = db.add_job_item(ctx.job_id, "1", "خوب", 0).unwrap();
+        db.update_job_item(
+            fine,
+            &[
+                ("cost", i(1_000_000)),
+                ("price_after", i(1_150_000)),
+                ("status", t("WRITTEN")),
+            ],
+        )
+        .unwrap();
+        let thin = db.add_job_item(ctx.job_id, "2", "کم‌سود", 0).unwrap();
+        db.update_job_item(
+            thin,
+            &[
+                ("cost", i(1_000_000)),
+                ("price_after", i(1_050_000)),
+                ("status", t("WRITTEN")),
+            ],
+        )
+        .unwrap();
+        report(&ctx, &svc, &[(fine, "sa".into()), (thin, "sb".into())]).unwrap();
+        let rows = db.job_items(ctx.job_id).unwrap();
+        assert!(rows.iter().all(|r| r.status == "DONE"));
+        assert_eq!(rows[0].note, None);
+        assert_eq!(rows[1].note.as_deref(), Some("زیر حداقل سود"));
+        let events = db.job_detail(ctx.job_id).unwrap().events;
+        assert!(events
+            .iter()
+            .any(|e| e.level == "WARN" && e.message.contains("زیر حداقل سود")));
     }
 
     #[test]

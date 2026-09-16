@@ -1,7 +1,6 @@
 //! Runs only with `--features live` and LND_API_URL / LND_APT_TOKEN / LND_STORE set.
 #![cfg(feature = "live")]
 
-use std::time::Duration;
 
 use landau_bridge_lib::domain::Authenticity;
 use landau_bridge_lib::errors::BridgeError;
@@ -66,6 +65,8 @@ async fn memberships_shelf_search_attach_patch_reprice_delete() {
     // trash (`shelf_deleted`) and restoring the row (`restore`, exercised by `live_e2e`); this
     // test only checks the plain attach path, so on a 409 it simply moves on to the next
     // unstocked candidate.
+    // Plan 107 (spec §14 f): a create carrying `cost` is priced by the fixture's 15 % SHELF rule
+    // on the write itself; the provisional price the bridge sends is overridden, never sticky.
     let (row, product) = loop {
         let product = candidates.next().expect(
             "every candidate in this search term was already attached-then-removed by a prior run",
@@ -75,7 +76,8 @@ async fn memberships_shelf_search_attach_patch_reprice_delete() {
                 product: product.id.clone(),
                 store: store.clone(),
                 inventory: 1,
-                cost: 150_000,
+                cost: 160_000,
+                price: 200_000,
                 authenticity: Authenticity::Fake,
             })
             .await
@@ -86,51 +88,43 @@ async fn memberships_shelf_search_attach_patch_reprice_delete() {
         }
     };
     assert_eq!(row.product, product.id);
-
-    let missing = landau
-        .await_visible(
-            &store,
-            std::slice::from_ref(&row.id),
-            Duration::from_secs(15),
-        )
-        .await
-        .expect("await");
-    assert!(
-        missing.is_empty(),
-        "row not visible on the mirror within 15 s"
-    );
-
-    let visible = landau
-        .shelf(&store)
-        .await
-        .unwrap()
-        .into_iter()
-        .find(|r| r.id == row.id)
-        .unwrap();
-    assert_eq!(visible.cost, Some(150_000));
+    assert_eq!(row.cost, Some(160_000), "the write reply carries the cost");
     assert_eq!(
-        visible.price,
-        Some(150_000),
-        "price = cost before any rule runs"
+        row.price,
+        Some(184_000),
+        "160 000 × 1.15 by the rule, not the 200 000 sent"
     );
-    assert_ne!(visible.price_source.as_deref(), Some("MANUAL"));
+    assert_eq!(row.price_source.as_deref(), Some("RULE"));
 
-    landau
+    let patched = landau
         .patch(
             &row.id,
             &PatchBody {
                 inventory: Some(4),
-                cost: Some(160_000),
+                cost: Some(200_000),
             },
         )
         .await
         .expect("patch");
+    assert_eq!(patched.price, Some(230_000), "a new cost is re-priced on the write");
+    assert_eq!(patched.inventory, 4);
+
     let _rules = landau.pricing_rules().await.expect("rules");
-    let repriced = landau.reprice(&store, false).await.expect("reprice");
-    assert!(
-        repriced.iter().any(|r| r.stock == row.id),
-        "reprice pages the whole store"
-    );
+    let repriced = landau
+        .reprice_stocks(std::slice::from_ref(&row.id), false)
+        .await
+        .expect("reprice {stocks}");
+    let mine = repriced
+        .iter()
+        .find(|r| r.stock == row.id)
+        .expect("the targeted reprice answers the row at once, no mirror wait");
+    assert_eq!(mine.price, Some(230_000));
+    assert_eq!(mine.skipped.as_deref(), Some("UNCHANGED"));
+    assert!(landau
+        .reprice_stocks(&["000000000000000000000000".to_string()], false)
+        .await
+        .expect("a bogus id is simply absent")
+        .is_empty());
 
     landau.delete(&row.id).await.expect("delete");
 }

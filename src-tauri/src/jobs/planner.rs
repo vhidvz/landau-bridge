@@ -335,6 +335,7 @@ mod tests {
             id: id.into(),
             product: product.into(),
             product_name: None,
+            brand: None,
             store: None,
             inventory,
             price: Some(1000),
