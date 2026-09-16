@@ -5,6 +5,7 @@
 use landau_bridge_lib::db::Db;
 use landau_bridge_lib::domain::ImportMode;
 use landau_bridge_lib::jobs::import::{self, ImportParams, Outcome};
+use landau_bridge_lib::jobs::pricing::floor_price;
 use landau_bridge_lib::jobs::{refresh, JobCtx, Services};
 use landau_bridge_lib::landau::{LandauClient, PatchBody};
 use landau_bridge_lib::matching::Matcher;
@@ -156,9 +157,22 @@ async fn zero_import_then_refresh_round_trip() {
         "zero mode"
     );
     assert!(detail.events.iter().any(|e| e.phase == "REPRICE"));
-    // a `REPRICED:<next>` verdict names Landau's own new price; its arithmetic is not
-    // re-implemented here, so the check stays loose: whole-thousand and never below cost.
+    // Plan 107 / spec §14 e–f: every write is priced by the fixture's 15 % SHELF rule (rounding
+    // 1 000), which is exactly the bridge's provisional floor at the default 15 % margin — so a
+    // fresh row's final price equals `floor_price(cost, 15)` and no row is below the margin.
     for i in &done {
+        let cost = i.cost.expect("costed");
+        let price = i.price_after.expect("the write reply and the reprice both carry a price");
+        assert!(i.available.is_some(), "availability is recorded");
+        if i.action.as_deref() == Some("ATTACH") {
+            assert_eq!(
+                price,
+                floor_price(cost, 15.0),
+                "code={} cost={cost}: Landau's rule priced the attach",
+                i.code
+            );
+        }
+        assert!(price % 1000 == 0 && price >= cost, "price={price} cost={cost}");
         if let Some(next) = i
             .reprice_verdict
             .as_deref()
@@ -166,13 +180,15 @@ async fn zero_import_then_refresh_round_trip() {
             .and_then(|n| n.parse::<i64>().ok())
         {
             assert_eq!(i.price_after, Some(next), "REPRICED price_after == next");
-            assert!(
-                next % 1000 == 0 && next >= i.cost.unwrap_or(0),
-                "next={next} cost={:?}",
-                i.cost
-            );
         }
     }
+    assert!(
+        !detail
+            .events
+            .iter()
+            .any(|e| e.message.contains("زیر حداقل سود")),
+        "a 15 % rule against a 15 % minimum never trips the margin audit"
+    );
 
     // ---- refresh
     let job_id = db.create_job("REFRESH", None, None, &store, false).unwrap();
@@ -185,13 +201,23 @@ async fn zero_import_then_refresh_round_trip() {
     let svc = services();
     refresh::run(&ctx, &svc).await.expect("refresh");
     let detail = db.job_detail(job_id).unwrap();
-    assert!(
-        detail
-            .items
-            .iter()
-            .any(|i| !i.code.is_empty() && i.status == "DONE"),
-        "linked rows were refreshed"
-    );
+    let refreshed: Vec<_> = detail
+        .items
+        .iter()
+        .filter(|i| !i.code.is_empty() && i.status == "DONE")
+        .collect();
+    assert!(!refreshed.is_empty(), "linked rows were refreshed");
+    for i in &refreshed {
+        assert!(i.price_after.is_some(), "code={}: a final price", i.code);
+        let verdict = i.reprice_verdict.as_deref().unwrap_or("");
+        assert!(
+            verdict == "UNCHANGED"
+                || verdict.starts_with("REPRICED:")
+                || verdict == "SKIPPED:MANUAL",
+            "code={}: verdict {verdict}",
+            i.code
+        );
+    }
 
     // ---- cleanup: soft-delete rows this test attached
     let landau = LandauClient::new(&url, &token).unwrap();

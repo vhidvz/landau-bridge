@@ -12,10 +12,11 @@
 2. **Registry** — the bridge matches against Landau's `career/products`. If `POST /-/career/products/search` answers no hits, re-import the parts (curator key needed):
    `cd /home/vahid/WorkSpace/landau-parts && ./run_import_parts_landau.sh preflight && ./run_import_parts_landau.sh run --workers 4`
 3. **API key** — `LND_ROLES_FILE=/home/vahid/Claude/.memory/.local/landau-roles.json node scripts/mint-apt.mjs` → `eval` its output.
-4. **Pricing rule** (optional, to see rule-derived prices rather than price = cost):
+4. **Pricing rule** (required since spec §14 e — a job without an active rule fails preflight; the fixture store already carries one):
    `curl -s -X POST "$LND_API_URL/career/pricing-rules" -H "authorization: Bearer $LND_APT_TOKEN" -H 'content-type: application/json' -d '{"scope":"SHELF","basis":"MARKUP_PERCENT","value":15,"rounding":1000,"floor_at_cost":true,"active":true}'`
 5. **Barezpakhsh credentials** — the seller's; for tests, the ones in the prior scraper's code:
    `export BAREZ_USER=$(grep -o '"USER": "[^"]*"' /home/vahid/WorkSpace/barezpakhsh-scraper/stock.py | cut -d'"' -f4); export BAREZ_PASS=$(grep -o '"PASS": "[^"]*"' /home/vahid/WorkSpace/barezpakhsh-scraper/stock.py | cut -d'"' -f4)`
+6. **Name map** (spec §14 c) — in the app: Settings → «بارگذاری فایل نگاشت» → `/home/vahid/WorkSpace/landau-parts/output/parts_map.csv`. The refresh job costs unlinked shelf rows through it; without it they are reported «بدون پیوند».
 
 ## Tests
 - Offline: `cd src-tauri && cargo test` · `pnpm test`
@@ -60,7 +61,9 @@ Check it with `python3 -c "import gi; gi.require_version('WebKit2','4.1')"`. By 
 - **No "fetch everything again" control** (spec §4). Invoices are cached by number and kind and never refetched; to force a refetch, delete the invoice rows (or the whole `bridge.sqlite`) in the data folder.
 - **The refresh report shows the new cost only** (spec §7.2 says old → new cost and price). `job_items.cost` holds today's cost; the old cost is not kept on the item, though the price before/after columns are.
 - **`landau_validate` does not restrict to RETAIL stores** (spec §5). Every non-rejected store of the approved business is offered; the seller picks.
-- **`price_of` is called once per shelf row, not once per code** (spec §7.2). Two rows linked to the same code cost two searches; the price snapshot is recorded each time.
+- **One name search per shelf row, not one per code** (spec §7.2, §14 b). Two rows linked to the same name cost two searches; the price snapshot is recorded each time.
+- **Spec §14 supersedes §1/§7.2 on pricing**: no active rule fails preflight (`NoPricingRule`); `reprice` is Landau's targeted `{stocks}` form (plan 107, chunks of 50); the mirror is never awaited — `price_after` comes from the write reply and the reprice verdict.
+- **Schema**: a `bridge.sqlite` from before 2026-09-16 (user_version 1) is migrated in place on launch; `matches` is re-keyed by name and old decisions are backfilled.
 - **Event and command names**: the job event is `job://event` (spec §3 says `job://phase`) and the detail command is `job_get` (spec §3 says `job_detail`); `job://progress` and `job://done` are as specified.
 - **Return handling** (spec §13 says a net-negative item is clamped to 0 at aggregation): the net quantity stays signed across runs, the shelf is floored at zero at write time, and the `NegativeQuantity` warning names the shortfall — a return that arrives after the sale was transferred subtracts from the shelf.
 - **Icons are bundled** and the app declares a CSP (`tauri.conf.json`); nothing is fetched from api.iconify.design at runtime. The CSP applies to the built app only — `pnpm tauri dev` loads the page from the Nuxt dev server, where Tauri cannot inject headers.

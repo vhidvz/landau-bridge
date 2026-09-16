@@ -28,7 +28,7 @@
 - Modify (already changed in the tree): `src-tauri/src/supplier/barezpakhsh/client.rs`, `src-tauri/tests/live_supplier.rs`, `docs/superpowers/specs/2026-09-13-landau-bridge-design.md`
 - Add: `docs/landau-request-pricing-at-write.md`
 
-- [ ] **Step 1: Branch and confirm the tree is green**
+- [x] **Step 1: Branch and confirm the tree is green**
 
 ```bash
 git switch -c names-and-margin
@@ -36,7 +36,7 @@ cd src-tauri && cargo test 2>&1 | grep -E 'test result|FAILED' && cargo clippy -
 ```
 Expected: `90 passed`, no clippy output.
 
-- [ ] **Step 2: Commit**
+- [x] **Step 2: Commit**
 
 ```bash
 git add src-tauri/src/supplier/barezpakhsh/client.rs src-tauri/tests/live_supplier.rs docs/superpowers/specs/2026-09-13-landau-bridge-design.md docs/landau-request-pricing-at-write.md
@@ -57,7 +57,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `pub fn name_key(s: &str) -> String` (normalised, lower-cased, punctuation kept); `pub const SEARCH_WORDS: usize = 7`; `pub fn search_words(name: &str) -> String` (first 7 words of `normalize_text(name)`).
 
-- [ ] **Step 1: Write the failing tests** — append to the `#[cfg(test)] mod tests` of `normalize.rs` (create the module if the file has none):
+- [x] **Step 1: Write the failing tests** — append to the `#[cfg(test)] mod tests` of `normalize.rs` (create the module if the file has none):
 
 ```rust
     #[test]
@@ -77,12 +77,12 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
     }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `cd src-tauri && cargo test --lib normalize::tests 2>&1 | grep -E 'error|cannot find'`
 Expected: `cannot find function name_key` / `search_words`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Add below `key_text` in `normalize.rs`:
 
@@ -108,12 +108,12 @@ pub fn search_words(name: &str) -> String {
 }
 ```
 
-- [ ] **Step 4: Run to verify they pass**
+- [x] **Step 4: Run to verify they pass**
 
 Run: `cd src-tauri && cargo test --lib normalize::tests`
 Expected: all `ok`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/matching/normalize.rs
@@ -134,7 +134,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Consumes: `search_words` (Task 1).
 - Produces: `parse::is_error_page(&str) -> bool`; trait method `async fn quotes_by_name(&self, name: &str) -> Result<Vec<PriceQuote>>` on `Supplier`; `Client::search_page` / `search_pages` (private).
 
-- [ ] **Step 1: Capture the error page fixture** (read-only; the site answers it to an eight-word term)
+- [x] **Step 1: Capture the error page fixture** (read-only; the site answers it to an eight-word term)
 
 ```bash
 cd src-tauri/fixtures/barezpakhsh && export NO_PROXY='*' && python3 - <<'PY'
@@ -152,7 +152,7 @@ grep -c 'بروز خطا' error-page.html; grep -c 'نمونه خريدار' err
 ```
 Expected: `1` and `≥ 1` (the name was scrubbed). Read the file once to confirm it holds nothing personal.
 
-- [ ] **Step 2: Write the failing parse test** — in `parse.rs` tests:
+- [x] **Step 2: Write the failing parse test** — in `parse.rs` tests:
 
 ```rust
     const ERROR_PAGE: &str = include_str!("../../../fixtures/barezpakhsh/error-page.html");
@@ -168,12 +168,12 @@ Expected: `1` and `≥ 1` (the name was scrubbed). Read the file once to confirm
     }
 ```
 
-- [ ] **Step 3: Run to verify it fails**
+- [x] **Step 3: Run to verify it fails**
 
 Run: `cd src-tauri && cargo test --lib recognises_the_sites_error_page 2>&1 | grep -E 'error|cannot find'`
 Expected: `cannot find function is_error_page`.
 
-- [ ] **Step 4: Implement `is_error_page`** — in `parse.rs` after `is_login_page`:
+- [x] **Step 4: Implement `is_error_page`** — in `parse.rs` after `is_login_page`:
 
 ```rust
 /// The site's generic error page («بروز خطا لطفا چند دقیقه دیگر دوباره سعی نمایید»): HTTP 200 with
@@ -184,12 +184,12 @@ pub fn is_error_page(body: &str) -> bool {
 }
 ```
 
-- [ ] **Step 5: Run to verify it passes**
+- [x] **Step 5: Run to verify it passes**
 
 Run: `cd src-tauri && cargo test --lib recognises_the_sites_error_page`
 Expected: `ok`.
 
-- [ ] **Step 6: Write the failing client tests** — in `client.rs` tests, below the `price_search_*` tests:
+- [x] **Step 6: Write the failing client tests** — in `client.rs` tests, below the `price_search_*` tests:
 
 ```rust
     #[tokio::test]
@@ -214,12 +214,12 @@ Expected: `ok`.
     }
 ```
 
-- [ ] **Step 7: Run to verify they fail**
+- [x] **Step 7: Run to verify they fail**
 
 Run: `cd src-tauri && cargo test --lib search_pages_ 2>&1 | grep -E 'cannot find'`
 Expected: `cannot find function collect_pages`.
 
-- [ ] **Step 8: Implement** — in `client.rs`:
+- [x] **Step 8: Implement** — in `client.rs`:
 
 (a) Next to `find_across_pages`:
 
@@ -344,12 +344,12 @@ and in `impl Supplier for Client`:
     async fn quotes_by_name(&self, name: &str) -> Result<Vec<PriceQuote>>;
 ```
 
-- [ ] **Step 9: Run the whole offline suite and clippy**
+- [x] **Step 9: Run the whole offline suite and clippy**
 
 Run: `cd src-tauri && cargo test 2>&1 | grep -E 'test result|FAILED' && cargo clippy --all-targets 2>&1 | grep -E '^(warning|error)'`
 Expected: all passed, nothing from clippy.
 
-- [ ] **Step 10: Extend the live test** — in `tests/live_supplier.rs`, after the `deep` assertion:
+- [x] **Step 10: Extend the live test** — in `tests/live_supplier.rs`, after the `deep` assertion:
 
 ```rust
     // §14 b: the site's search is a per-word AND over at most seven words; the equal-name row is
@@ -372,12 +372,12 @@ Expected: all passed, nothing from clippy.
         >= 1);
 ```
 
-- [ ] **Step 11: Run it live**
+- [x] **Step 11: Run it live**
 
 Run: `cd src-tauri && export NO_PROXY='*' && cargo test --features live --test live_supplier -- --nocapture 2>&1 | grep -E 'test result|panicked'`
 Expected: `2 passed`.
 
-- [ ] **Step 12: Commit**
+- [x] **Step 12: Commit**
 
 ```bash
 git add src-tauri/src/supplier src-tauri/tests/live_supplier.rs src-tauri/fixtures/barezpakhsh/error-page.html
@@ -398,7 +398,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Consumes: `name_key` (Task 1).
 - Produces: `MatchRow { supplier, name_key, code, product_id, product_name, how, similarity, name_seen, priced_at: Option<String>, decided_at }`; `Db::match_for_name(supplier, name)`, `Db::match_for_code(supplier, code)`, `Db::set_match(supplier, name_seen, code, product: Option<(&str, &str)>, how, similarity)`, `Db::touch_priced(supplier, name_seen)`, `Db::clear_match(supplier, name_seen)`, `Db::list_matches`, `Db::linked_matches`; `JobItemRow { …, available: Option<bool>, note: Option<String> }`; `Db::add_item_note(item_id, note)`; `Db::backfill_name_keys()` (called by `migrate`).
 
-- [ ] **Step 1: Write the migration**
+- [x] **Step 1: Write the migration**
 
 `src-tauri/src/db/migrations/0002_names.sql`:
 
@@ -439,7 +439,7 @@ CREATE TABLE name_map (
 ```
 Register it: in `db/mod.rs` change `MIGRATIONS` to `&[include_str!("migrations/0001_init.sql"), include_str!("migrations/0002_names.sql")]`.
 
-- [ ] **Step 2: Write the failing tests** — in `db/mod.rs` tests:
+- [x] **Step 2: Write the failing tests** — in `db/mod.rs` tests:
 
 ```rust
     #[test]
@@ -537,12 +537,12 @@ In `db/jobs.rs` tests (find the existing tests module):
 ```
 (Use the job-creating helper the file's tests already use if its signature differs from `create_job(kind, mode, since, store, overwrite)`.)
 
-- [ ] **Step 3: Run to verify they fail**
+- [x] **Step 3: Run to verify they fail**
 
 Run: `cd src-tauri && cargo test --lib db:: 2>&1 | grep -E 'error\[|cannot find|no method'`
 Expected: unresolved `backfill_name_keys`, `match_for_name`, `match_for_code`, `touch_priced`, `add_item_note`, and `set_match` arity errors.
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 `db/mod.rs` — after the migration loop in `migrate`, call the backfill; add the method:
 
@@ -728,14 +728,14 @@ impl Db {
     }
 ```
 
-- [ ] **Step 5: Fix every caller of the old `set_match`/`match_for`/`clear_match` signatures so the crate compiles** — `matching/mod.rs` (`stored`, `decide`, `record_user_pick`, `record_none`), `commands/mod.rs` (`match_set`, `match_none`, `match_clear`, `dashboard_get` if it counts matches), `jobs/refresh.rs` (`links`). Make the *minimal* edit here (pass the name as the key and the code as the attribute); Tasks 5 and 10 rewrite these properly.
+- [x] **Step 5: Fix every caller of the old `set_match`/`match_for`/`clear_match` signatures so the crate compiles** — `matching/mod.rs` (`stored`, `decide`, `record_user_pick`, `record_none`), `commands/mod.rs` (`match_set`, `match_none`, `match_clear`, `dashboard_get` if it counts matches), `jobs/refresh.rs` (`links`). Make the *minimal* edit here (pass the name as the key and the code as the attribute); Tasks 5 and 10 rewrite these properly.
 
-- [ ] **Step 6: Run to verify the tests pass**
+- [x] **Step 6: Run to verify the tests pass**
 
 Run: `cd src-tauri && cargo test 2>&1 | grep -E 'test result|FAILED|panicked' && cargo clippy --all-targets 2>&1 | grep -E '^(warning|error)'`
 Expected: all passed, clippy silent.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src-tauri/src/db src-tauri/src/matching src-tauri/src/commands src-tauri/src/jobs
@@ -756,11 +756,11 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Consumes: `name_key` (Task 1), table `name_map` (Task 3).
 - Produces: `pub struct NameMapInfo { rows: i64, products: i64, loaded_at: Option<String>, file: Option<String> }`; `pub struct MapEntry { raw_name: String, code: String, available: bool }`; `pub fn parse_parts_map<R: std::io::Read>(r: R) -> Result<Vec<MapRow>>` with `pub struct MapRow { product_name, brand, raw_name, code, available }`; `Db::replace_name_map(&[MapRow], file: &str) -> Result<NameMapInfo>`; `Db::name_map_info()`; `Db::raw_names_for(product_name, brand) -> Result<Vec<MapEntry>>`; command `name_map_load(path) -> NameMapInfo`; `SettingsView.name_map: NameMapInfo`.
 
-- [ ] **Step 1: Dependency and capability**
+- [x] **Step 1: Dependency and capability**
 
 In `src-tauri/Cargo.toml` change `csv = { version = "1", optional = true }` to `csv = "1"` and `live = ["dep:csv"]` to `live = []`. In `capabilities/default.json` add `"dialog:allow-open"` after `"dialog:allow-save"`.
 
-- [ ] **Step 2: Write the failing tests** — `src-tauri/src/db/name_map.rs` (new file, tests at the bottom):
+- [x] **Step 2: Write the failing tests** — `src-tauri/src/db/name_map.rs` (new file, tests at the bottom):
 
 ```rust
 #[cfg(test)]
@@ -805,12 +805,12 @@ FIT0002601,آرمیچر استارت پراید AZE1540 کروز,ناموجود,
 }
 ```
 
-- [ ] **Step 3: Run to verify they fail**
+- [x] **Step 3: Run to verify they fail**
 
 Run: `cd src-tauri && cargo test --lib name_map 2>&1 | grep -E 'error|cannot find'`
 Expected: compile errors for the missing items.
 
-- [ ] **Step 4: Implement** — top of `src-tauri/src/db/name_map.rs`:
+- [x] **Step 4: Implement** — top of `src-tauri/src/db/name_map.rs`:
 
 ```rust
 //! The landau-parts map (spec §14 c): every raw Barezpakhsh name that `landau-parts` imported
@@ -942,12 +942,12 @@ impl Db {
 ```
 (`use rusqlite::OptionalExtension;` for `.optional()`.) Add `pub mod name_map;` to `db/mod.rs`.
 
-- [ ] **Step 5: Run to verify they pass**
+- [x] **Step 5: Run to verify they pass**
 
 Run: `cd src-tauri && cargo test --lib name_map`
 Expected: `2 passed`.
 
-- [ ] **Step 6: Command and settings view**
+- [x] **Step 6: Command and settings view**
 
 `commands/dto.rs`: add `pub name_map: NameMapInfo` to `SettingsView` (import `crate::db::name_map::NameMapInfo`). `commands/mod.rs`: fill it in `settings_get`/`settings_save` wherever `SettingsView` is built (`name_map: state.db.name_map_info()?`), and add:
 
@@ -969,7 +969,7 @@ pub async fn name_map_load(state: State<'_, AppState>, path: String) -> Result<N
 ```
 Register `name_map_load` in the `generate_handler![…]` list in `lib.rs`.
 
-- [ ] **Step 7: Frontend**
+- [x] **Step 7: Frontend**
 
 `app/types/bridge.ts`: `export interface NameMapInfo { rows: number; products: number; loaded_at: string | null; file: string | null }` and `name_map: NameMapInfo;` on `SettingsView`. `app/composables/useBridge.ts`: `nameMapLoad: (path: string) => invoke<NameMapInfo>('name_map_load', { path })` following the file's pattern. `app/dev/mockBridge.ts`: add `name_map: { rows: 29472, products: 28643, loaded_at: '2026-09-15T12:00:00Z', file: '/home/seller/parts_map.csv' }` to the mock settings and a `nameMapLoad` that returns it.
 
@@ -1000,12 +1000,12 @@ const loadMap = async () => {
 ```
 (`busy` already exists as a string union in this page; extend its type with `'map'`. `faDateTime` exists in `app/utils/fa.ts` — if its name differs, use the page's existing date formatter.)
 
-- [ ] **Step 8: Typecheck, tests, clippy**
+- [x] **Step 8: Typecheck, tests, clippy**
 
 Run: `pnpm typecheck && pnpm test 2>&1 | tail -3 && cd src-tauri && cargo test 2>&1 | grep -E 'test result|FAILED' && cargo clippy --all-targets 2>&1 | grep -E '^(warning|error)'`
 Expected: clean.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add -A src-tauri app
@@ -1025,7 +1025,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Consumes: `Db::match_for_name/match_for_code/set_match` (Task 3).
 - Produces: `Matcher::stored(name, code) -> Result<Option<MatchRow>>`, `Matcher::record_user_pick(name_seen, code, product_id, product_name, similarity)`, `Matcher::record_none(name_seen, code)`; commands `match_set(name_seen, code, product_id, product_name)`, `match_none(name_seen, code)`, `match_clear(name_seen)`.
 
-- [ ] **Step 1: Write the failing test** — in `matching/mod.rs` tests (the module has tests with a fake `search` closure; reuse its helper that builds a `RegistryPage`):
+- [x] **Step 1: Write the failing test** — in `matching/mod.rs` tests (the module has tests with a fake `search` closure; reuse its helper that builds a `RegistryPage`):
 
 ```rust
     #[tokio::test]
@@ -1045,12 +1045,12 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
     }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd src-tauri && cargo test --lib a_stored_decision_is_found_by_name 2>&1 | grep -E 'error|panicked|FAILED'`
 Expected: fails (compile error on `decide`'s lookup or a panic from the search closure).
 
-- [ ] **Step 3: Implement** — in `matching/mod.rs`:
+- [x] **Step 3: Implement** — in `matching/mod.rs`:
 
 ```rust
     /// The stored decision for this name, else for this code (the site renamed the SKU); a hit
@@ -1077,14 +1077,14 @@ In `decide`, replace `self.stored(code)?` with `self.stored(name, code)?`; the A
 
 `tests/live_e2e.rs` `accept_top_candidates`: `record_user_pick(&item.name, &item.code, &id, &name, …)`.
 
-- [ ] **Step 4: Frontend** — `app/types/bridge.ts` `MatchRow`: add `name_key: string; priced_at: string | null;` and `how: 'AUTO' | 'USER' | 'NONE' | 'MAP'`. `useBridge.ts`: `matchSet(name_seen, code, product_id, product_name)`, `matchNone(name_seen, code)`, `matchClear(name_seen)`. `matches.vue`: `:key="r.name_key"`, calls pass `editing.value.name_seen` (+ `editing.value.code`), the `how` filter list gains `{ value: 'MAP', label: 'از نگاشت' }`. `fa.ts`: add the `MAP: 'از نگاشت'` label wherever `AUTO`/`USER`/`NONE` are labelled. `mockBridge.ts`: add `name_key`/`priced_at` to mock match rows.
+- [x] **Step 4: Frontend** — `app/types/bridge.ts` `MatchRow`: add `name_key: string; priced_at: string | null;` and `how: 'AUTO' | 'USER' | 'NONE' | 'MAP'`. `useBridge.ts`: `matchSet(name_seen, code, product_id, product_name)`, `matchNone(name_seen, code)`, `matchClear(name_seen)`. `matches.vue`: `:key="r.name_key"`, calls pass `editing.value.name_seen` (+ `editing.value.code`), the `how` filter list gains `{ value: 'MAP', label: 'از نگاشت' }`. `fa.ts`: add the `MAP: 'از نگاشت'` label wherever `AUTO`/`USER`/`NONE` are labelled. `mockBridge.ts`: add `name_key`/`priced_at` to mock match rows.
 
-- [ ] **Step 5: Verify**
+- [x] **Step 5: Verify**
 
 Run: `cd src-tauri && cargo test 2>&1 | grep -E 'test result|FAILED' && cargo clippy --all-targets 2>&1 | grep -E '^(warning|error)'; cd .. && pnpm typecheck && pnpm test 2>&1 | tail -3`
 Expected: clean.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add -A src-tauri app
@@ -1105,7 +1105,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Consumes: `quotes_by_name`/`price_of` (Task 2), `name_key` (Task 1), `Db::touch_priced` (Task 3).
 - Produces: in `jobs/pricing.rs`: `pick_by_name(name, Vec<PriceQuote>) -> Option<PriceQuote>`, `effective_cost(quote_cost, available, current: Option<i64>) -> (i64, bool)`, `floor_price(cost, margin_percent) -> i64`, `below_min_margin(price, cost, margin_percent) -> bool`, `pub const ROUNDING: i64 = 1000`; in `jobs/mod.rs`: `pub struct Costed { cost, available, code, name, renamed: bool }`, `pub async fn quote_for(ctx, svc, name, code, vat) -> Result<Option<Costed>>` (replaces `cost_for`); `Settings.min_margin_percent: f64` (+ patch/view/UI); `BridgeError::NoPricingRule` returned by `preflight`; `kinds::BELOW_MIN_MARGIN = "BelowMinMargin"`.
 
-- [ ] **Step 1: Write the failing tests** — `src-tauri/src/jobs/pricing.rs` (new file; tests at the bottom):
+- [x] **Step 1: Write the failing tests** — `src-tauri/src/jobs/pricing.rs` (new file; tests at the bottom):
 
 ```rust
 #[cfg(test)]
@@ -1155,12 +1155,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Add `pub mod pricing;` to `jobs/mod.rs`. Run: `cd src-tauri && cargo test --lib pricing::tests 2>&1 | grep -E 'cannot find|error'`
 Expected: unresolved functions.
 
-- [ ] **Step 3: Implement `pricing.rs`**
+- [x] **Step 3: Implement `pricing.rs`**
 
 ```rust
 //! Pure pricing rules (spec §14 b, d, e): which search row is "the" quote, when an unavailable
@@ -1211,12 +1211,12 @@ pub fn below_min_margin(price: i64, cost: i64, margin_percent: f64) -> bool {
 }
 ```
 
-- [ ] **Step 4: Run to verify they pass**
+- [x] **Step 4: Run to verify they pass**
 
 Run: `cd src-tauri && cargo test --lib pricing::tests`
 Expected: `4 passed`.
 
-- [ ] **Step 5: `quote_for`, the setting, the error** — in `jobs/mod.rs` replace `cost_for` with:
+- [x] **Step 5: `quote_for`, the setting, the error** — in `jobs/mod.rs` replace `cost_for` with:
 
 ```rust
 /// One priced supplier row for an item (spec §14 b): by name first, then by code.
@@ -1283,14 +1283,14 @@ pub async fn quote_for(
 ```
 `fa.ts`: kind labels `BelowMinMargin: 'زیر حداقل سود'` and (if the kind map lacks it) `NoPricingRule: 'بدون قاعدهٔ قیمت‌گذاری'`. `mockBridge.ts`: `min_margin_percent: 15`.
 
-- [ ] **Step 6: Make the crate compile** — every `cost_for(ctx, svc, code, &mut vat)` caller (import PRICE loop, refresh PRICE loop) becomes `quote_for(ctx, svc, &item.name, &item.code, &mut vat)` mapping `Ok(Some(c))` to the old `cost` handling (`c.cost`) for now; Tasks 9–10 finish the wiring.
+- [x] **Step 6: Make the crate compile** — every `cost_for(ctx, svc, code, &mut vat)` caller (import PRICE loop, refresh PRICE loop) becomes `quote_for(ctx, svc, &item.name, &item.code, &mut vat)` mapping `Ok(Some(c))` to the old `cost` handling (`c.cost`) for now; Tasks 9–10 finish the wiring.
 
-- [ ] **Step 7: Verify**
+- [x] **Step 7: Verify**
 
 Run: `cd src-tauri && cargo test 2>&1 | grep -E 'test result|FAILED' && cargo clippy --all-targets 2>&1 | grep -E '^(warning|error)'; cd .. && pnpm typecheck && pnpm test 2>&1 | tail -3`
 Expected: clean.
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add -A src-tauri app
@@ -1309,7 +1309,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 **Interfaces:**
 - Produces: `ShelfRow.brand: Option<String>`; `AttachBody.price: i64` (sent as `price`); `LandauClient::patch(id, body) -> Result<ShelfRow>` (the reply row); `LandauClient::reprice_stocks(ids: &[String], overwrite: bool) -> Result<Vec<RepricedRow>>` (chunks of `REPRICE_STOCKS_MAX = 50`); `await_visible` and `MIRROR_WAIT` removed.
 
-- [ ] **Step 1: Write the failing tests** — in the `landau/mod.rs` tests module:
+- [x] **Step 1: Write the failing tests** — in the `landau/mod.rs` tests module:
 
 ```rust
     #[test]
@@ -1339,12 +1339,12 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
     }
 ```
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `cd src-tauri && cargo test --lib landau::tests 2>&1 | grep -E 'error|no field|cannot find'`
 Expected: missing `price`, `brand`, `reprice_chunks`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```rust
 pub const REPRICE_STOCKS_MAX: usize = 50;
@@ -1398,12 +1398,12 @@ pub fn reprice_chunks(ids: &[String]) -> Vec<Vec<String>> {
 ```
 Delete `await_visible` and, in `jobs/mod.rs`, `MIRROR_WAIT`. Keep the store-wide `reprice` only if something still calls it after Task 8; otherwise delete it too.
 
-- [ ] **Step 4: Verify** (`patch`'s callers in `jobs/import.rs`/`refresh.rs` now get a `ShelfRow`; adjust `.map(|_| …)` to `.map(|_row| …)` for now — Tasks 9–10 use the row)
+- [x] **Step 4: Verify** (`patch`'s callers in `jobs/import.rs`/`refresh.rs` now get a `ShelfRow`; adjust `.map(|_| …)` to `.map(|_row| …)` for now — Tasks 9–10 use the row)
 
 Run: `cd src-tauri && cargo test 2>&1 | grep -E 'test result|FAILED' && cargo clippy --all-targets 2>&1 | grep -E '^(warning|error)'`
 Expected: clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src
@@ -1423,7 +1423,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Consumes: `reprice_stocks` (Task 7), `below_min_margin` (Task 6), `Db::add_item_note` (Task 3).
 - Produces: `pub fn verdict_of(row: &RepricedRow) -> (String, Option<i64>)`; `pub async fn reprice_items(ctx, svc, items: &[(i64, String)]) -> Result<()>` (no `store` argument); `pub fn report(ctx, svc, items: &[(i64, String)]) -> Result<()>` (replaces `readback`; synchronous, no network).
 
-- [ ] **Step 1: Write the failing tests** — in `jobs/mod.rs` tests:
+- [x] **Step 1: Write the failing tests** — in `jobs/mod.rs` tests:
 
 ```rust
     fn repriced(stock: &str, price: Option<i64>, next: Option<i64>, skipped: Option<&str>) -> RepricedRow {
@@ -1458,12 +1458,12 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 `test_services(margin)` builds `Services { landau: LandauClient::new("http://127.0.0.1:1", "apt-test").unwrap(), supplier: Box::new(NoSupplier), settings: Settings { min_margin_percent: margin, ..test_settings() } }` where `NoSupplier` is a test-only `Supplier` impl whose every method returns `Err(BridgeError::Other("offline".into()))` (define it in the tests module) and `test_settings()` builds a `Settings` with the defaults (copy the field list from `Settings::load`). If a job-events reader is named differently from `job_events`, use that name.
 
-- [ ] **Step 2: Run to verify they fail**
+- [x] **Step 2: Run to verify they fail**
 
 Run: `cd src-tauri && cargo test --lib jobs::tests 2>&1 | grep -E 'cannot find|error'`
 Expected: `verdict_of`, `report` missing.
 
-- [ ] **Step 3: Implement** — replace `reprice_items` and `readback` in `jobs/mod.rs`:
+- [x] **Step 3: Implement** — replace `reprice_items` and `readback` in `jobs/mod.rs`:
 
 ```rust
 /// `(reprice_verdict, final price)` of one row Landau answered (spec §14 f).
@@ -1542,12 +1542,12 @@ pub fn report(ctx: &JobCtx, svc: &Services, items: &[(i64, String)]) -> Result<(
 ```
 Update the two jobs' calls to `reprice_items(ctx, svc, &written)` / `report(ctx, svc, &written)`; remove the now-unused `Duration` import if any.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `cd src-tauri && cargo test 2>&1 | grep -E 'test result|FAILED' && cargo clippy --all-targets 2>&1 | grep -E '^(warning|error)'`
 Expected: clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src
@@ -1566,7 +1566,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `quote_for`/`Costed`, `pricing::{effective_cost, floor_price}`, `AttachBody.price`, `patch -> ShelfRow`, `Db::add_item_note`.
 
-- [ ] **Step 1: PRICE phase** — in `commit`, the match arm becomes:
+- [x] **Step 1: PRICE phase** — in `commit`, the match arm becomes:
 
 ```rust
         match quote_for(ctx, svc, &item.name, &item.code, &mut vat).await {
@@ -1590,7 +1590,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 (`NoCurrentPrice { code }` keeps the code; when the code is empty use the name: `code: if item.code.is_empty() { item.name.clone() } else { item.code.clone() }`.)
 
-- [ ] **Step 2: WRITE phase** — right after `let existing = find_row(&shelf, &product, authenticity.as_str());` compute the cost to write:
+- [x] **Step 2: WRITE phase** — right after `let existing = find_row(&shelf, &product, authenticity.as_str());` compute the cost to write:
 
 ```rust
         let quoted = item.cost.unwrap_or(0);
@@ -1602,12 +1602,12 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 and delete the earlier `let cost = item.cost.unwrap_or(0);`. `AttachBody` gains `price: pricing::floor_price(cost, svc.settings.min_margin_percent)`. Every `Written` gains `price_after: Option<i64>` taken from the reply row: `attach` → `row.price`; the three `patch(...)` calls → `.map(|row| Written { …, price_after: row.price, … })`. In the success arm add `("price_after", opt_i(price_after))` to the `ctx.item(...)` patch. (In the restore branch, `existing` is `None`, so the quote is applied as-is — the restored row is a fresh attach, §13 b.)
 
-- [ ] **Step 3: Update the test constructors** (`row(...)` in this file's tests gains `brand: None`) and run
+- [x] **Step 3: Update the test constructors** (`row(...)` in this file's tests gains `brand: None`) and run
 
 Run: `cd src-tauri && cargo test 2>&1 | grep -E 'test result|FAILED' && cargo clippy --all-targets 2>&1 | grep -E '^(warning|error)'`
 Expected: clean.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src-tauri/src/jobs/import.rs
@@ -1627,7 +1627,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 - Consumes: `Db::linked_matches`, `Db::raw_names_for`, `Db::set_match`, `quote_for`, `pricing::effective_cost`, `patch -> ShelfRow`, `reprice_items`, `report`.
 - Produces: `pub fn choose_link(rows: Vec<MatchRow>, last_invoiced: &HashMap<String, String>) -> HashMap<String, (MatchRow, usize)>` (product_id → the chosen link and how many links the product had).
 
-- [ ] **Step 1: Write the failing test** — in `refresh.rs` tests (create the module if absent):
+- [x] **Step 1: Write the failing test** — in `refresh.rs` tests (create the module if absent):
 
 ```rust
     fn link(name: &str, code: &str, product: &str, priced_at: Option<&str>) -> MatchRow {
@@ -1652,12 +1652,12 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
     }
 ```
 
-- [ ] **Step 2: Run to verify it fails**
+- [x] **Step 2: Run to verify it fails**
 
 Run: `cd src-tauri && cargo test --lib refresh::tests 2>&1 | grep -E 'cannot find|error'`
 Expected: `choose_link` missing.
 
-- [ ] **Step 3: Implement** — replace `links` with:
+- [x] **Step 3: Implement** — replace `links` with:
 
 ```rust
 /// product_id → the link to price it by, and how many links the product had. Several links for
@@ -1751,12 +1751,12 @@ In `run`, the PRICE loop per shelf row becomes:
 ```
 (Write the two commented arms out in full, copying the existing SKIPPED/FAILED patches; the `NoCurrentPrice` code field carries the name when the code is empty.) `to_write` becomes `Vec<(i64, String, i64, bool, Option<i64>)>` (…, unchanged, current price). WRITE: an unchanged row stamps `("price_after", opt_i(*current_price))` with `SKIP`; a patched row uses the reply: `Ok(reply) => ctx.item(*item_id, &[("action", t("PATCH")), ("price_after", opt_i(reply.price)), ("status", t("WRITTEN"))])?`. Then `reprice_items(ctx, svc, &written).await?; report(ctx, svc, &written)?;`. The summary's `"linked"` count stays `!i.code.is_empty() || !i.name.is_empty()` → use `i.status != "SKIPPED" || i.error_kind.as_deref() != Some(kinds::NO_SUPPLIER_LINK)`; add `"from_map": all.iter().filter(|i| i.note.as_deref().map(|n| n.contains("از نگاشت")).unwrap_or(false)).count()`.
 
-- [ ] **Step 4: Verify**
+- [x] **Step 4: Verify**
 
 Run: `cd src-tauri && cargo test 2>&1 | grep -E 'test result|FAILED' && cargo clippy --all-targets 2>&1 | grep -E '^(warning|error)'`
 Expected: clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src-tauri/src/jobs/refresh.rs
@@ -1772,9 +1772,9 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 **Files:**
 - Modify: `app/types/bridge.ts`, `app/components/ReportTable.vue`, `app/utils/fa.ts`, `app/dev/mockBridge.ts`, `app/utils/fa.spec.ts` (if a label test table exists)
 
-- [ ] **Step 1: Types and labels** — `JobItemRow` gains `available: boolean | null; note: string | null;`. `fa.ts`: `verdictLabel` handles `MISSING` → `'دیگر روی قفسه نیست'`; add `availabilityLabel = (a: boolean | null) => a == null ? '' : a ? 'موجود' : 'ناموجود'` beside the other labels. Mock items: `available: true, note: null` (one with `available: false, note: 'ناموجود؛ قیمت پایین‌تر نادیده گرفته شد'`).
+- [x] **Step 1: Types and labels** — `JobItemRow` gains `available: boolean | null; note: string | null;`. `fa.ts`: `verdictLabel` handles `MISSING` → `'دیگر روی قفسه نیست'`; add `availabilityLabel = (a: boolean | null) => a == null ? '' : a ? 'موجود' : 'ناموجود'` beside the other labels. Mock items: `available: true, note: null` (one with `available: false, note: 'ناموجود؛ قیمت پایین‌تر نادیده گرفته شد'`).
 
-- [ ] **Step 2: Report table** — in the first cell, after the name line:
+- [x] **Step 2: Report table** — in the first cell, after the name line:
 
 ```vue
             <p v-if="i.available != null || i.note" class="mt-0.5 flex flex-wrap items-center gap-2 text-xs">
@@ -1784,12 +1784,12 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 CSV export: add `'موجودی بارزپخش'` and `'یادداشت'` heads and `availabilityLabel(i.available), i.note` values; the search box also matches `i.note`.
 
-- [ ] **Step 3: Verify**
+- [x] **Step 3: Verify**
 
 Run: `pnpm typecheck && pnpm test 2>&1 | tail -3`
 Expected: clean. If the dev fixture mode exists (`?fixture=1` per the redesign plan), open `/jobs/<id>` in it and check the pill and note render on the right line.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add app
@@ -1805,9 +1805,9 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 **Files:**
 - Modify: `src-tauri/tests/live_e2e.rs`, `README.md`, `docs/RUNBOOK.md`
 
-- [ ] **Step 1: Adapt the live e2e** — read `live_e2e.rs` end to end first. Then: the `Settings` literal gains `min_margin_percent: 15.0`; any `await_visible`/`MirrorTimeout` expectation goes; after the zero import assert for every DONE item with an `ATTACH` action that `price_after == Some(floor_price(cost, 15.0))` (the fixture rule is 15 %, rounding 1 000, so Landau's price equals the provisional one) and that the job has **no** `BelowMinMargin` warning; after the refresh assert every DONE item has `reprice_verdict` in `{"UNCHANGED", "REPRICED:…", "SKIPPED:MANUAL"}` and `price_after.is_some()`. Keep the idempotency test's assertions; its `accept_top_candidates` already uses the new `record_user_pick` signature (Task 5).
+- [x] **Step 1: Adapt the live e2e** — read `live_e2e.rs` end to end first. Then: the `Settings` literal gains `min_margin_percent: 15.0`; any `await_visible`/`MirrorTimeout` expectation goes; after the zero import assert for every DONE item with an `ATTACH` action that `price_after == Some(floor_price(cost, 15.0))` (the fixture rule is 15 %, rounding 1 000, so Landau's price equals the provisional one) and that the job has **no** `BelowMinMargin` warning; after the refresh assert every DONE item has `reprice_verdict` in `{"UNCHANGED", "REPRICED:…", "SKIPPED:MANUAL"}` and `price_after.is_some()`. Keep the idempotency test's assertions; its `accept_top_candidates` already uses the new `record_user_pick` signature (Task 5).
 
-- [ ] **Step 2: Run everything live**
+- [x] **Step 2: Run everything live**
 
 ```bash
 export NO_PROXY='*'; eval "$(LND_ROLES_FILE=/home/vahid/Claude/.memory/.local/landau-roles.json node scripts/mint-apt.mjs)"
@@ -1816,9 +1816,9 @@ cd src-tauri && sleep 5 && cargo test --features live -- --nocapture 2>&1 | grep
 ```
 Expected: every live test file passes. If a test attaches rows it does not clean up, delete them the way `live_e2e.rs` already does.
 
-- [ ] **Step 3: Docs** — `README.md` (English, for installers/builders): in the feature list say prices are looked up by the Barezpakhsh name (codes may change), that a «ناموجود» price only ever raises a cost, that Settings needs an active Landau pricing rule and carries a minimum-margin figure, and add the «بارگذاری نگاشت نام‌ها» step with the path `landau-parts/output/parts_map.csv`. `docs/RUNBOOK.md`: in *Fixtures* add `6. **Name map** — Settings → «بارگذاری فایل نگاشت» → /home/vahid/WorkSpace/landau-parts/output/parts_map.csv`; in *Deviations from the spec* delete the «`price_of` is called once per shelf row» line (now one name search per row, still per row) and add: `- **Spec §14 supersedes §1/§7.2 on pricing**: no active rule fails preflight; `reprice` is the targeted `{stocks}` form (plan 107); the mirror is never awaited.` Also mention the schema change: a `bridge.sqlite` from before 2026-09-15 is migrated in place (links keep working).
+- [x] **Step 3: Docs** — `README.md` (English, for installers/builders): in the feature list say prices are looked up by the Barezpakhsh name (codes may change), that a «ناموجود» price only ever raises a cost, that Settings needs an active Landau pricing rule and carries a minimum-margin figure, and add the «بارگذاری نگاشت نام‌ها» step with the path `landau-parts/output/parts_map.csv`. `docs/RUNBOOK.md`: in *Fixtures* add `6. **Name map** — Settings → «بارگذاری فایل نگاشت» → /home/vahid/WorkSpace/landau-parts/output/parts_map.csv`; in *Deviations from the spec* delete the «`price_of` is called once per shelf row» line (now one name search per row, still per row) and add: `- **Spec §14 supersedes §1/§7.2 on pricing**: no active rule fails preflight; `reprice` is the targeted `{stocks}` form (plan 107); the mirror is never awaited.` Also mention the schema change: a `bridge.sqlite` from before 2026-09-15 is migrated in place (links keep working).
 
-- [ ] **Step 4: Final check and commit**
+- [x] **Step 4: Final check and commit**
 
 Run: `cd src-tauri && cargo test 2>&1 | grep -E 'test result|FAILED' && cargo clippy --all-targets 2>&1 | grep -E '^(warning|error)'; cd .. && pnpm typecheck && pnpm test 2>&1 | tail -3 && git status --short`
 Expected: clean, only the intended files modified.
@@ -1830,4 +1830,4 @@ git commit -m "Live e2e for pricing at write; document names, margins and the na
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
 
-- [ ] **Step 5: Tell the Landau agent** — append to `/home/vahid/conversation.txt` under `### [landau-bridge] <date>` that the bridge side landed on branch `names-and-margin`, what it keys on (`priced.source`, `reprice {stocks}`), and any Landau behaviour observed that differs from the completion message (none expected).
+- [x] **Step 5: Tell the Landau agent** — append to `/home/vahid/conversation.txt` under `### [landau-bridge] <date>` that the bridge side landed on branch `names-and-margin`, what it keys on (`priced.source`, `reprice {stocks}`), and any Landau behaviour observed that differs from the completion message (none expected).
