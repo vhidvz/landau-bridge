@@ -25,8 +25,6 @@ let timer: ReturnType<typeof setInterval> | undefined;
 onMounted(() => { poll(); loadSettings(); timer = setInterval(poll, 3000); });
 onBeforeUnmount(() => clearInterval(timer));
 watch(savedTick, loadSettings);
-
-const version = faVersion(useRuntimeConfig().public.version);
 </script>
 
 <template>
@@ -61,7 +59,6 @@ const version = faVersion(useRuntimeConfig().public.version);
             </div>
           </div>
         </div>
-        <div class="px-1 text-[0.6875rem] text-paper-mute">نسخهٔ {{ version }}</div>
       </div>
     </aside>
 
