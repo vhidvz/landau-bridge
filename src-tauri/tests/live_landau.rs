@@ -34,7 +34,7 @@ async fn memberships_shelf_search_attach_patch_reprice_delete() {
         .expect("registry search");
     assert!(
         page.total >= 1 && !page.items.is_empty(),
-        "the registry must be seeded (see docs/RUNBOOK.md)"
+        "the registry must be seeded (the landau-parts import)"
     );
     assert!(page.items.iter().any(|c| c.name.contains("سیبک")));
     let broad = landau

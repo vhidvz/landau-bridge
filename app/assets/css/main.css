@@ -8,7 +8,7 @@
    WebKitGTK (the engine Tauri uses) drops those attached above-dots, so «تنظیمات»
    renders «ٮںطىماٮ». Its metrics also put button/nav text 6 px above its icon
    there. Mikhak draws dotted letters as whole glyphs and renders identically in
-   both engines. See docs/superpowers/notes/2026-09-15-estedad-webkitgtk.md. */
+   both engines. Check any font change in WebKitGTK with scripts/wk-shot.py. */
 @font-face { font-family: 'Mikhak'; src: url('/fonts/mikhak-var.woff2') format('woff2'); font-weight: 100 900; font-style: normal; font-display: swap; }
 
 /* ---- Tokens (spec §2) ------------------------------------------------------ */

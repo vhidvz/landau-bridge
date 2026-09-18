@@ -182,8 +182,8 @@ pnpm test && pnpm typecheck                   # UI utils, TypeScript
 
 ## For developers
 
-Tauri 2 + Nuxt 4 + Rust core. Design: `docs/superpowers/specs/2026-09-13-landau-bridge-design.md`. Plan: `docs/superpowers/plans/2026-09-13-landau-bridge.md`. Live testing and fixtures: `docs/RUNBOOK.md`. Matching threshold and why: `docs/matching-threshold.md`.
+Tauri 2 + Nuxt 4 + Rust core.
 
-Visual design: `docs/superpowers/specs/2026-09-14-night-glass-redesign-design.md`, plan `docs/superpowers/plans/2026-09-14-night-glass-redesign.md`. To look at the pages without Tauri: `pnpm dev`, open `http://localhost:3210/?state=done` (`state` = `empty|running|review|refreshing|done`; add `&grid=1` for the alignment overlay, `&fx=full` / `&fx=lite` for full or reduced effects, `&appimage=1` for the install offer; fixtures in `app/dev/mockBridge.ts`); `scripts/shots.sh OUT_DIR [filter] [--grid]` screenshots every page — see `docs/RUNBOOK.md`.
+To look at the pages without Tauri: `pnpm dev`, open `http://localhost:3210/?state=done` (`state` = `empty|running|review|refreshing|done`; add `&grid=1` for the alignment overlay, `&fx=full` / `&fx=lite` for full or reduced effects, `&appimage=1` for the install offer; fixtures in `app/dev/mockBridge.ts`); `scripts/shots.sh OUT_DIR [filter] [--grid]` screenshots every page.
 
 The AppImage install offer lives in `src-tauri/src/appimage.rs` (detection through the runtime's `APPIMAGE`/`APPDIR` variables, the `~/.local` layout, the copy and the `.desktop` entry — all unit-tested against temporary directories) and is wired through `dashboard_get`, `appimage_install` and `appimage_dismiss` in `src-tauri/src/commands/mod.rs`.

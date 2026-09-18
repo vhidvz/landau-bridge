@@ -1,4 +1,4 @@
-//! Landau Bridge — Rust core. See docs/superpowers/specs/2026-09-13-landau-bridge-design.md.
+//! Landau Bridge — Rust core.
 
 pub mod appimage;
 pub mod commands;

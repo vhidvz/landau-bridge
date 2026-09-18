@@ -8,7 +8,7 @@ use crate::errors::{BridgeError, Result};
 use crate::secrets::{SecretKey, SecretStore};
 use crate::supplier::Credentials;
 
-/// Calibrated 2026-09-13 — see docs/matching-threshold.md.
+/// Calibrated 2026-09-13 by `bin/calibrate.rs`: the lowest threshold with ≥ 98 % auto-accept precision.
 pub const DEFAULT_THRESHOLD: u8 = 85;
 pub const DEFAULT_VAT_PERCENT: f64 = 10.0;
 /// «حداقل سود خرده‌فروش» (spec §14 e): the provisional attach price and the report audit.

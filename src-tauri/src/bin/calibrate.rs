@@ -1,8 +1,8 @@
 //! Measures auto-accept precision/coverage per threshold against the SKU → registry-name map the
-//! registry was imported from, and writes docs/matching-threshold.md. Feature `live`.
+//! registry was imported from, and writes the table as a Markdown report. Feature `live`.
 //!
 //! Env: LND_API_URL, LND_APT_TOKEN (required); PARTS_MAP (default: the landau-parts export);
-//! SAMPLE (default 2000); SEED (default 42); OUT (default docs/matching-threshold.md).
+//! SAMPLE (default 2000); SEED (default 42); OUT (default target/matching-threshold.md).
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -52,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(42);
-    let out = std::env::var("OUT").unwrap_or_else(|_| "../docs/matching-threshold.md".into());
+    let out = std::env::var("OUT").unwrap_or_else(|_| "target/matching-threshold.md".into());
 
     let mut reader = csv::ReaderBuilder::new()
         .has_headers(true)
@@ -100,7 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let hits = candidates(&search, &term).await?;
         empty_streak = if hits.is_empty() { empty_streak + 1 } else { 0 };
         if i < 20 && empty_streak == 20 {
-            panic!("the first 20 searches answered nothing — is the registry imported? (docs/RUNBOOK.md → Registry)");
+            panic!("the first 20 searches answered nothing — is the registry imported?");
         }
         let scored = score(&term, &hits);
         let top = scored.first();
