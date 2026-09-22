@@ -132,7 +132,7 @@ sudo dnf install webkit2gtk4.1-devel openssl-devel curl wget file \
 ```sh
 sudo pacman -Syu
 sudo pacman -S --needed webkit2gtk-4.1 base-devel curl wget file openssl \
-  appmenu-gtk-module libappindicator-gtk3 librsvg xdotool
+  appmenu-gtk-module libappindicator-gtk3 librsvg xdotool webp-pixbuf-loader
 ```
 
 Bundling the AppImage downloads `linuxdeploy` and `appimagetool` on first use, which is why `curl`/`wget` and `file` are in every list. Running AppImages needs FUSE 2 (`fuse2`, `libfuse2` or `fuse-libs`, see above).
@@ -142,6 +142,8 @@ On Arch/Manjaro (and any distribution with a recent glibc) the AppImage step can
 ```sh
 NO_STRIP=true pnpm tauri build
 ```
+
+If it still fails, now with `Failed to run plugin: gtk` right after `realpath: /usr/lib/gdk-pixbuf-2.0/2.10.0: No such file or directory`, the `gdk-pixbuf2` package no longer ships that folder (it loads images through `glycin` since 2.44) while its `pkg-config` file still names it, and `linuxdeploy`'s GTK plugin copies it unconditionally. `webp-pixbuf-loader` in the list above puts a real loader there, and pacman's hook writes its `loaders.cache`.
 
 ### Prerequisites — Windows
 
