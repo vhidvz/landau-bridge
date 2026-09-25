@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- README names the supplier host the app calls, `33314466.ir`, not `barezpakhsh.ir`. @vhidvz
+
 ### Removed
 
 - `docs/` (specs, plans, runbook, calibration record, font note); `calibrate` now writes `target/`. @vhidvz

@@ -92,7 +92,7 @@ The app uses Microsoft Edge WebView2, which Windows 10 (1803+) and Windows 11 al
 
   Back up that folder to keep your match decisions and import history. Deleting it resets the app.
 - **Where your passwords live.** The Landau key and the Barezpakhsh password go into the operating system's keyring when there is one (GNOME Keyring or KDE Wallet on Linux, Credential Manager on Windows). Without a keyring they are stored in `secrets.json` inside the data folder, readable only by your user. The Settings page tells you which of the two is in use.
-- The app talks directly to Landau's gateway and to barezpakhsh.ir; it never uses a proxy.
+- The app talks directly to Landau's gateway and to Barezpakhsh's site at `33314466.ir` (`src-tauri/src/supplier/barezpakhsh/client.rs`); it never uses a proxy.
 
 ## Build from source
 
