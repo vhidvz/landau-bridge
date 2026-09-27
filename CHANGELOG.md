@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - README names the supplier host the app calls, `33314466.ir`, not `barezpakhsh.ir`. @vhidvz
+- An import with a since-date no longer fails on the ledger's carry-forward row (missing `TransNumber`). @vhidvz
 
 ### Removed
 

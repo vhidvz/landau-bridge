@@ -192,9 +192,12 @@ fn required_text(node: roxmltree::Node<'_, '_>, tag: &str, page: &str) -> Result
 /// `DocAliasID` 2 = «فاکتور فروش», 6 = «مرجوع از فروش», 67 = «دريافت» (a payment). A ledger can also
 /// carry adjustment lines (e.g. a «جشنواره تخفیف» discount credit) that print no `DocAliasID` and
 /// no `TransactionID` at all — verified live on 2026-09-13 (a ~208-page ledger read hit one at page
-/// 112). Only rows whose `DocAliasID` is `2` or `6` need `TransactionID`/`BusinessID` to build a
-/// [`header_of`] URL; every other row (including one missing `DocAliasID` outright) is not an
-/// invoice and must not fail the whole page over fields it never had.
+/// 112), and a statement posted with a `FromDate` opens with a carry-forward row («نقل از دوره
+/// قبل», `VoucherMSID` -1) that has no `TransNumber` and an empty `VoucherDate` — verified live on
+/// 2026-09-27. Only rows whose `DocAliasID` is `2` or `6` need `TransNumber`/`VoucherDate` for the
+/// header and `TransactionID`/`BusinessID` to build a [`header_of`] URL; every other row (including
+/// one missing `DocAliasID` outright) is not an invoice and must not fail the whole page over
+/// fields it never had.
 pub fn ledger_rows(body: &str) -> Result<Vec<LedgerRow>> {
     let page = "moein2-page";
     let xml = unwrap_json_xml(body, page)?;
@@ -204,22 +207,21 @@ pub fn ledger_rows(body: &str) -> Result<Vec<LedgerRow>> {
         .map(|n| {
             let doc_alias_id = child_text(n, "DocAliasID");
             let is_invoice = matches!(doc_alias_id.as_str(), "2" | "6");
-            let (transaction_id, business_id) = if is_invoice {
-                (
-                    required_text(n, "TransactionID", page)?,
-                    required_text(n, "BusinessID", page)?,
-                )
-            } else {
-                (child_text(n, "TransactionID"), child_text(n, "BusinessID"))
+            let field = |tag| {
+                if is_invoice {
+                    required_text(n, tag, page)
+                } else {
+                    Ok(child_text(n, tag))
+                }
             };
             Ok(LedgerRow {
                 doc_alias_id,
                 doc_alias: child_text(n, "DocAliasDescription"),
-                trans_number: required_text(n, "TransNumber", page)?,
-                voucher_date: required_text(n, "VoucherDate", page)?,
+                trans_number: field("TransNumber")?,
+                voucher_date: field("VoucherDate")?,
                 voucher_date_old: child_text(n, "VoucherDateOld"),
-                transaction_id,
-                business_id,
+                transaction_id: field("TransactionID")?,
+                business_id: field("BusinessID")?,
                 status: child_text(n, "status"),
             })
         })
@@ -490,6 +492,37 @@ mod tests {
         assert_eq!(rows[0].doc_alias_id, "");
         assert_eq!(rows[0].transaction_id, "");
         assert!(header_of(&rows[0]).is_none());
+    }
+
+    /// Verified live on 2026-09-27: a statement posted with a `FromDate` opens with a carry-forward
+    /// row («نقل از دوره قبل», `VoucherMSID` -1) that prints no `DocAliasID`, no `TransNumber` and
+    /// an empty `VoucherDate`. Every import with a since-date failed on it at page 1.
+    #[test]
+    fn ledger_rows_accept_the_carry_forward_row_of_a_dated_statement() {
+        let xml = "<NewDataSet><result><Remain>-454076</Remain>\
+                   <VoucherDescription>نقل از دوره قبل</VoucherDescription><VoucherMSID>-1</VoucherMSID>\
+                   <BusinessID>11750</BusinessID><status>-</status><VoucherDate /></result>\
+                   <result><DocAliasID>2</DocAliasID><TransNumber>226456</TransNumber>\
+                   <VoucherDate>1405/01/14</VoucherDate><TransactionID>8818975</TransactionID>\
+                   <BusinessID>11000</BusinessID></result></NewDataSet>";
+        let body = serde_json::to_string(&xml).unwrap();
+        let rows = ledger_rows(&body).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(header_of(&rows[0]).is_none());
+        assert_eq!(header_of(&rows[1]).unwrap().number, "226456");
+    }
+
+    #[test]
+    fn ledger_rows_fail_when_an_invoice_has_no_trans_number() {
+        let xml = "<NewDataSet><result><DocAliasID>6</DocAliasID><VoucherDate>1405/01/14</VoucherDate>\
+                   <TransactionID>9066582</TransactionID><BusinessID>11000</BusinessID></result></NewDataSet>";
+        let body = serde_json::to_string(&xml).unwrap();
+        match ledger_rows(&body) {
+            Err(BridgeError::SupplierParse { field, .. }) => assert_eq!(field, "TransNumber"),
+            other => {
+                panic!("expected SupplierParse{{ field: \"TransNumber\", .. }}, got {other:?}")
+            }
+        }
     }
 
     #[test]
