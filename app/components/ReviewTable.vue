@@ -12,6 +12,11 @@ const auth = reactive<Record<number, Authenticity>>({});
 
 const candidatesOf = (item: JobItemRow): Scored[] => extra[item.id] ?? item.candidates ?? [];
 
+// A review can hold hundreds of parts (2026-10-07: 490); a page at a time keeps it workable, and a
+// part decided off the end of the last page drops the view onto the new last page.
+const PAGE = 20;
+const { page, rows, offset } = usePaged(toRef(props, 'items'), PAGE);
+
 const decide = async (item: JobItemRow, d: Omit<ReviewDecision, 'item_id'>) => {
   error.value = null;
   try {
@@ -32,11 +37,12 @@ const research = async (item: JobItemRow) => {
   <div class="space-y-4">
     <ErrorBanner :error="error" />
     <p class="max-w-[58ch] text-sm text-paper-mute">برای هر قلم، قطعهٔ درست را از فهرست لاندا انتخاب کنید. «هیچ‌کدام» یعنی این قطعه در لاندا نیست: دیگر پرسیده نمی‌شود و باید برای افزودنش تیکتی برای پشتیبانی لاندا ثبت کنید. «بعداً» آن را برای اجرای بعدی نگه می‌دارد.</p>
-    <GlassCard v-for="(item, n) in items" :key="item.id" :pad="false">
+    <Pager v-if="items.length > PAGE" v-model:page="page" :total="items.length" :items-per-page="PAGE" class="flex justify-center" />
+    <GlassCard v-for="(item, n) in rows" :key="item.id" :pad="false">
       <div class="flex flex-wrap items-center justify-between gap-3 border-b hairline px-6 py-4">
         <div class="min-w-0">
           <h3 class="display text-[1.0625rem] text-paper">{{ item.name }}</h3>
-          <p class="tabular text-xs text-paper-mute"><bdi dir="ltr" class="whitespace-nowrap">{{ item.code }}</bdi> · تعداد {{ faNumber(item.qty) }} · {{ faNumber(n + 1) }} از {{ faNumber(items.length) }}</p>
+          <p class="tabular text-xs text-paper-mute"><bdi dir="ltr" class="whitespace-nowrap">{{ item.code }}</bdi> · تعداد {{ faNumber(item.qty) }} · {{ faNumber(offset + n + 1) }} از {{ faNumber(items.length) }}</p>
         </div>
         <div class="flex items-center gap-2">
           <USelect v-model="auth[item.id]" :items="[{ label: 'اصلی', value: 'ORIGINAL' }, { label: 'غیراصلی (کپی)', value: 'FAKE' }]" :placeholder="defaultAuthenticity === 'ORIGINAL' ? 'اصلی (پیش‌فرض)' : 'غیراصلی (پیش‌فرض)'" size="sm" class="w-40" />
@@ -64,5 +70,6 @@ const research = async (item: JobItemRow) => {
         </ul>
       </div>
     </GlassCard>
+    <Pager v-if="items.length > PAGE" v-model:page="page" :total="items.length" :items-per-page="PAGE" class="flex justify-center" />
   </div>
 </template>

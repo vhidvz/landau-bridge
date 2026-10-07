@@ -1,7 +1,8 @@
 // Fixtures for `pnpm dev` in a plain browser (no Tauri). Never imported by the production build:
 // useBridge.ts only reaches for this file behind `import.meta.dev`.
 import type {
-  Dashboard, ErrorRow, JobDetail, JobEventRow, JobItemRow, JobRow, LandauStatus, MatchRow, Scored, SettingsView,
+  DecisionImportReport, Dashboard, ErrorRow, JobDetail, JobEventRow, JobItemRow, JobRow, LandauStatus, MatchRow, Scored, SettingsView,
+  UndecidedRow,
 } from '~/types/bridge';
 import type { JobHandlers } from '~/composables/useBridge';
 
@@ -64,6 +65,9 @@ const item = (id: number, code: string, name: string, qty: number, extra: Partia
 });
 
 const reviewItems: JobItemRow[] = [
+  ...(typeof location !== 'undefined' && new URLSearchParams(location.search).has('bulk')
+    ? Array.from({ length: 42 }, (_, i) => item(1000 + i, `BP-5${String(i).padStart(4, '0')}`, `قلم بازبینی ${i + 1}`, i + 1, { status: 'REVIEW', candidates: [scored(`p_r${i}`, `پیشنهاد ${i + 1}`, null, 80)] }))
+    : []),
   item(901, 'BP-10422', 'لنت ترمز جلو پراید', 12, { status: 'REVIEW', candidates: [
     scored('p_1', 'لنت ترمز جلو پراید ۱۳۱', 'فرانتک', 91), scored('p_2', 'لنت ترمز عقب پراید', 'فرانتک', 74), scored('p_3', 'لنت ترمز جلو تیبا', 'پارس', 62),
   ] }),
@@ -98,9 +102,41 @@ const doneEvents: JobEventRow[] = [
 ];
 const runningEvents: JobEventRow[] = doneEvents.slice(0, 3);
 
+// Parts ended jobs left undecided. Stateful within a page load, so deciding one in the browser
+// removes it from «بدون تصمیم» as the real list does.
+const undecidedPart = (code: string, name_seen: string, times: number, candidates: Scored[]): UndecidedRow =>
+  ({ name_key: name_seen, name_seen, code, job_id: 41, seen_at: ago(2, 9, 30), qty: 0, times, candidates });
+const undecided: UndecidedRow[] = [
+  undecidedPart('BP-90011', 'کمک فنر جلو پراید', 2, [
+    scored('p_u1', 'کمک فنر جلو پراید گازی', 'ایساکو', 79), scored('p_u2', 'کمک فنر جلو پراید روغنی', 'ایساکو', 79), scored('p_u3', 'کمک فنر عقب پراید', 'ایساکو', 61),
+  ]),
+  undecidedPart('BP-90012', 'بوش طبق پژو ۴۰۵', 1, [scored('p_u4', 'بوش طبق پژو ۴۰۵ بزرگ', 'یدک‌سازان', 72), scored('p_u5', 'بوش طبق پژو ۴۰۵ کوچک', 'یدک‌سازان', 70)]),
+  undecidedPart('BP-90013', 'رادیاتور آب سمند EF7', 1, [scored('p_u6', 'رادیاتور سمند', 'رادیسا', 66)]),
+  undecidedPart('BP-90014', 'پیستون ۲۰۶ تیپ ۲ استاندارد', 3, []),
+];
+// `?bulk=1`: lists long enough to page through (130 decisions, 120 undecided parts, 45 in review).
+const bulk = typeof location !== 'undefined' && new URLSearchParams(location.search).has('bulk');
+if (bulk) {
+  for (let i = 1; i <= 116; i++) {
+    undecided.push(undecidedPart(`BP-7${String(i).padStart(4, '0')}`, `قطعهٔ آزمایشی شمارهٔ ${i}`, 1 + (i % 3), [
+      scored(`p_b${i}a`, `پیشنهاد اول برای ${i}`, 'آزمایش', 70 + (i % 9)), scored(`p_b${i}b`, `پیشنهاد دوم برای ${i}`, null, 60),
+    ]));
+  }
+}
+const decide = (name_seen: unknown) => {
+  const i = undecided.findIndex((u) => u.name_seen === name_seen);
+  if (i >= 0) undecided.splice(i, 1);
+};
+const importReport: DecisionImportReport = {
+  total: 1240, added: 1102, unchanged: 96, replaced: 21, invalid: 2,
+  kept: [{ name_seen: 'تسمه تایم ۴۰۵', code: 'BP-44120', mine_how: 'USER', mine_product: 'تسمه تایم پژو ۴۰۵', file_how: 'USER', file_product: 'تسمه تایم پژو ۴۰۵ دنا' }],
+  missing: [{ name_seen: 'فیلتر بنزین قدیمی', code: 'BP-12001', product_id: 'p_gone', product_name: 'فیلتر بنزین پراید (حذف‌شده)' }],
+};
+
 const match = (code: string, name_seen: string, how: MatchRow['how'], product_name: string | null, similarity: number | null, days: number): MatchRow =>
   ({ supplier: 'barezpakhsh', name_key: name_seen.toLowerCase(), code, product_id: product_name ? `p_${code}` : null, product_name, how, similarity, name_seen, priced_at: how === 'NONE' ? null : ago(days, 15, 0), decided_at: ago(days, 14, 5) });
 const matches: MatchRow[] = [
+  ...(bulk ? Array.from({ length: 121 }, (_, i) => match(`BP-6${String(i).padStart(4, '0')}`, `تطبیق آزمایشی ${i + 1}`, 'AUTO', `قطعهٔ لاندا ${i + 1}`, 85, 2)) : []),
   match('BP-10422', 'لنت ترمز جلو پراید', 'USER', 'لنت ترمز جلو پراید ۱۳۱', 91, 0),
   match('BP-20871', 'فیلتر روغن ۲۰۶ تیپ ۵', 'AUTO', 'فیلتر روغن پژو ۲۰۶', 88, 0),
   match('BP-33005', 'شمع NGK BKR6E', 'AUTO', 'شمع NGK BKR6E', 97, 1),
@@ -165,7 +201,11 @@ export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {
       case 'import_start': return 43;
       case 'refresh_start': return 44;
       case 'import_review': return reviewItems;
-      case 'review_decide': case 'import_continue': case 'match_set': case 'match_none': case 'match_clear': case 'open_log_folder': case 'appimage_dismiss': return undefined;
+      case 'match_set': case 'match_none': decide(args.name_seen); return undefined;
+      case 'review_decide': case 'import_continue': case 'match_clear': case 'open_log_folder': case 'appimage_dismiss': return undefined;
+      case 'matches_undecided': return state === 'empty' ? [] : undecided;
+      case 'decisions_export': return matches.length;
+      case 'decisions_import': return importReport;
       case 'appimage_install': return '/home/vahid/.local/bin/landau-bridge.AppImage';
       case 'review_search': return [scored('p_s1', `${args.term}`, 'جست‌وجو', 66)];
       case 'job_cancel': return true;

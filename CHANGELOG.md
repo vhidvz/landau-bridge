@@ -10,6 +10,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Invoice pages are fetched in parallel, one per supplier session, 2 to 8 sessions as the link allows. @vhidvz
+- Matches lists the parts a run left undecided, with review's saved candidates, to decide at any time. @vhidvz
+- Decisions export to a JSON file and import on another install; your picks win, gone products are skipped. @vhidvz
+- Long lists are paged: matches and undecided parts 50 rows a page, a review 20 parts a page. @vhidvz
 
 ### Changed
 

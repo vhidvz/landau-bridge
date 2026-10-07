@@ -423,4 +423,208 @@ mod tests {
             .unwrap()
             .contains(&(id, "B".to_string())));
     }
+
+    // ------------------------------------------------------------ undecided matches (LND-Q07)
+
+    fn text(v: &str) -> rusqlite::types::Value {
+        rusqlite::types::Value::Text(v.into())
+    }
+
+    /// `(code, name, item status, error kind, candidates JSON)`.
+    type ItemSpec<'a> = (&'a str, &'a str, &'a str, Option<&'a str>, Option<&'a str>);
+
+    /// One import job ending in `status`, with `items`. Returns the job id.
+    fn job_with(db: &Db, status: &str, items: &[ItemSpec<'_>]) -> i64 {
+        let job = db
+            .create_job("IMPORT", Some("ZERO"), None, "store1", false)
+            .unwrap();
+        for (code, name, item_status, kind, candidates) in items {
+            let id = db.add_job_item(job, code, name, 2).unwrap();
+            let mut patch = vec![("status", text(item_status))];
+            if let Some(kind) = kind {
+                patch.push(("error_kind", text(kind)));
+            }
+            if let Some(c) = candidates {
+                patch.push(("candidates_json", text(c)));
+            }
+            db.update_job_item(id, &patch).unwrap();
+        }
+        db.set_job_status(job, status, "REPORT").unwrap();
+        job
+    }
+
+    const CANDS_OLD: &str = r#"[{"candidate":{"id":"p_old","name":"old","alias":null,"brand":null,"score":0.0},"similarity":70}]"#;
+    const CANDS_NEW: &str = r#"[{"candidate":{"id":"p1","name":"لنت جلو","alias":null,"brand":"x","score":0.0},"similarity":81},{"candidate":{"id":"p2","name":"لنت عقب","alias":null,"brand":null,"score":0.0},"similarity":64}]"#;
+
+    /// A part a job left undecided stays listed — with the candidates review showed, from its
+    /// latest job — until a decision exists for it by name or by code, the matcher's own lookup.
+    #[test]
+    fn undecided_parts_outlive_their_job_until_decided() {
+        let db = Db::in_memory().unwrap();
+        let sup = "barezpakhsh";
+        // Two codes under one name in one job count as one job.
+        job_with(
+            &db,
+            "DONE",
+            &[
+                (
+                    "A1",
+                    "لنت جلو پراید",
+                    "SKIPPED",
+                    Some("Unmatched"),
+                    Some(CANDS_OLD),
+                ),
+                (
+                    "A1-OLD",
+                    "لنت جلو پراید",
+                    "SKIPPED",
+                    Some("Unmatched"),
+                    Some(CANDS_OLD),
+                ),
+            ],
+        );
+        let latest = job_with(
+            &db,
+            "DONE",
+            &[
+                (
+                    "A1",
+                    "لنت جلو پراید",
+                    "SKIPPED",
+                    Some("Unmatched"),
+                    Some(CANDS_NEW),
+                ),
+                ("B2", "فیلتر روغن", "SKIPPED", Some("Unmatched"), None),
+                ("C3", "شمع موتور", "SKIPPED", Some("NoneDecision"), None),
+                ("D4", "تسمه تایم", "DONE", None, None),
+            ],
+        );
+        job_with(
+            &db,
+            "CANCELLED",
+            &[("E5", "واشر سرسیلندر", "REVIEW", None, Some(CANDS_NEW))],
+        );
+        job_with(
+            &db,
+            "REVIEW",
+            &[("F6", "دیسک کلاچ", "REVIEW", None, Some(CANDS_NEW))],
+        );
+
+        let rows = db.undecided_matches(sup).unwrap();
+        let names: Vec<&str> = rows.iter().map(|r| r.name_seen.as_str()).collect();
+        assert_eq!(names.len(), 3, "{names:?}");
+        assert!(names.contains(&"لنت جلو پراید"));
+        assert!(
+            names.contains(&"فیلتر روغن"),
+            "no candidates is still undecided"
+        );
+        assert!(
+            names.contains(&"واشر سرسیلندر"),
+            "a cancelled review is not a decision"
+        );
+        assert!(
+            !names.contains(&"دیسک کلاچ"),
+            "a job still paused in review shows its own"
+        );
+        assert!(
+            !names.contains(&"شمع موتور"),
+            "«not in Landau» is a decision"
+        );
+
+        let brake = rows.iter().find(|r| r.code == "A1").unwrap();
+        assert_eq!(brake.times, 2, "left undecided by two jobs");
+        assert_eq!(brake.job_id, latest);
+        assert_eq!(
+            brake.candidates[0]["candidate"]["id"], "p1",
+            "the latest job's list"
+        );
+        assert_eq!(brake.candidates[1]["similarity"], 64);
+        let filter = rows.iter().find(|r| r.code == "B2").unwrap();
+        assert_eq!(filter.candidates, serde_json::json!([]));
+
+        // Decided by name — and, under another spelling, by code — it leaves the list.
+        db.set_match(
+            sup,
+            "لنت جلو پراید",
+            "A1",
+            Some(("p1", "لنت جلو")),
+            "USER",
+            Some(81),
+        )
+        .unwrap();
+        db.set_match(sup, "فیلتر روغن موتور", "B2", None, "NONE", None)
+            .unwrap();
+        let left: Vec<String> = db
+            .undecided_matches(sup)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.name_seen)
+            .collect();
+        assert_eq!(left, vec!["واشر سرسیلندر".to_string()]);
+
+        // A cleared decision puts it back.
+        db.clear_match(sup, "لنت جلو پراید").unwrap();
+        assert_eq!(db.undecided_matches(sup).unwrap().len(), 2);
+    }
+
+    /// Decisions exported from one installation land in another as they were — product, how,
+    /// similarity and the date they were taken — and a written import is one transaction.
+    #[test]
+    fn exported_decisions_apply_to_another_installation_as_they_were() {
+        let sup = "barezpakhsh";
+        let here = Db::in_memory().unwrap();
+        here.set_match(
+            sup,
+            "لنت جلو پراید",
+            "A1",
+            Some(("p1", "لنت جلو")),
+            "USER",
+            Some(81),
+        )
+        .unwrap();
+        here.set_match(sup, "شمع موتور", "C3", None, "NONE", None)
+            .unwrap();
+        here.set_match(
+            sup,
+            "فیلتر روغن",
+            "B2",
+            Some(("p2", "فیلتر")),
+            "AUTO",
+            Some(92),
+        )
+        .unwrap();
+        here.touch_priced(sup, "فیلتر روغن").unwrap(); // carried too
+        let file = crate::decisions::export(sup, &here.list_matches(sup).unwrap(), "now");
+
+        let there = Db::in_memory().unwrap();
+        there.apply_decisions(sup, &file.decisions).unwrap();
+        let mut a = here.list_matches(sup).unwrap();
+        let mut b = there.list_matches(sup).unwrap();
+        a.sort_by(|x, y| x.name_key.cmp(&y.name_key));
+        b.sort_by(|x, y| x.name_key.cmp(&y.name_key));
+        assert_eq!(a, b);
+
+        // A batch with one row the table refuses writes nothing at all.
+        let mut bad = file.decisions.clone();
+        bad[0].name_seen = "یک قطعهٔ تازه".into();
+        bad.push(crate::decisions::Decision {
+            how: "USER".into(),
+            ..bad[1].clone()
+        });
+        bad.last_mut().unwrap().name_seen = String::new();
+        let fresh = Db::in_memory().unwrap();
+        fresh
+            .with(|c| {
+                c.execute_batch(
+                    "CREATE TRIGGER no_blank BEFORE INSERT ON matches WHEN NEW.name_seen = ''
+                 BEGIN SELECT RAISE(ABORT, 'blank'); END;",
+                )
+            })
+            .unwrap();
+        assert!(fresh.apply_decisions(sup, &bad).is_err());
+        assert!(
+            fresh.list_matches(sup).unwrap().is_empty(),
+            "rolled back whole"
+        );
+    }
 }

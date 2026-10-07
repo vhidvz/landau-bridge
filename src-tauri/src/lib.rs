@@ -3,6 +3,7 @@
 pub mod appimage;
 pub mod commands;
 pub mod db;
+pub mod decisions;
 pub mod domain;
 pub mod errors;
 pub mod jobs;
@@ -76,6 +77,9 @@ pub fn run() {
             commands::jobs_list,
             commands::job_get,
             commands::matches_list,
+            commands::matches_undecided,
+            commands::decisions_export,
+            commands::decisions_import,
             commands::match_set,
             commands::match_none,
             commands::match_clear,

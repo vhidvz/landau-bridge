@@ -1,8 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
-  BridgeError, Dashboard, ErrorRow, JobDetail, JobDone, JobEvent, JobItemRow, JobRow, LandauStatus, MatchRow,
-  Progress, ReviewDecision, Scored, SettingsPatch, SettingsView, NameMapInfo,
+  BridgeError, Dashboard, ErrorRow, JobDetail, JobDone, JobEvent, JobItemRow, JobRow, LandauStatus, MatchRow, Progress, ReviewDecision, Scored, SettingsPatch, SettingsView, NameMapInfo, UndecidedRow, DecisionImportReport,
 } from '~/types/bridge';
 
 export const isBridgeError = (e: unknown): e is BridgeError =>
@@ -42,8 +41,11 @@ export const bridge = {
   jobsList: () => call<JobRow[]>('jobs_list'),
   jobGet: (job_id: number) => call<JobDetail>('job_get', { job_id }),
   matchesList: () => call<MatchRow[]>('matches_list'),
-  matchSet: (name_seen: string, code: string, product_id: string, product_name: string) =>
-    call<void>('match_set', { name_seen, code, product_id, product_name }),
+  matchSet: (name_seen: string, code: string, product_id: string, product_name: string, similarity?: number) =>
+    call<void>('match_set', { name_seen, code, product_id, product_name, similarity }),
+  matchesUndecided: () => call<UndecidedRow[]>('matches_undecided'),
+  decisionsExport: (path: string) => call<number>('decisions_export', { path }),
+  decisionsImport: (path: string, prefer_file: boolean) => call<DecisionImportReport>('decisions_import', { path, prefer_file }),
   matchNone: (name_seen: string, code: string) => call<void>('match_none', { name_seen, code }),
   matchClear: (name_seen: string) => call<void>('match_clear', { name_seen }),
   errorsList: (limit = 200) => call<ErrorRow[]>('errors_list', { limit }),

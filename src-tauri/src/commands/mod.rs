@@ -11,9 +11,10 @@ use tauri_plugin_opener::OpenerExt;
 use crate::appimage;
 use crate::db::errors::ErrorRow;
 use crate::db::jobs::{JobDetail, JobItemRow, JobRow};
-use crate::db::matches::MatchRow;
+use crate::db::matches::{MatchRow, UndecidedRow};
 use crate::db::name_map::NameMapInfo;
 use crate::db::Db;
+use crate::decisions::{self, ImportReport};
 use crate::domain::ImportMode;
 use crate::errors::{kinds, BridgeError, Result};
 use crate::jobs::{self, JobCtx, JobRegistry, Services};
@@ -572,6 +573,7 @@ pub async fn match_set(
     code: String,
     product_id: String,
     product_name: String,
+    similarity: Option<i64>,
 ) -> Result<()> {
     state.db.set_match(
         SUPPLIER_ID,
@@ -579,7 +581,7 @@ pub async fn match_set(
         &code,
         Some((&product_id, &product_name)),
         "USER",
-        None,
+        similarity,
     )
 }
 
@@ -593,6 +595,59 @@ pub async fn match_none(state: State<'_, AppState>, name_seen: String, code: Str
 #[tauri::command(rename_all = "snake_case")]
 pub async fn match_clear(state: State<'_, AppState>, name_seen: String) -> Result<()> {
     state.db.clear_match(SUPPLIER_ID, &name_seen)
+}
+
+/// The «بدون تصمیم» list: parts ended jobs left undecided, with the candidates review showed.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn matches_undecided(state: State<'_, AppState>) -> Result<Vec<UndecidedRow>> {
+    state.db.undecided_matches(SUPPLIER_ID)
+}
+
+/// Every decision into `path` (from the native save dialog) as a versioned JSON file; answers how
+/// many were written.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn decisions_export(state: State<'_, AppState>, path: String) -> Result<usize> {
+    let rows = state.db.list_matches(SUPPLIER_ID)?;
+    let file = decisions::export(SUPPLIER_ID, &rows, &crate::db::now());
+    std::fs::write(&path, serde_json::to_string_pretty(&file)?)
+        .map_err(|e| BridgeError::Other(format!("ذخیرهٔ فایل تصمیم‌ها ممکن نشد: {e}")))?;
+    Ok(rows.len())
+}
+
+/// Merges a decision file (from the native open dialog) into this installation — see
+/// [`decisions`] for the rules. Products are checked against this Landau's registry before
+/// anything is written, and the write is one transaction, so a Landau out of reach leaves the
+/// decisions here exactly as they were.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn decisions_import(
+    state: State<'_, AppState>,
+    path: String,
+    prefer_file: bool,
+) -> Result<ImportReport> {
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| BridgeError::Other(format!("خواندن فایل تصمیم‌ها ممکن نشد: {e}")))?;
+    let file = decisions::parse(&text, SUPPLIER_ID)?;
+    let plan = decisions::plan(
+        &file,
+        |name| state.db.match_for_name(SUPPLIER_ID, name),
+        prefer_file,
+    )?;
+    let plan = if plan.writes.iter().any(|(d, _)| d.product_id.is_some()) {
+        let client = landau(&settings(&state)?)?;
+        let client = &client;
+        let missing = decisions::missing_products(
+            &plan.writes,
+            |term, skip| async move { client.registry_search(&term, 100, skip).await },
+            4,
+        )
+        .await?;
+        decisions::without_missing(plan, &missing)
+    } else {
+        plan
+    };
+    let writes: Vec<decisions::Decision> = plan.writes.iter().map(|(d, _)| d.clone()).collect();
+    state.db.apply_decisions(SUPPLIER_ID, &writes)?;
+    Ok(plan.report)
 }
 
 #[tauri::command(rename_all = "snake_case")]

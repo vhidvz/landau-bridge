@@ -43,6 +43,15 @@ export interface MatchRow {
   supplier: string; name_key: string; code: string; product_id: string | null; product_name: string | null; how: 'AUTO' | 'USER' | 'NONE' | 'MAP';
   similarity: number | null; name_seen: string; priced_at: string | null; decided_at: string;
 }
+/** A part ended import jobs left without a decision, with the candidates review showed then. */
+export interface UndecidedRow {
+  name_key: string; name_seen: string; code: string; job_id: number; seen_at: string; qty: number; times: number; candidates: Scored[];
+}
+export interface DecisionConflict { name_seen: string; code: string; mine_how: string; mine_product: string | null; file_how: string; file_product: string | null }
+export interface DecisionMissing { name_seen: string; code: string; product_id: string; product_name: string | null }
+export interface DecisionImportReport {
+  total: number; added: number; unchanged: number; replaced: number; kept: DecisionConflict[]; missing: DecisionMissing[]; invalid: number;
+}
 export interface ErrorRow { id: number; at: string; job_id: number | null; kind: string; message: string; context: unknown }
 export interface ReviewDecision {
   item_id: number; product_id?: string; product_name?: string; similarity?: number; none?: boolean; later?: boolean; authenticity?: Authenticity;
