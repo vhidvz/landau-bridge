@@ -210,4 +210,3 @@ mod tests {
         assert!(db.match_for_name("s", "قطعه").unwrap().is_none());
     }
 }
-

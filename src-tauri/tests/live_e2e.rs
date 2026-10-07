@@ -162,7 +162,9 @@ async fn zero_import_then_refresh_round_trip() {
     // fresh row's final price equals `floor_price(cost, 15)` and no row is below the margin.
     for i in &done {
         let cost = i.cost.expect("costed");
-        let price = i.price_after.expect("the write reply and the reprice both carry a price");
+        let price = i
+            .price_after
+            .expect("the write reply and the reprice both carry a price");
         assert!(i.available.is_some(), "availability is recorded");
         if i.action.as_deref() == Some("ATTACH") {
             assert_eq!(
@@ -172,7 +174,10 @@ async fn zero_import_then_refresh_round_trip() {
                 i.code
             );
         }
-        assert!(price % 1000 == 0 && price >= cost, "price={price} cost={cost}");
+        assert!(
+            price % 1000 == 0 && price >= cost,
+            "price={price} cost={cost}"
+        );
         if let Some(next) = i
             .reprice_verdict
             .as_deref()

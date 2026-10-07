@@ -295,7 +295,10 @@ mod tests {
     #[test]
     fn matches_persist_and_none_is_a_decision() {
         let db = Db::in_memory().unwrap();
-        assert!(db.match_for_name("barezpakhsh", "name a").unwrap().is_none());
+        assert!(db
+            .match_for_name("barezpakhsh", "name a")
+            .unwrap()
+            .is_none());
         db.set_match(
             "barezpakhsh",
             "name a",

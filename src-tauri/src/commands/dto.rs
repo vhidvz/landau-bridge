@@ -2,8 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::db::name_map::NameMapInfo;
 use crate::db::jobs::JobRow;
+use crate::db::name_map::NameMapInfo;
 use crate::domain::Authenticity;
 use crate::landau::Store;
 

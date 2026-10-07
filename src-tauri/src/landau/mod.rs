@@ -672,6 +672,9 @@ mod tests {
         assert_eq!(body.to_json()["cost"], 1_000_000);
         let ids: Vec<String> = (0..120).map(|i| format!("id{i}")).collect();
         let chunks = reprice_chunks(&ids);
-        assert_eq!(chunks.iter().map(Vec::len).collect::<Vec<_>>(), [50, 50, 20]);
+        assert_eq!(
+            chunks.iter().map(Vec::len).collect::<Vec<_>>(),
+            [50, 50, 20]
+        );
     }
 }

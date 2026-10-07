@@ -1,7 +1,6 @@
 //! Runs only with `--features live` and LND_API_URL / LND_APT_TOKEN / LND_STORE set.
 #![cfg(feature = "live")]
 
-
 use landau_bridge_lib::domain::Authenticity;
 use landau_bridge_lib::errors::BridgeError;
 use landau_bridge_lib::landau::{AttachBody, LandauClient, PatchBody};
@@ -106,7 +105,11 @@ async fn memberships_shelf_search_attach_patch_reprice_delete() {
         )
         .await
         .expect("patch");
-    assert_eq!(patched.price, Some(230_000), "a new cost is re-priced on the write");
+    assert_eq!(
+        patched.price,
+        Some(230_000),
+        "a new cost is re-priced on the write"
+    );
     assert_eq!(patched.inventory, 4);
 
     let _rules = landau.pricing_rules().await.expect("rules");

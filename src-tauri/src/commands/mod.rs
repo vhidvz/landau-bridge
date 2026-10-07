@@ -9,10 +9,10 @@ use tauri::{AppHandle, Manager, State};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::appimage;
-use crate::db::name_map::NameMapInfo;
 use crate::db::errors::ErrorRow;
 use crate::db::jobs::{JobDetail, JobItemRow, JobRow};
 use crate::db::matches::MatchRow;
+use crate::db::name_map::NameMapInfo;
 use crate::db::Db;
 use crate::domain::ImportMode;
 use crate::errors::{kinds, BridgeError, Result};

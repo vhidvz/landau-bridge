@@ -73,13 +73,11 @@ async fn logs_in_reads_the_ledger_an_invoice_and_a_price() {
         by_name.len(),
         lines[0].name
     );
-    assert!(
-        !supplier
-            .quotes_by_name("بلبرینگ کوچک بیرونی چرخ عقب 32011 نیسان NTN Z24 ژاپن")
-            .await
-            .expect("an over-long name is cut to seven words, never the error page")
-            .is_empty()
-    );
+    assert!(!supplier
+        .quotes_by_name("بلبرینگ کوچک بیرونی چرخ عقب 32011 نیسان NTN Z24 ژاپن")
+        .await
+        .expect("an over-long name is cut to seven words, never the error page")
+        .is_empty());
 
     assert!(supplier
         .price_of("00000000-does-not-exist")

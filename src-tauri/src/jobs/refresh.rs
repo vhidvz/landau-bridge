@@ -84,10 +84,12 @@ async fn resolve(
                 Some(json!({"product": row.product, "chosen": link.name_seen})),
             );
         }
-        return Ok(match quote_for(ctx, svc, &link.name_seen, &link.code, vat).await? {
-            Some(q) => Resolved::Quoted(link.name_seen.clone(), link.code.clone(), q, false),
-            None => Resolved::NoPrice(link.name_seen.clone(), link.code.clone()),
-        });
+        return Ok(
+            match quote_for(ctx, svc, &link.name_seen, &link.code, vat).await? {
+                Some(q) => Resolved::Quoted(link.name_seen.clone(), link.code.clone(), q, false),
+                None => Resolved::NoPrice(link.name_seen.clone(), link.code.clone()),
+            },
+        );
     }
     let entries = ctx
         .db
@@ -106,7 +108,12 @@ async fn resolve(
                     "MAP",
                     None,
                 )?;
-                return Ok(Resolved::Quoted(e.raw_name.clone(), e.code.clone(), q, true));
+                return Ok(Resolved::Quoted(
+                    e.raw_name.clone(),
+                    e.code.clone(),
+                    q,
+                    true,
+                ));
             }
             Ok(None) => continue,
             Err(err) if fatal(&err) => return Err(err),
@@ -117,7 +124,10 @@ async fn resolve(
         }
     }
     let first = &entries[0];
-    Ok(Resolved::NoPrice(first.raw_name.clone(), first.code.clone()))
+    Ok(Resolved::NoPrice(
+        first.raw_name.clone(),
+        first.code.clone(),
+    ))
 }
 
 pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {

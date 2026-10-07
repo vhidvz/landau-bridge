@@ -412,7 +412,10 @@ pub async fn reprice_items(ctx: &JobCtx, svc: &Services, items: &[(i64, String)]
         let (verdict, price) = verdict_of(row);
         ctx.item(
             *item_id,
-            &[("reprice_verdict", t(&verdict)), ("price_after", opt_i(price))],
+            &[
+                ("reprice_verdict", t(&verdict)),
+                ("price_after", opt_i(price)),
+            ],
         )?;
     }
     if !skipped.is_empty() {
@@ -448,7 +451,9 @@ pub fn report(ctx: &JobCtx, svc: &Services, items: &[(i64, String)]) -> Result<(
         if let (Some(cost), Some(price)) = (row.cost, row.price_after) {
             if pricing::below_min_margin(price, cost, margin) {
                 ctx.db.add_item_note(*item_id, "زیر حداقل سود")?;
-                thin.push(json!({"item_id": item_id, "stock_id": stock_id, "cost": cost, "price": price}));
+                thin.push(
+                    json!({"item_id": item_id, "stock_id": stock_id, "cost": cost, "price": price}),
+                );
             }
         }
         ctx.item(*item_id, &[("status", t("DONE"))])?;

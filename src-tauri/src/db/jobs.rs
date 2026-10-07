@@ -362,9 +362,12 @@ mod tests {
     #[test]
     fn item_notes_are_appended_and_availability_is_read_back() {
         let db = Db::in_memory().unwrap();
-        let job = db.create_job("REFRESH", None, None, "store", false).unwrap();
+        let job = db
+            .create_job("REFRESH", None, None, "store", false)
+            .unwrap();
         let id = db.add_job_item(job, "1", "قطعه", 0).unwrap();
-        db.add_item_note(id, "ناموجود؛ قیمت پایین‌تر نادیده گرفته شد").unwrap();
+        db.add_item_note(id, "ناموجود؛ قیمت پایین‌تر نادیده گرفته شد")
+            .unwrap();
         db.add_item_note(id, "زیر حداقل سود").unwrap();
         db.update_job_item(id, &[("available", crate::jobs::i(0))])
             .unwrap();
@@ -376,4 +379,3 @@ mod tests {
         assert_eq!(row.available, Some(false));
     }
 }
-

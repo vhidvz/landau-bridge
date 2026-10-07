@@ -185,8 +185,14 @@ impl Matcher {
         if let Some(row) = self.db.match_for_name(&self.supplier, name)? {
             if !code.is_empty() && row.code != code {
                 let product = row.product_id.as_deref().zip(row.product_name.as_deref());
-                self.db
-                    .set_match(&self.supplier, name, code, product, &row.how, row.similarity)?;
+                self.db.set_match(
+                    &self.supplier,
+                    name,
+                    code,
+                    product,
+                    &row.how,
+                    row.similarity,
+                )?;
             }
             return Ok(Some(row));
         }
@@ -574,9 +580,8 @@ mod tests {
             None,
         )
         .unwrap();
-        let never = |_q: String, _l: usize, _s: usize| async {
-            panic!("no search for a stored decision")
-        };
+        let never =
+            |_q: String, _l: usize, _s: usize| async { panic!("no search for a stored decision") };
         // same name, new code → found by name; the code is refreshed
         let d = m
             .decide(&never, "NEW-1", "لنت جلو پژو ۴۰۵ عظام* (16)")
@@ -595,7 +600,9 @@ mod tests {
             .decide(&never, "NEW-1", "لنت جلو 405 عظام (16 عددی)")
             .await
             .unwrap();
-        assert!(matches!(d, Decision::Matched { ref product_id, ref how, .. } if product_id == "p1" && how == "USER"));
+        assert!(
+            matches!(d, Decision::Matched { ref product_id, ref how, .. } if product_id == "p1" && how == "USER")
+        );
         assert!(db
             .match_for_name("s", "لنت جلو 405 عظام (16 عددی)")
             .unwrap()
