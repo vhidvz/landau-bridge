@@ -3,6 +3,7 @@
 
 use std::collections::HashSet;
 
+use futures_util::stream::{FuturesUnordered, StreamExt};
 use serde_json::json;
 
 use super::planner::{aggregate, find_row, floored, plan_write, shortfall, WriteAction};
@@ -118,23 +119,81 @@ async fn fetch(
             todo.truncate(limit);
         }
     }
-    let total = todo.len() as u32;
-    for (n, invoice_id) in todo.into_iter().enumerate() {
-        ctx.check_cancel()?;
-        let url = ctx.db.invoice_url(invoice_id)?;
-        match svc.supplier.invoice_lines(&url).await {
-            Ok(lines) => ctx.db.replace_lines(invoice_id, &lines)?,
-            Err(e) if fatal(&e) => return Err(e),
-            Err(e) => ctx.warn(
-                "FETCH",
-                e.kind(),
-                &format!("فاکتور {url}: {}", e.message_fa()),
-                Some(json!({"invoice_id": invoice_id})),
+    // An invoice that fails on its own (the site's error page past every retry, a page that did not
+    // parse) is not reported yet: it gets one more pass once the rest are in, minutes or hours
+    // later, and only what fails twice reaches the report. A page the site served badly once is
+    // not a layout change (2026-10-07: four such reports, each invoice fine on the next fetch).
+    let again = fetch_all(ctx, svc, todo, "جزئیات فاکتورها").await?;
+    for (invoice_id, e) in again.iter() {
+        tracing::warn!(job = ctx.job_id, invoice_id, error = %e, "invoice fetch failed; trying again at the end of the pass");
+    }
+    let again = again.into_iter().map(|(id, _)| id).collect();
+    for (invoice_id, e) in fetch_all(ctx, svc, again, "تلاش دوباره برای فاکتورهای ناموفق").await?
+    {
+        ctx.warn(
+            "FETCH",
+            e.kind(),
+            &format!(
+                "فاکتور {}: {}",
+                ctx.db.invoice_url(invoice_id)?,
+                e.message_fa()
             ),
-        }
-        ctx.progress("FETCH", n as u32 + 1, total, "جزئیات فاکتورها");
+            Some(json!({"invoice_id": invoice_id})),
+        );
     }
     Ok(())
+}
+
+/// Fetches `ids` with up to [`crate::supplier::Supplier::parallelism`] in flight — the supplier
+/// decides how many of those actually run at once — and returns the invoices that failed on their
+/// own. A cancel starts nothing new and lets what is in flight land (as the one-at-a-time loop
+/// let its current invoice land); a fatal failure stops at once, and whatever was in flight is
+/// fetched by the next run, since only a stored invoice counts as fetched.
+async fn fetch_all(
+    ctx: &JobCtx,
+    svc: &Services,
+    ids: Vec<i64>,
+    message: &str,
+) -> Result<Vec<(i64, BridgeError)>> {
+    let parallel = svc.supplier.parallelism().max(1);
+    let total = ids.len() as u32;
+    let mut ids = ids.into_iter();
+    let mut running = FuturesUnordered::new();
+    let (mut failed, mut done, mut cancelled) = (Vec::new(), 0, false);
+    loop {
+        while !cancelled && running.len() < parallel {
+            let Some(id) = ids.next() else { break };
+            if ctx.check_cancel().is_err() {
+                cancelled = true;
+                break;
+            }
+            running.push(async move { (id, fetch_lines(ctx, svc, id).await) });
+        }
+        let Some((id, outcome)) = running.next().await else {
+            break;
+        };
+        if let Some(e) = outcome? {
+            failed.push((id, e));
+        }
+        done += 1;
+        ctx.progress("FETCH", done, total, message);
+    }
+    ctx.check_cancel()?;
+    Ok(failed)
+}
+
+/// One invoice's lines into the cache. `Ok(Some(e))` is a failure of that invoice alone; `Err` is
+/// one that stops the job ([`fatal`], or the database).
+async fn fetch_lines(ctx: &JobCtx, svc: &Services, invoice_id: i64) -> Result<Option<BridgeError>> {
+    let url = ctx.db.invoice_url(invoice_id)?;
+    match svc.supplier.invoice_lines(&url).await {
+        Ok(lines) => {
+            ctx.db.replace_lines(invoice_id, &lines)?;
+            Ok(None)
+        }
+        Err(e) if fatal(&e) => Err(e),
+        Err(e) => Ok(Some(e)),
+    }
 }
 
 fn aggregate_phase(ctx: &JobCtx, params: &ImportParams) -> Result<()> {
@@ -706,6 +765,317 @@ mod tests {
         );
         assert_eq!(params(ImportMode::Quantity, false).ledger_from(), None);
         assert_eq!(params(ImportMode::Zero, true).ledger_from(), None);
+    }
+
+    /// Serves a three-invoice ledger: `/f/once` fails on its first fetch only, `/f/never` on
+    /// every fetch, `/f/ok` never. Records every invoice URL asked for.
+    #[derive(Default)]
+    struct FlakySupplier {
+        asked: std::sync::Mutex<Vec<String>>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::supplier::Supplier for FlakySupplier {
+        fn id(&self) -> &'static str {
+            "flaky"
+        }
+        async fn login(&self) -> Result<()> {
+            Ok(())
+        }
+        async fn ledger(
+            &self,
+            _from: Option<&str>,
+            _progress: Progress,
+        ) -> Result<Vec<crate::domain::InvoiceHeader>> {
+            Ok(["once", "never", "ok"]
+                .iter()
+                .enumerate()
+                .map(|(n, name)| crate::domain::InvoiceHeader {
+                    number: format!("{}", 100 + n),
+                    kind: crate::domain::InvoiceKind::Sale,
+                    date_jalali: "1405/01/01".into(),
+                    date_iso: "2026-03-21".into(),
+                    paid: true,
+                    url: format!("/f/{name}"),
+                })
+                .collect())
+        }
+        async fn invoice_lines(&self, url: &str) -> Result<Vec<crate::domain::InvoiceLine>> {
+            let nth = {
+                let mut asked = self.asked.lock().unwrap();
+                asked.push(url.to_string());
+                asked.iter().filter(|u| *u == url).count()
+            };
+            let parse = || BridgeError::SupplierParse {
+                page: "factor".into(),
+                field: "lines table".into(),
+            };
+            match (url, nth) {
+                ("/f/once", 1) | ("/f/never", _) => Err(parse()),
+                _ => Ok(vec![crate::domain::InvoiceLine {
+                    line_no: 1,
+                    code: "3137006".into(),
+                    name: "لنت جلو".into(),
+                    qty: 1,
+                    unit: "دست".into(),
+                    unit_price: 1,
+                }]),
+            }
+        }
+        async fn price_of(&self, _code: &str) -> Result<Option<crate::domain::PriceQuote>> {
+            Err(BridgeError::Other("offline".into()))
+        }
+        async fn quotes_by_name(&self, _name: &str) -> Result<Vec<crate::domain::PriceQuote>> {
+            Err(BridgeError::Other("offline".into()))
+        }
+    }
+
+    fn flaky_services() -> Services {
+        services(Box::new(FlakySupplier::default()))
+    }
+
+    fn services(supplier: Box<dyn crate::supplier::Supplier>) -> Services {
+        Services {
+            landau: crate::landau::LandauClient::new("http://127.0.0.1:1", "apt-test").unwrap(),
+            supplier,
+            settings: crate::settings::Settings {
+                landau_url: "http://127.0.0.1:1".into(),
+                landau_token: Some("apt-test".into()),
+                store: Some("store1".into()),
+                store_name: None,
+                supplier_user: None,
+                supplier_password: None,
+                default_authenticity: Authenticity::Original,
+                threshold: 85,
+                vat_percent: 10.0,
+                min_margin_percent: 0.0,
+                overwrite_manual: false,
+                fetch_since_only: true,
+            },
+        }
+    }
+
+    /// The 2026-10-07 report: a page the site failed to serve once was reported as a layout change
+    /// and left out of the run. Every item-level failure gets one more pass at the end of FETCH;
+    /// only what fails twice reaches the report.
+    fn job_ctx() -> JobCtx {
+        let db = crate::db::Db::in_memory().unwrap();
+        let job_id = db
+            .create_job("IMPORT", Some("ZERO"), None, "store1", false)
+            .unwrap();
+        JobCtx {
+            db,
+            app: None,
+            job_id,
+            cancel: Default::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn fetch_retries_failed_invoices_once_before_reporting_them() {
+        let ctx = job_ctx();
+        let svc = flaky_services();
+        fetch(&ctx, &svc, None, None).await.unwrap();
+
+        let left: Vec<String> = ctx
+            .db
+            .unfetched_invoice_ids(SUPPLIER_ID, None)
+            .unwrap()
+            .into_iter()
+            .map(|id| ctx.db.invoice_url(id).unwrap())
+            .collect();
+        assert_eq!(left, vec!["/f/never".to_string()]);
+
+        let errors = ctx.db.list_errors(10).unwrap();
+        assert_eq!(
+            errors.len(),
+            1,
+            "only the invoice that failed twice is reported"
+        );
+        assert!(
+            errors[0].message.contains("/f/never"),
+            "{}",
+            errors[0].message
+        );
+    }
+
+    /// Serves `/f/<name>` invoices `parallel` at a time, each after `delay`, counting how many ran
+    /// together. `once…` fails on its first fetch, `never…` on every one, `fatal` stops the job;
+    /// `cancel_on` raises the job's cancel flag the first time that invoice is asked for.
+    struct ParallelSupplier {
+        names: Vec<String>,
+        parallel: usize,
+        delay: std::time::Duration,
+        running: std::sync::atomic::AtomicUsize,
+        max_running: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        asked: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+        cancel_on: Option<(String, std::sync::Arc<std::sync::atomic::AtomicBool>)>,
+    }
+
+    impl ParallelSupplier {
+        fn new(names: &[&str], parallel: usize) -> Self {
+            ParallelSupplier {
+                names: names.iter().map(|n| n.to_string()).collect(),
+                parallel,
+                delay: std::time::Duration::from_millis(20),
+                running: Default::default(),
+                max_running: Default::default(),
+                asked: Default::default(),
+                cancel_on: None,
+            }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl crate::supplier::Supplier for ParallelSupplier {
+        fn id(&self) -> &'static str {
+            "parallel"
+        }
+        async fn login(&self) -> Result<()> {
+            Ok(())
+        }
+        async fn ledger(
+            &self,
+            _from: Option<&str>,
+            _progress: Progress,
+        ) -> Result<Vec<crate::domain::InvoiceHeader>> {
+            Ok(self
+                .names
+                .iter()
+                .enumerate()
+                .map(|(n, name)| crate::domain::InvoiceHeader {
+                    number: format!("{}", 1000 + n),
+                    kind: crate::domain::InvoiceKind::Sale,
+                    date_jalali: "1405/01/01".into(),
+                    date_iso: "2026-03-21".into(),
+                    paid: true,
+                    url: format!("/f/{name}"),
+                })
+                .collect())
+        }
+        async fn invoice_lines(&self, url: &str) -> Result<Vec<crate::domain::InvoiceLine>> {
+            use std::sync::atomic::Ordering::SeqCst;
+            let nth = {
+                let mut asked = self.asked.lock().unwrap();
+                asked.push(url.to_string());
+                asked.iter().filter(|u| *u == url).count()
+            };
+            if let Some((on, flag)) = &self.cancel_on {
+                if url == on {
+                    flag.store(true, SeqCst);
+                }
+            }
+            let now = self.running.fetch_add(1, SeqCst) + 1;
+            self.max_running.fetch_max(now, SeqCst);
+            tokio::time::sleep(self.delay).await;
+            self.running.fetch_sub(1, SeqCst);
+            let name = url.trim_start_matches("/f/");
+            if name == "fatal" {
+                return Err(BridgeError::SupplierUnreachable("connection reset".into()));
+            }
+            if name.starts_with("never") || (name.starts_with("once") && nth == 1) {
+                return Err(BridgeError::SupplierFaulted { path: url.into() });
+            }
+            Ok(vec![crate::domain::InvoiceLine {
+                line_no: 1,
+                code: "3137006".into(),
+                name: "لنت جلو".into(),
+                qty: 1,
+                unit: "دست".into(),
+                unit_price: 1,
+            }])
+        }
+        async fn price_of(&self, _code: &str) -> Result<Option<crate::domain::PriceQuote>> {
+            Err(BridgeError::Other("offline".into()))
+        }
+        async fn quotes_by_name(&self, _name: &str) -> Result<Vec<crate::domain::PriceQuote>> {
+            Err(BridgeError::Other("offline".into()))
+        }
+        fn parallelism(&self) -> usize {
+            self.parallel
+        }
+    }
+
+    fn unfetched(ctx: &JobCtx) -> Vec<String> {
+        ctx.db
+            .unfetched_invoice_ids(SUPPLIER_ID, None)
+            .unwrap()
+            .into_iter()
+            .map(|id| ctx.db.invoice_url(id).unwrap())
+            .collect()
+    }
+
+    /// The parallel fetch keeps LND-Q01's contract: per-invoice failures stay per invoice, get one
+    /// more pass, and only what fails twice is reported — now with several invoices in flight.
+    #[tokio::test]
+    async fn fetch_runs_as_many_as_the_supplier_allows_and_keeps_the_second_pass() {
+        let mut names: Vec<String> = (0..17).map(|n| format!("ok{n}")).collect();
+        names.extend(["once1", "once2", "never1"].map(String::from));
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let supplier = ParallelSupplier::new(&names, 4);
+        let (max_running, asked) = (supplier.max_running.clone(), supplier.asked.clone());
+        let ctx = job_ctx();
+        let started = std::time::Instant::now();
+        fetch(&ctx, &services(Box::new(supplier)), None, None)
+            .await
+            .unwrap();
+        let took = started.elapsed();
+
+        assert_eq!(
+            max_running.load(std::sync::atomic::Ordering::SeqCst),
+            4,
+            "never more than the supplier's parallelism, and all of it used"
+        );
+        assert_eq!(unfetched(&ctx), vec!["/f/never1".to_string()]);
+        let errors = ctx.db.list_errors(10).unwrap();
+        assert_eq!(
+            errors.len(),
+            1,
+            "only the invoice that failed twice is reported"
+        );
+        assert!(errors[0].message.contains("/f/never1"));
+        assert_eq!(
+            asked.lock().unwrap().len(),
+            20 + 3,
+            "the three failures asked once more"
+        );
+        // 23 fetches of 20 ms, four at a time: ~0.12 s; one at a time would take 0.46 s.
+        assert!(took < std::time::Duration::from_millis(350), "{took:?}");
+    }
+
+    /// As the one-at-a-time loop let its current invoice land, a cancel lets every invoice in
+    /// flight land — and starts nothing new.
+    #[tokio::test]
+    async fn a_cancel_lets_what_is_in_flight_land_and_starts_nothing_new() {
+        let names: Vec<String> = (0..10).map(|n| format!("ok{n}")).collect();
+        let names: Vec<&str> = names.iter().map(String::as_str).collect();
+        let ctx = job_ctx();
+        let mut supplier = ParallelSupplier::new(&names, 3);
+        supplier.cancel_on = Some(("/f/ok1".into(), ctx.cancel.clone()));
+        let asked = supplier.asked.clone();
+        let result = fetch(&ctx, &services(Box::new(supplier)), None, None).await;
+        assert_eq!(result, Err(BridgeError::JobCancelled));
+        assert_eq!(
+            asked.lock().unwrap().len(),
+            3,
+            "only the first three were started"
+        );
+        assert_eq!(unfetched(&ctx).len(), 10 - 3, "and all three were stored");
+    }
+
+    #[tokio::test]
+    async fn a_fatal_failure_still_stops_the_fetch() {
+        let ctx = job_ctx();
+        let supplier = ParallelSupplier::new(&["ok0", "fatal", "ok1", "ok2", "ok3", "ok4"], 2);
+        let result = fetch(&ctx, &services(Box::new(supplier)), None, None).await;
+        assert!(
+            matches!(result, Err(BridgeError::SupplierUnreachable(_))),
+            "{result:?}"
+        );
+        assert!(
+            ctx.db.list_errors(10).unwrap().is_empty(),
+            "a stop, not a report"
+        );
     }
 
     #[test]

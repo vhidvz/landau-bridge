@@ -1,10 +1,12 @@
-//! The Barezpakhsh session (spec §4): anti-forgery login, ledger paging, invoice pages, price
+//! The Barezpakhsh client (spec §4): anti-forgery login, ledger paging, invoice pages, price
 //! search. Transient failures are retried (spec §3) and an expired session triggers one
-//! automatic re-login on every authenticated request. Every request logs method, path and
-//! status; never the credentials.
+//! automatic re-login on every authenticated request. The ledger and the search run on one
+//! primary session; invoice pages, which are independent, are read in parallel on a pool of
+//! sessions sized by [`crate::supplier::adaptive`]. Every request logs method, path and status;
+//! never the credentials.
 
 use std::collections::HashSet;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use reqwest::{Client as Http, Url};
 use serde_json::json;
@@ -14,6 +16,7 @@ use super::parse::{self, BuyContext};
 use crate::domain::{InvoiceHeader, InvoiceLine, PriceQuote};
 use crate::errors::{BridgeError, Result};
 use crate::matching::normalize::search_words;
+use crate::supplier::adaptive::{Limiter, Pool, Sample};
 use crate::supplier::{Credentials, Progress, Supplier};
 
 pub const ID: &str = "barezpakhsh";
@@ -22,8 +25,27 @@ pub const BASE_URL: &str = "https://33314466.ir";
 const LEDGER_FROM: &str = "1390/01/01";
 const USER_AGENT: &str = "LandauBridge/0.1 (+https://landau.ir)";
 
-/// Up to 3 attempts total, sleeping 1s then 3s between them; see [`retryable`] for what qualifies.
-const RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(3)];
+/// Pauses between attempts at one request — six attempts over ~1¾ minutes, so a dropped
+/// connection or a site that stumbles for a minute is ridden out rather than reported; see
+/// [`Transient`] for what qualifies. A job that fetches for hours meets both (2026-10-07: six
+/// transport retries and four error pages in one 1 499-invoice run).
+const RETRY_DELAYS: [Duration; 5] = [
+    Duration::from_secs(1),
+    Duration::from_secs(3),
+    Duration::from_secs(10),
+    Duration::from_secs(30),
+    Duration::from_secs(60),
+];
+/// The budget before LND-Q01 — three attempts over four seconds — for a check the seller sits
+/// waiting on (Settings → «آزمایش ورود»), where a dead connection must answer in seconds.
+const QUICK_RETRY_DELAYS: [Duration; 2] = [Duration::from_secs(1), Duration::from_secs(3)];
+
+/// Sessions the invoice-page pool starts with and may grow to. Measured 2026-10-07 on the live
+/// site: four sessions answered four pages in 31 s — no slower than one — and eight answered
+/// eight in 39–42 s, the server starting to strain; the limiter finds the point in between, and
+/// the ceiling keeps one seller's import from leaning harder than that on the supplier.
+const INITIAL_SESSIONS: usize = 2;
+const MAX_SESSIONS: usize = 8;
 
 /// Rows per `/Shop/Share/ItemsSearchGradual` page — the largest size the site's own form offers.
 const SEARCH_PAGE_SIZE: usize = 50;
@@ -41,6 +63,39 @@ pub(crate) fn retryable(status: Option<u16>) -> bool {
         None => true,
         Some(404) | Some(408) | Some(429) => true,
         Some(s) => (500..600).contains(&s),
+    }
+}
+
+/// The site's way of saying a page threw on its side: ASP.NET's custom-error redirect to
+/// `/Error?aspxerrorpath=…`, which reqwest follows to an HTTP **200** «بروز خطا» page, or that page
+/// answered in place of the content. Verified live 2026-10-07 — an invalid invoice id redirects
+/// there — and it is what reached the invoice parser as «lines table» missing in 4 of 1 499
+/// fetches that day, each of which parsed when fetched again.
+pub(crate) fn site_error(url: &Url, body: &str) -> bool {
+    url.path().eq_ignore_ascii_case("/Error") || parse::is_error_page(body)
+}
+
+/// Why one attempt did not yield a page — every one of them worth another attempt.
+#[derive(Debug)]
+enum Transient {
+    /// No response, or the body was cut off on the way: the network, not the site.
+    Network(String),
+    /// A status [`retryable`] accepts.
+    Status(reqwest::StatusCode),
+    /// [`site_error`].
+    SiteError,
+}
+
+impl Transient {
+    /// What the caller sees once the retries are spent.
+    fn into_error(self, path: &str) -> BridgeError {
+        match self {
+            Transient::Network(detail) => BridgeError::SupplierUnreachable(detail),
+            Transient::Status(status) => {
+                BridgeError::SupplierUnreachable(format!("{path} answered {status}"))
+            }
+            Transient::SiteError => BridgeError::SupplierFaulted { path: path.into() },
+        }
     }
 }
 
@@ -121,20 +176,26 @@ struct BuySession {
     group: String,
 }
 
-pub struct Client {
+/// One conversation with the site, with a cookie jar of its own. The site serves one request per
+/// session at a time: four sent at once on one session came back at 32, 60 and 89 s and then a
+/// 504 at the gateway's 100 s, while four sessions answered four pages in 31 s (measured
+/// 2026-10-07). So a session never carries two requests at once — the primary one is used in
+/// sequence, a pooled one only under its lease.
+struct Session {
     http: Http,
-    base: Url,
-    creds: Credentials,
     logged_in: Mutex<bool>,
-    buy: Mutex<Option<BuySession>>,
+    /// How its requests went since the last [`Session::take_sample`].
+    signal: std::sync::Mutex<Signal>,
 }
 
-impl Client {
-    pub fn new(creds: Credentials) -> Result<Self> {
-        Self::with_base(creds, BASE_URL)
-    }
+#[derive(Debug, Default)]
+struct Signal {
+    strained: bool,
+    rtt: Option<Duration>,
+}
 
-    pub fn with_base(creds: Credentials, base: &str) -> Result<Self> {
+impl Session {
+    fn open() -> Result<Self> {
         let http = Http::builder()
             .cookie_store(true)
             .no_proxy()
@@ -144,24 +205,67 @@ impl Client {
             .connect_timeout(Duration::from_secs(20))
             .build()
             .map_err(|e| BridgeError::SupplierUnreachable(e.to_string()))?;
+        Ok(Session {
+            http,
+            logged_in: Mutex::new(false),
+            signal: Default::default(),
+        })
+    }
+
+    /// For the pool's limiter: any retry is strain, else the latency of the final request;
+    /// nothing when no request was answered (a refusal says nothing about the connection).
+    fn take_sample(&self) -> Option<Sample> {
+        let signal = std::mem::take(&mut *self.signal.lock().unwrap());
+        if signal.strained {
+            Some(Sample::Strained)
+        } else {
+            signal.rtt.map(Sample::Ok)
+        }
+    }
+}
+
+pub struct Client {
+    base: Url,
+    creds: Credentials,
+    /// The ledger and the price search: flows that keep state in the site's session.
+    primary: Session,
+    /// Invoice pages, one per session at a time.
+    pages: Pool<Session>,
+    buy: Mutex<Option<BuySession>>,
+    /// [`RETRY_DELAYS`]; tests shorten it.
+    retry_delays: Vec<Duration>,
+}
+
+impl Client {
+    pub fn new(creds: Credentials) -> Result<Self> {
+        Self::with_base(creds, BASE_URL)
+    }
+
+    pub fn with_base(creds: Credentials, base: &str) -> Result<Self> {
         let base = Url::parse(base).map_err(|e| BridgeError::Other(format!("base url: {e}")))?;
         Ok(Client {
-            http,
             base,
             creds,
-            logged_in: Mutex::new(false),
+            primary: Session::open()?,
+            pages: Pool::new(
+                "barezpakhsh pages",
+                Limiter::new(INITIAL_SESSIONS, MAX_SESSIONS),
+            ),
             buy: Mutex::new(None),
+            retry_delays: RETRY_DELAYS.to_vec(),
         })
+    }
+
+    /// The same client with [`QUICK_RETRY_DELAYS`]: for a check the seller is waiting on.
+    pub fn impatient(mut self) -> Self {
+        self.retry_delays = QUICK_RETRY_DELAYS.to_vec();
+        self
     }
 
     fn url(&self, path: &str) -> Result<Url> {
         self.base
             .join(path)
             .map_err(|e| BridgeError::Other(format!("url {path}: {e}")))
-    }
-
-    fn unreachable(e: reqwest::Error) -> BridgeError {
-        BridgeError::SupplierUnreachable(e.without_url().to_string())
     }
 
     /// The status reqwest ends on after following redirects. Anything but a 2xx that survived
@@ -179,121 +283,108 @@ impl Client {
         }
     }
 
-    /// Sends a request built fresh on each attempt (so a form/JSON body can be resent),
-    /// retrying per [`retryable`]. Never interprets the response itself — block detection,
-    /// session-expiry detection and success handling all stay with the caller.
-    async fn send_with_retry<B>(&self, path: &str, build: B) -> Result<reqwest::Response>
+    /// Sends a request built fresh on each attempt (so a form/JSON body can be resent) and reads
+    /// its body, retrying with [`RETRY_DELAYS`] whatever [`Transient`] names — for every kind of
+    /// request alike, since the site's failures do not care which one it was serving. Returns the
+    /// final URL and body of the first answer that is neither; session-expiry detection and parsing
+    /// stay with the caller. Spent retries end as [`Transient::into_error`] says: a network or
+    /// status failure is [`crate::jobs::fatal`] (the site is out of reach), a site error is not.
+    async fn fetch<B>(
+        &self,
+        s: &Session,
+        method: &str,
+        path: &str,
+        build: B,
+    ) -> Result<(Url, String)>
     where
-        B: Fn() -> reqwest::RequestBuilder,
+        B: Fn(&Http) -> reqwest::RequestBuilder,
     {
         let mut attempt: usize = 0;
         loop {
             attempt += 1;
-            let outcome = build().send().await;
-            let status = outcome.as_ref().ok().map(|r| r.status().as_u16());
-            if attempt <= RETRY_DELAYS.len() && retryable(status) {
-                match &outcome {
-                    Ok(res) => {
-                        tracing::warn!(
-                            path,
-                            attempt,
-                            status = res.status().as_u16(),
-                            "barezpakhsh retrying"
-                        );
-                    }
-                    Err(e) => tracing::warn!(path, attempt, error = %e, "barezpakhsh retrying"),
+            let started = Instant::now();
+            let failure = match build(&s.http).send().await {
+                Err(e) => Transient::Network(e.without_url().to_string()),
+                Ok(res) if retryable(Some(res.status().as_u16())) => {
+                    Transient::Status(res.status())
                 }
-                tokio::time::sleep(RETRY_DELAYS[attempt - 1]).await;
-                continue;
-            }
-            return outcome.map_err(Self::unreachable);
+                Ok(res) => {
+                    let status = res.status();
+                    let url = res.url().clone();
+                    match res.text().await {
+                        Err(e) => Transient::Network(e.without_url().to_string()),
+                        Ok(body) => {
+                            tracing::debug!(method, path, %status, "barezpakhsh");
+                            if status.as_u16() == 403 && parse::is_blocked_page(&body) {
+                                return Err(BridgeError::SupplierBlocked);
+                            }
+                            if !site_error(&url, &body) {
+                                Self::check_status(path, status)?;
+                                s.signal.lock().unwrap().rtt = Some(started.elapsed());
+                                return Ok((url, body));
+                            }
+                            Transient::SiteError
+                        }
+                    }
+                }
+            };
+            s.signal.lock().unwrap().strained = true;
+            let Some(delay) = self.retry_delays.get(attempt - 1) else {
+                return Err(failure.into_error(path));
+            };
+            tracing::warn!(method, path, attempt, reason = ?failure, "barezpakhsh retrying");
+            tokio::time::sleep(*delay).await;
         }
     }
 
-    async fn get(&self, path: &str) -> Result<(Url, String)> {
+    async fn get(&self, s: &Session, path: &str) -> Result<(Url, String)> {
         let req_url = self.url(path)?;
-        let res = self
-            .send_with_retry(path, || self.http.get(req_url.clone()))
-            .await?;
-        let status = res.status();
-        let url = res.url().clone();
-        let body = res.text().await.map_err(Self::unreachable)?;
-        tracing::debug!(method = "GET", path, %status, "barezpakhsh");
-        if status.as_u16() == 403 && parse::is_blocked_page(&body) {
-            return Err(BridgeError::SupplierBlocked);
-        }
-        Self::check_status(path, status)?;
-        Ok((url, body))
+        self.fetch(s, "GET", path, |http| http.get(req_url.clone()))
+            .await
     }
 
-    async fn post_form(&self, path: &str, fields: &[(String, String)]) -> Result<(Url, String)> {
+    async fn post_form(
+        &self,
+        s: &Session,
+        path: &str,
+        fields: &[(String, String)],
+    ) -> Result<(Url, String)> {
         let req_url = self.url(path)?;
-        let res = self
-            .send_with_retry(path, || self.http.post(req_url.clone()).form(fields))
-            .await?;
-        let status = res.status();
-        let url = res.url().clone();
-        let body = res.text().await.map_err(Self::unreachable)?;
-        tracing::debug!(method = "POST", path, %status, "barezpakhsh");
-        if status.as_u16() == 403 && parse::is_blocked_page(&body) {
-            return Err(BridgeError::SupplierBlocked);
-        }
-        Self::check_status(path, status)?;
-        Ok((url, body))
+        self.fetch(s, "POST", path, |http| {
+            http.post(req_url.clone()).form(fields)
+        })
+        .await
     }
 
-    /// POST JSON. The site answers its «خطا» page (HTTP 200, HTML) transiently to any request and
-    /// always to an over-long search term; it is retried with [`RETRY_DELAYS`] and then reported as
-    /// a parse failure of `page` — one item, never the job (spec §14 b).
-    async fn post_json(&self, path: &str, page: &str, body: &serde_json::Value) -> Result<String> {
+    /// POST JSON. The site's «خطا» page (HTTP 200, HTML) comes back transiently to any request and
+    /// always to an over-long search term (spec §14 b); [`Self::fetch`] retries it and then fails
+    /// the one item as [`BridgeError::SupplierFaulted`], never the job.
+    async fn post_json(&self, s: &Session, path: &str, body: &serde_json::Value) -> Result<String> {
         let req_url = self.url(path)?;
         let payload = body.to_string();
-        let mut attempt: usize = 0;
-        loop {
-            attempt += 1;
-            let res = self
-                .send_with_retry(path, || {
-                    self.http
-                        .post(req_url.clone())
-                        .header("content-type", "application/json; charset=utf-8")
-                        .header("x-requested-with", "XMLHttpRequest")
-                        .body(payload.clone())
-                })
-                .await?;
-            let status = res.status();
-            tracing::debug!(method = "POST", path, %status, "barezpakhsh json");
-            let text = res.text().await.map_err(Self::unreachable)?;
-            if status.as_u16() == 403 && parse::is_blocked_page(&text) {
-                return Err(BridgeError::SupplierBlocked);
-            }
-            Self::check_status(path, status)?;
-            if !parse::is_error_page(&text) {
-                return Ok(text);
-            }
-            if attempt <= RETRY_DELAYS.len() {
-                tracing::warn!(path, attempt, "barezpakhsh answered its error page; retrying");
-                tokio::time::sleep(RETRY_DELAYS[attempt - 1]).await;
-                continue;
-            }
-            return Err(BridgeError::SupplierParse {
-                page: page.into(),
-                field: "error page".into(),
-            });
-        }
+        let (_, text) = self
+            .fetch(s, "POST", path, |http| {
+                http.post(req_url.clone())
+                    .header("content-type", "application/json; charset=utf-8")
+                    .header("x-requested-with", "XMLHttpRequest")
+                    .body(payload.clone())
+            })
+            .await?;
+        Ok(text)
     }
 
-    async fn do_login(&self) -> Result<()> {
-        let (_, page) = self.get("/Home/Login").await?;
+    async fn do_login(&self, s: &Session) -> Result<()> {
+        let (_, page) = self.get(s, "/Home/Login").await?;
         let token = parse::antiforgery_token(&page, "login")?;
         let fields = [
             ("__RequestVerificationToken".to_string(), token),
             ("Username".to_string(), self.creds.username.clone()),
             ("Password".to_string(), self.creds.password.clone()),
         ];
-        let (url, body) = self.post_form("/Home/Login", &fields).await?;
+        let (url, body) = self.post_form(s, "/Home/Login", &fields).await?;
         if url.path().starts_with("/Shop") {
             tracing::info!("barezpakhsh login ok");
-            *self.logged_in.lock().await = true;
+            *s.logged_in.lock().await = true;
             return Ok(());
         }
         if parse::is_login_page(&body) {
@@ -305,26 +396,26 @@ impl Client {
         })
     }
 
-    async fn ensure_session(&self) -> Result<()> {
-        if *self.logged_in.lock().await {
+    async fn ensure_session(&self, s: &Session) -> Result<()> {
+        if *s.logged_in.lock().await {
             return Ok(());
         }
-        self.do_login().await
+        self.do_login(s).await
     }
 
     /// GET an authenticated page; on the login page, log in once more and retry.
-    async fn get_authed(&self, path: &str) -> Result<String> {
-        self.ensure_session().await?;
-        let (_, body) = self.get(path).await?;
+    async fn get_authed(&self, s: &Session, path: &str) -> Result<String> {
+        self.ensure_session(s).await?;
+        let (_, body) = self.get(s, path).await?;
         if !parse::is_login_page(&body) {
             return Ok(body);
         }
         tracing::warn!("barezpakhsh session expired; logging in again");
-        *self.logged_in.lock().await = false;
-        self.do_login()
+        *s.logged_in.lock().await = false;
+        self.do_login(s)
             .await
             .map_err(|_| BridgeError::SupplierSessionExpired)?;
-        let (_, body) = self.get(path).await?;
+        let (_, body) = self.get(s, path).await?;
         if parse::is_login_page(&body) {
             return Err(BridgeError::SupplierSessionExpired);
         }
@@ -333,18 +424,23 @@ impl Client {
 
     /// POST an authenticated form; on the login page, log in once more and resubmit the same
     /// fields (the statement form carries no anti-forgery token, so this is a plain re-post).
-    async fn post_form_authed(&self, path: &str, fields: &[(String, String)]) -> Result<String> {
-        self.ensure_session().await?;
-        let (_, body) = self.post_form(path, fields).await?;
+    async fn post_form_authed(
+        &self,
+        s: &Session,
+        path: &str,
+        fields: &[(String, String)],
+    ) -> Result<String> {
+        self.ensure_session(s).await?;
+        let (_, body) = self.post_form(s, path, fields).await?;
         if !parse::is_login_page(&body) {
             return Ok(body);
         }
         tracing::warn!("barezpakhsh session expired; logging in again");
-        *self.logged_in.lock().await = false;
-        self.do_login()
+        *s.logged_in.lock().await = false;
+        self.do_login(s)
             .await
             .map_err(|_| BridgeError::SupplierSessionExpired)?;
-        let (_, body) = self.post_form(path, fields).await?;
+        let (_, body) = self.post_form(s, path, fields).await?;
         if parse::is_login_page(&body) {
             return Err(BridgeError::SupplierSessionExpired);
         }
@@ -355,21 +451,21 @@ impl Client {
     /// instead of the usual JSON-string body, which `is_login_page` also recognises directly.
     async fn post_json_authed(
         &self,
+        s: &Session,
         path: &str,
-        page: &str,
         body: &serde_json::Value,
     ) -> Result<String> {
-        self.ensure_session().await?;
-        let text = self.post_json(path, page, body).await?;
+        self.ensure_session(s).await?;
+        let text = self.post_json(s, path, body).await?;
         if !parse::is_login_page(&text) {
             return Ok(text);
         }
         tracing::warn!("barezpakhsh session expired; logging in again");
-        *self.logged_in.lock().await = false;
-        self.do_login()
+        *s.logged_in.lock().await = false;
+        self.do_login(s)
             .await
             .map_err(|_| BridgeError::SupplierSessionExpired)?;
-        let text = self.post_json(path, page, body).await?;
+        let text = self.post_json(s, path, body).await?;
         if parse::is_login_page(&text) {
             return Err(BridgeError::SupplierSessionExpired);
         }
@@ -411,7 +507,7 @@ impl Client {
         if let Some(s) = self.buy.lock().await.clone() {
             return Ok(s);
         }
-        let page = self.get_authed("/Shop/Buy/Index").await?;
+        let page = self.get_authed(&self.primary, "/Shop/Buy/Index").await?;
         let mut fields = parse::form_fields(&page, "/Shop/Buy/Index", "buy")?;
         let pick = |fields: &[(String, String)], k: &str| {
             fields
@@ -427,7 +523,9 @@ impl Client {
         Self::set_field(&mut fields, "JustAvailable", "false");
         Self::set_field(&mut fields, "SelectedPageSize", "50");
         Self::set_field(&mut fields, "command", "searchItem");
-        let html = self.post_form_authed("/Shop/Buy/Index", &fields).await?;
+        let html = self
+            .post_form_authed(&self.primary, "/Shop/Buy/Index", &fields)
+            .await?;
         let ctx = parse::buy_context(&html)?;
         let session = BuySession {
             ctx,
@@ -442,19 +540,14 @@ impl Client {
 
 impl Client {
     /// One page of `/Shop/Share/ItemsSearchGradual` for `term`, 100 ms after the previous one.
-    async fn search_page(
-        &self,
-        s: &BuySession,
-        term: &str,
-        index: u32,
-    ) -> Result<Vec<PriceQuote>> {
+    async fn search_page(&self, s: &BuySession, term: &str, index: u32) -> Result<Vec<PriceQuote>> {
         if index > 1 {
             tokio::time::sleep(Duration::from_millis(100)).await;
         }
         let body = self
             .post_json_authed(
+                &self.primary,
                 "/Shop/Share/ItemsSearchGradual",
-                "items-search",
                 &json!({
                     "selectedGroupCode": s.group,
                     "selectedCarCode": s.car,
@@ -480,23 +573,25 @@ impl Supplier for Client {
     }
 
     async fn login(&self) -> Result<()> {
-        *self.logged_in.lock().await = false;
-        self.do_login().await
+        *self.primary.logged_in.lock().await = false;
+        self.do_login(&self.primary).await
     }
 
     async fn ledger(&self, from: Option<&str>, progress: Progress) -> Result<Vec<InvoiceHeader>> {
-        let page = self.get_authed("/Shop/Report/Bill").await?;
+        let page = self.get_authed(&self.primary, "/Shop/Report/Bill").await?;
         let fields = parse::form_fields(&page, "/Shop/Report/Bill", "bill")?;
         let fields = Self::ledger_form(fields, from);
-        let html = self.post_form_authed("/Shop/Report/Bill", &fields).await?;
+        let html = self
+            .post_form_authed(&self.primary, "/Shop/Report/Bill", &fields)
+            .await?;
         let ctx = parse::ledger_context(&html)?;
         let pages = ctx.page_count();
         let mut headers = Vec::new();
         for index in 1..=pages {
             let body = self
                 .post_json_authed(
+                    &self.primary,
                     "/Shop/Share/GradualMoein2Load",
-                    "moein2-page",
                     &Self::ledger_page(&ctx, index, from),
                 )
                 .await?;
@@ -511,9 +606,18 @@ impl Supplier for Client {
         Ok(dedup_headers(headers))
     }
 
+    /// On a pooled session of its own: invoice pages are independent, and the site serves one
+    /// request per session at a time.
     async fn invoice_lines(&self, url: &str) -> Result<Vec<InvoiceLine>> {
-        let html = self.get_authed(url).await?;
-        parse::invoice_lines(&html)
+        let lease = self.pages.lease(Session::open).await?;
+        let html = self.get_authed(lease.get(), url).await;
+        let sample = lease.get().take_sample();
+        lease.finish(sample);
+        parse::invoice_lines(&html?)
+    }
+
+    fn parallelism(&self) -> usize {
+        MAX_SESSIONS
     }
 
     async fn price_of(&self, code: &str) -> Result<Option<PriceQuote>> {
@@ -538,6 +642,7 @@ impl Supplier for Client {
 mod tests {
     use super::*;
     use crate::domain::InvoiceKind;
+    use futures_util::StreamExt;
 
     fn header(number: &str, kind: InvoiceKind, date: &str) -> InvoiceHeader {
         InvoiceHeader {
@@ -681,7 +786,10 @@ mod tests {
 
     #[tokio::test]
     async fn price_search_ends_on_a_short_page_without_a_match() {
-        let pages = [full_page("88002"), vec![quote("8800283x"), quote("8800283y")]];
+        let pages = [
+            full_page("88002"),
+            vec![quote("8800283x"), quote("8800283y")],
+        ];
         let asked = std::sync::Mutex::new(Vec::new());
         let found = find_across_pages("8800283", 50, |index| {
             asked.lock().unwrap().push(index);
@@ -744,5 +852,407 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(all.len(), 50 * MAX_SEARCH_PAGES as usize);
+    }
+
+    // ------------------------------------------------------------ transient answers, end to end
+
+    const FACTOR: &str = include_str!("../../../fixtures/barezpakhsh/factor-8818975.html");
+    const ERROR_PAGE: &str = include_str!("../../../fixtures/barezpakhsh/error-page.html");
+    const FACTOR_PATH: &str = "/Shop/Preview/Factor/8818975/11000";
+
+    type Seen = std::sync::Arc<std::sync::Mutex<Vec<String>>>;
+
+    /// A loopback HTTP/1.1 server answering connection N with `script[N]` and closing it, so every
+    /// attempt — redirects included — is one scripted answer. Records each request line.
+    fn serve(script: Vec<String>) -> (String, Seen) {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let seen: Seen = Default::default();
+        let log = seen.clone();
+        std::thread::spawn(move || {
+            for raw in script {
+                let Ok((mut stream, _)) = listener.accept() else {
+                    return;
+                };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                log.lock().unwrap().push(line.trim_end().to_string());
+                loop {
+                    let mut header = String::new();
+                    if reader.read_line(&mut header).unwrap() == 0 || header == "\r\n" {
+                        break;
+                    }
+                }
+                let _ = stream.write_all(raw.as_bytes());
+            }
+        });
+        (base, seen)
+    }
+
+    fn ok(body: &str) -> String {
+        format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    /// What the site answers when a page throws on its side (verified live 2026-10-07 on
+    /// `/Shop/Preview/Factor/1/11750`): ASP.NET's custom-error redirect, then a 200 error page.
+    fn error_redirect(path: &str) -> Vec<String> {
+        vec![
+            format!("HTTP/1.1 302 Found\r\nLocation: /Error?aspxerrorpath={path}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"),
+            ok(ERROR_PAGE),
+        ]
+    }
+
+    /// Headers promising more body than is sent before the connection drops.
+    fn cut_off() -> String {
+        "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 100000\r\nConnection: close\r\n\r\n<!DOCTYPE html><html><body><table>".into()
+    }
+
+    /// Logged in, with every retry pause cut to zero (the attempt count is unchanged).
+    async fn client_at(base: &str) -> Client {
+        let mut c = Client::with_base(
+            Credentials {
+                username: "u".into(),
+                password: "p".into(),
+            },
+            base,
+        )
+        .unwrap();
+        c.retry_delays = vec![Duration::ZERO; RETRY_DELAYS.len()];
+        *c.primary.logged_in.lock().await = true;
+        let mut page_session = Session::open().unwrap();
+        *page_session.logged_in.get_mut() = true;
+        c.pages.seed(page_session);
+        c
+    }
+
+    const ATTEMPTS: usize = RETRY_DELAYS.len() + 1;
+
+    #[tokio::test]
+    async fn a_site_that_keeps_failing_is_reported_as_its_fault_not_as_a_layout_change() {
+        let (base, seen) = serve(
+            (0..ATTEMPTS)
+                .flat_map(|_| error_redirect(FACTOR_PATH))
+                .collect(),
+        );
+        let err = client_at(&base)
+            .await
+            .invoice_lines(FACTOR_PATH)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err,
+            BridgeError::SupplierFaulted {
+                path: FACTOR_PATH.into()
+            }
+        );
+        assert!(!crate::jobs::fatal(&err), "one invoice, never the job");
+        assert_eq!(seen.lock().unwrap().len(), 2 * ATTEMPTS);
+    }
+
+    #[tokio::test]
+    async fn a_network_that_stays_down_still_stops_the_job_after_every_attempt() {
+        let (base, seen) = serve((0..ATTEMPTS).map(|_| cut_off()).collect());
+        let err = client_at(&base)
+            .await
+            .invoice_lines(FACTOR_PATH)
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, BridgeError::SupplierUnreachable(_)),
+            "{err:?}"
+        );
+        assert!(crate::jobs::fatal(&err));
+        assert_eq!(seen.lock().unwrap().len(), ATTEMPTS);
+    }
+
+    /// The JSON endpoints meet the same error page (spec §14 b); it used to surface as a «layout
+    /// change» of `items-search` once its retries ran out.
+    #[tokio::test]
+    async fn a_search_that_keeps_meeting_the_error_page_is_its_fault_too() {
+        let (base, _) = serve((0..ATTEMPTS).map(|_| ok(ERROR_PAGE)).collect());
+        let c = client_at(&base).await;
+        let err = c
+            .post_json_authed(&c.primary, "/Shop/Share/ItemsSearchGradual", &json!({}))
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err,
+            BridgeError::SupplierFaulted {
+                path: "/Shop/Share/ItemsSearchGradual".into()
+            }
+        );
+    }
+
+    /// The 2026-10-07 report: four invoices out of 1 499 failed as «ساختار صفحه factor تغییر کرده
+    /// است» while each parsed fine when fetched again — the site's error page, reached through its
+    /// redirect with HTTP 200, had been handed to the parser.
+    #[tokio::test]
+    async fn an_error_redirect_on_an_invoice_page_is_retried_not_read_as_a_layout_change() {
+        let mut script = error_redirect(FACTOR_PATH);
+        script.push(ok(FACTOR));
+        let (base, seen) = serve(script);
+        let lines = client_at(&base)
+            .await
+            .invoice_lines(FACTOR_PATH)
+            .await
+            .unwrap();
+        assert_eq!(lines.len(), 36);
+        let seen = seen.lock().unwrap();
+        assert_eq!(seen.len(), 3, "{seen:?}");
+        assert!(seen[1].starts_with("GET /Error?"), "{seen:?}");
+    }
+
+    #[tokio::test]
+    async fn the_error_page_answered_directly_is_retried() {
+        let (base, _) = serve(vec![ok(ERROR_PAGE), ok(FACTOR)]);
+        let lines = client_at(&base)
+            .await
+            .invoice_lines(FACTOR_PATH)
+            .await
+            .unwrap();
+        assert_eq!(lines.len(), 36);
+    }
+
+    /// A connection that drops while the body is still arriving is a network failure like any
+    /// other, not the end of the job.
+    #[tokio::test]
+    async fn a_body_cut_off_mid_download_is_retried() {
+        let (base, seen) = serve(vec![cut_off(), ok(FACTOR)]);
+        let lines = client_at(&base)
+            .await
+            .invoice_lines(FACTOR_PATH)
+            .await
+            .unwrap();
+        assert_eq!(lines.len(), 36);
+        assert_eq!(seen.lock().unwrap().len(), 2);
+    }
+
+    // ------------------------------------------------------------ parallel invoice pages
+
+    const LOGIN: &str = include_str!("../../../fixtures/barezpakhsh/login.html");
+
+    #[derive(Default)]
+    struct SiteStats {
+        logins: usize,
+        in_flight: usize,
+        max_in_flight: usize,
+        /// Requests running per session cookie right now.
+        per_session: std::collections::HashMap<String, usize>,
+        /// Times a session was given a request while another of its own was running — what the
+        /// real site answers with a queue and, past 100 s, a 504.
+        overlaps: usize,
+        /// ∫ in_flight dt over the run, for the time-weighted mean, and when it last moved.
+        area_ms: f64,
+        since: Option<Instant>,
+        moved: Option<Instant>,
+    }
+
+    impl SiteStats {
+        /// Account for the time since the last move, then apply `delta` pages in flight.
+        fn shift(&mut self, delta: isize) {
+            let now = Instant::now();
+            if let Some(moved) = self.moved {
+                self.area_ms += self.in_flight as f64 * (now - moved).as_secs_f64() * 1000.0;
+            }
+            self.since.get_or_insert(now);
+            self.moved = Some(now);
+            self.in_flight = self.in_flight.checked_add_signed(delta).unwrap();
+            self.max_in_flight = self.max_in_flight.max(self.in_flight);
+        }
+
+        fn mean_in_flight(&self) -> f64 {
+            let span = (self.moved.unwrap() - self.since.unwrap()).as_secs_f64() * 1000.0;
+            self.area_ms / span
+        }
+    }
+
+    type Stats = std::sync::Arc<std::sync::Mutex<SiteStats>>;
+
+    /// A stand-in for the site that serves connections concurrently: a login hands out a session
+    /// cookie, and an invoice page is served to a logged-in session once `work` is done over a
+    /// link `width` pages wide — shared evenly, as a link shares its bandwidth, so beyond `width`
+    /// pages at once every one of them slows and the sum does not grow.
+    fn fake_site(work: Duration, width: usize) -> (String, Stats) {
+        use std::io::{BufRead, BufReader, Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let stats: Stats = Default::default();
+        let st = stats.clone();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { return };
+                let st = st.clone();
+                std::thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().unwrap());
+                    let mut line = String::new();
+                    reader.read_line(&mut line).unwrap();
+                    let (mut len, mut sid) = (0usize, None::<String>);
+                    loop {
+                        let mut header = String::new();
+                        if reader.read_line(&mut header).unwrap() == 0 || header == "\r\n" {
+                            break;
+                        }
+                        let lower = header.to_ascii_lowercase();
+                        if let Some(v) = lower.strip_prefix("content-length:") {
+                            len = v.trim().parse().unwrap();
+                        }
+                        if lower.starts_with("cookie:") {
+                            sid = header
+                                .split("sid=")
+                                .nth(1)
+                                .map(|v| v.split(';').next().unwrap().trim().to_string());
+                        }
+                    }
+                    let mut body = vec![0; len];
+                    reader.read_exact(&mut body).unwrap();
+                    let mut parts = line.split_whitespace();
+                    let (method, path) = (parts.next().unwrap(), parts.next().unwrap());
+                    let reply = match (method, path, sid) {
+                        ("GET", "/Home/Login", _) => ok(LOGIN),
+                        ("POST", "/Home/Login", _) => {
+                            let n = {
+                                let mut st = st.lock().unwrap();
+                                st.logins += 1;
+                                st.logins
+                            };
+                            format!("HTTP/1.1 302 Found\r\nLocation: /Shop/Home\r\nSet-Cookie: sid=s{n}; Path=/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                        }
+                        ("GET", "/Shop/Home", _) => ok("<html>shop</html>"),
+                        ("GET", p, Some(sid)) if p.starts_with("/Shop/Preview/Factor/") => {
+                            {
+                                let mut st = st.lock().unwrap();
+                                st.shift(1);
+                                let mine = st.per_session.entry(sid.clone()).or_default();
+                                *mine += 1;
+                                if *mine > 1 {
+                                    st.overlaps += 1;
+                                }
+                            }
+                            let mut left = work.as_secs_f64();
+                            while left > 0.0 {
+                                let active = st.lock().unwrap().in_flight;
+                                let share = width as f64 / active.max(width) as f64;
+                                std::thread::sleep(Duration::from_millis(5));
+                                left -= 0.005 * share;
+                            }
+                            let mut st = st.lock().unwrap();
+                            st.shift(-1);
+                            *st.per_session.get_mut(&sid).unwrap() -= 1;
+                            ok(FACTOR)
+                        }
+                        ("GET", _, None) => ok(LOGIN),
+                        _ => "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".into(),
+                    };
+                    let _ = stream.write_all(reply.as_bytes());
+                });
+            }
+        });
+        (base, stats)
+    }
+
+    fn fresh_client(base: &str, limiter: Limiter) -> Client {
+        let mut c = Client::with_base(
+            Credentials {
+                username: "u".into(),
+                password: "p".into(),
+            },
+            base,
+        )
+        .unwrap();
+        c.retry_delays = vec![Duration::ZERO; RETRY_DELAYS.len()];
+        c.pages = Pool::new("test", limiter);
+        c
+    }
+
+    fn factor_urls(n: usize) -> Vec<String> {
+        (0..n)
+            .map(|i| format!("/Shop/Preview/Factor/{i}/11750"))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn invoice_pages_run_in_parallel_one_request_per_session() {
+        let (base, stats) = fake_site(Duration::from_millis(150), usize::MAX);
+        let c = fresh_client(&base, Limiter::new(4, 4));
+        let started = Instant::now();
+        let urls = factor_urls(16);
+        let pages = futures_util::future::join_all(urls.iter().map(|u| c.invoice_lines(u))).await;
+        let took = started.elapsed();
+        assert!(pages.iter().all(|p| p.as_ref().map(Vec::len) == Ok(36)));
+        let st = stats.lock().unwrap();
+        assert_eq!(st.overlaps, 0, "a session never carries two requests");
+        assert_eq!(st.max_in_flight, 4, "as many at once as the pool allows");
+        assert_eq!(
+            st.logins, 4,
+            "each pooled session logs in once and is reused"
+        );
+        // One at a time: 16 × 150 ms = 2.4 s; four at a time: ~0.6 s plus the logins.
+        assert!(took < Duration::from_millis(1800), "{took:?}");
+    }
+
+    /// LND-Q04: the long budget made Settings' «آزمایش ورود» spin for minutes on a dead connection.
+    #[tokio::test]
+    async fn an_interactive_check_gives_up_after_the_short_budget() {
+        let (base, seen) = serve((0..3).map(|_| cut_off()).collect());
+        let creds = Credentials {
+            username: "u".into(),
+            password: "p".into(),
+        };
+        let c = Client::with_base(creds, &base).unwrap().impatient();
+        let err = c.login().await.unwrap_err();
+        assert!(
+            matches!(err, BridgeError::SupplierUnreachable(_)),
+            "{err:?}"
+        );
+        assert_eq!(seen.lock().unwrap().len(), QUICK_RETRY_DELAYS.len() + 1);
+    }
+
+    /// The retry signal reaches the limiter, read as a rate: one page that needed a retry leaves
+    /// the pool alone, a third within the window halves it.
+    #[tokio::test]
+    async fn an_isolated_retry_keeps_the_pool_and_a_burst_halves_it() {
+        let (base, _) = serve((0..3).flat_map(|_| [ok(ERROR_PAGE), ok(FACTOR)]).collect());
+        let c = client_at(&base).await;
+        let before = c.pages.permits();
+        c.invoice_lines(FACTOR_PATH).await.unwrap();
+        assert_eq!(
+            c.pages.permits(),
+            before,
+            "one retry is the site's background noise"
+        );
+        c.invoice_lines(FACTOR_PATH).await.unwrap();
+        c.invoice_lines(FACTOR_PATH).await.unwrap();
+        assert_eq!(c.pages.permits(), (before / 2).max(1));
+    }
+
+    /// End to end on a link three pages fill (beyond three, every page slows and the sum stays
+    /// put): real HTTP latencies drive the pool, and its sessions stay one request each while it
+    /// moves. *Where* it settles — at the link's width, where plain growth would run to eight — is
+    /// `adaptive`'s virtual-time simulation to prove: a real-time run this short cannot tell the
+    /// two apart reliably (checked 2026-10-07: mean 2.4–3.0 against 3.4–4.3 for plain growth, and
+    /// scheduling noise under load moves both).
+    #[tokio::test]
+    async fn a_saturated_link_drives_the_pool_end_to_end() {
+        let (base, stats) = fake_site(Duration::from_millis(200), 3);
+        let c = fresh_client(&base, Limiter::new(INITIAL_SESSIONS, MAX_SESSIONS));
+        let urls = factor_urls(90);
+        let pages: Vec<_> = futures_util::stream::iter(urls.iter().map(|u| c.invoice_lines(u)))
+            .buffer_unordered(MAX_SESSIONS)
+            .collect()
+            .await;
+        assert!(pages.iter().all(|p| p.is_ok()));
+        let st = stats.lock().unwrap();
+        assert_eq!(st.overlaps, 0, "a session never carries two requests");
+        assert!(
+            st.max_in_flight >= 3,
+            "the latency signal reaches the limiter"
+        );
+        assert!(st.max_in_flight <= MAX_SESSIONS);
+        assert!(st.mean_in_flight() <= 4.0, "{}", st.mean_in_flight());
     }
 }

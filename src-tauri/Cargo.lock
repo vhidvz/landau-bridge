@@ -2263,6 +2263,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "csv",
+ "futures-util",
  "keyring",
  "pretty_assertions",
  "regex",

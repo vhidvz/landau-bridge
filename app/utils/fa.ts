@@ -80,6 +80,7 @@ export const kindLabel = (kind: string): string =>
     SupplierBadCredentials: 'نام کاربری/کلمه عبور بارزپخش',
     SupplierSessionExpired: 'انقضای نشست بارزپخش',
     SupplierParse: 'تغییر ساختار صفحه بارزپخش',
+    SupplierFaulted: 'خطای موقت سایت بارزپخش',
     NoCurrentPrice: 'بدون قیمت روز',
     InvoiceUnpaid: 'فاکتور پرداخت‌نشده',
     InvoiceAlreadyImported: 'فاکتور قبلاً منتقل‌شده',

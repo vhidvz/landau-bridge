@@ -151,7 +151,7 @@ pub async fn landau_validate(state: State<'_, AppState>) -> Result<LandauStatus>
 #[tauri::command(rename_all = "snake_case")]
 pub async fn supplier_test_login(state: State<'_, AppState>) -> Result<()> {
     let s = settings(&state)?;
-    let sup = supplier::open(SUPPLIER_ID, s.require_supplier()?)?;
+    let sup = supplier::open_for_check(SUPPLIER_ID, s.require_supplier()?)?;
     sup.login().await
 }
 

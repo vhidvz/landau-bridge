@@ -34,6 +34,7 @@ describe('fa', () => {
     expect(availabilityLabel(null)).toBe('');
     expect(kindLabel('BelowMinMargin')).toContain('سود');
     expect(kindLabel('NoCurrentPrice')).toContain('قیمت');
+    expect(kindLabel('SupplierFaulted')).not.toContain('ساختار');
     expect(kindLabel('JobBusy')).toContain('عملیات');
     expect(kindLabel('Whatever')).toBe('Whatever');
   });
@@ -87,7 +88,7 @@ describe('fa — jobs and durations', () => {
   });
 
   it('groups error kinds into families', () => {
-    for (const k of ['SupplierUnreachable', 'SupplierParse', 'NoCurrentPrice', 'InvoiceUnpaid', 'LineNonPositiveQty', 'VatRateMismatch']) expect(kindFamily(k), k).toBe('supplier');
+    for (const k of ['SupplierUnreachable', 'SupplierParse', 'SupplierFaulted', 'NoCurrentPrice', 'InvoiceUnpaid', 'LineNonPositiveQty', 'VatRateMismatch']) expect(kindFamily(k), k).toBe('supplier');
     for (const k of ['LandauUnauthorized', 'LandauRejected', 'BusinessNotApproved', 'NoStore', 'ProductNotApproved', 'DuplicateRow', 'MirrorTimeout', 'NoPricingRule', 'RepriceSkipped']) expect(kindFamily(k), k).toBe('landau');
     for (const k of ['JobCancelled', 'SettingsIncomplete', 'KeyringUnavailable', 'Db', 'Other', 'Unmatched', 'NoneDecision', 'Whatever']) expect(kindFamily(k), k).toBe('app');
   });

@@ -18,6 +18,10 @@ pub enum BridgeError {
     SupplierSessionExpired,
     #[error("supplier page {page}: missing {field}")]
     SupplierParse { page: String, field: String },
+    /// The site kept answering its own error page («بروز خطا») for `path` through every retry —
+    /// its failure, not a page whose layout changed.
+    #[error("supplier answered its error page for {path}")]
+    SupplierFaulted { path: String },
     #[error("no current price for {code}")]
     NoCurrentPrice { code: String },
     #[error("landau unauthorized")]
@@ -83,6 +87,7 @@ impl BridgeError {
             SupplierBadCredentials => "SupplierBadCredentials",
             SupplierSessionExpired => "SupplierSessionExpired",
             SupplierParse { .. } => "SupplierParse",
+            SupplierFaulted { .. } => "SupplierFaulted",
             NoCurrentPrice { .. } => "NoCurrentPrice",
             LandauUnauthorized => "LandauUnauthorized",
             LandauForbidden(_) => "LandauForbidden",
@@ -112,6 +117,7 @@ impl BridgeError {
             SupplierBlocked => "سایت بارزپخش این شبکه را مسدود کرده است. پروکسی یا فیلترشکن را خاموش کنید.".into(),
             SupplierBadCredentials => "نام کاربری یا کلمه عبور بارزپخش درست نیست.".into(),
             SupplierSessionExpired => "نشست بارزپخش منقضی شد و ورود دوباره هم ناموفق بود.".into(),
+            SupplierFaulted { .. } => "سایت بارزپخش در چند تلاش پیاپی برای این صفحه پیام «بروز خطا» داد. این مورد در اجرای بعدی دوباره خوانده می‌شود.".into(),
             SupplierParse { page, field } => format!("ساختار صفحه «{page}» تغییر کرده است (بخش «{field}» پیدا نشد). به‌روزرسانی برنامه لازم است."),
             NoCurrentPrice { code } => format!("برای کد {code} قیمت روز در بارزپخش پیدا نشد."),
             LandauUnauthorized => "کلید دسترسی لاندا نامعتبر یا منقضی است. کلید تازه‌ای در لاندا بسازید.".into(),
@@ -179,6 +185,9 @@ mod tests {
             BridgeError::SupplierBlocked,
             BridgeError::SupplierBadCredentials,
             BridgeError::SupplierSessionExpired,
+            BridgeError::SupplierFaulted {
+                path: "/Shop/Preview/Factor/13087656/11750".into(),
+            },
             BridgeError::LandauUnauthorized,
             BridgeError::LandauForbidden("Forbidden resource".into()),
             BridgeError::LandauUnreachable("connection refused".into()),

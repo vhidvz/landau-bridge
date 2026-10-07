@@ -385,6 +385,11 @@ mod tests {
         assert!(!is_error_page(ITEMS));
         assert!(!is_error_page(LOGIN));
         assert!(!is_error_page(BUY_SEARCH));
+        // Every page fetch is now checked for it, so a real invoice must never match.
+        assert!(!is_error_page(FACTOR));
+        assert!(!is_error_page(RETURN));
+        assert!(!is_error_page(BILL));
+        assert!(!is_error_page(MOEIN));
     }
 
     #[test]
