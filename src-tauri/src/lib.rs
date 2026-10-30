@@ -62,7 +62,6 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::settings_get,
             commands::settings_save,
-            commands::name_map_load,
             commands::landau_validate,
             commands::supplier_test_login,
             commands::dashboard_get,

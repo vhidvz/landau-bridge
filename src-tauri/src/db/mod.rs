@@ -4,7 +4,6 @@ pub mod errors;
 pub mod invoices;
 pub mod jobs;
 pub mod matches;
-pub mod name_map;
 pub mod prices;
 pub mod settings;
 
@@ -18,6 +17,7 @@ use crate::errors::{BridgeError, Result};
 const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0001_init.sql"),
     include_str!("migrations/0002_names.sql"),
+    include_str!("migrations/0003_drop_name_map.sql"),
 ];
 
 #[derive(Clone)]
@@ -180,13 +180,13 @@ mod tests {
         assert_eq!(db.setting("threshold").unwrap().as_deref(), Some("80"));
         // migrating again is a no-op
         db.migrate().unwrap();
-        assert_eq!(db.user_version().unwrap(), 2);
+        assert_eq!(db.user_version().unwrap(), 3);
     }
 
     #[test]
     fn migrates_to_version_2_and_moves_old_links_under_their_name_key() {
         let db = Db::in_memory().unwrap();
-        assert_eq!(db.user_version().unwrap(), 2);
+        assert_eq!(db.user_version().unwrap(), 3);
         // simulate a row left behind by a v1 database
         db.with(|c| {
             c.execute_batch(
@@ -626,5 +626,66 @@ mod tests {
             fresh.list_matches(sup).unwrap().is_empty(),
             "rolled back whole"
         );
+    }
+
+    /// A database at version 2, as an installed 0.1.0 leaves it: the landau-parts map loaded
+    /// and one link of every kind, `MAP` among them.
+    fn version_2_file(path: &Path) {
+        let c = Connection::open(path).unwrap();
+        for sql in &MIGRATIONS[..2] {
+            c.execute_batch(sql).unwrap();
+        }
+        c.pragma_update(None, "user_version", 2).unwrap();
+        c.execute_batch(
+            "DROP TABLE matches_old;
+             INSERT INTO name_map VALUES ('p', 'b', 'raw', 'C1', 1, 0);
+             INSERT INTO settings(key, value) VALUES ('name_map_file', '/x/parts_map.csv'),
+               ('name_map_loaded_at', '2026-09-16T00:00:00Z'), ('threshold', '80');
+             INSERT INTO matches(supplier, name_key, code, product_id, product_name, how, similarity, name_seen, priced_at, decided_at) VALUES
+               ('barezpakhsh', 'm', 'M1', 'pm', 'map part', 'MAP', NULL, 'm', '2026-09-20T00:00:00Z', '2026-09-16T00:00:00Z'),
+               ('barezpakhsh', 'u', 'U1', 'pu', 'user part', 'USER', NULL, 'u', NULL, '2026-09-16T00:00:00Z'),
+               ('barezpakhsh', 'a', 'A1', 'pa', 'auto part', 'AUTO', 91, 'a', NULL, '2026-09-16T00:00:00Z'),
+               ('barezpakhsh', 'n', 'N1', NULL, NULL, 'NONE', NULL, 'n', NULL, '2026-09-16T00:00:00Z');",
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn migration_3_drops_the_map_and_turns_map_links_into_auto() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.sqlite");
+        version_2_file(&path);
+        let before = Db::open(&path).unwrap();
+        assert_eq!(before.user_version().unwrap(), 3);
+
+        let tables: i64 = before
+            .with(|c| {
+                c.query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE name = 'name_map'",
+                    [],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap();
+        assert_eq!(tables, 0, "the map table is gone");
+        assert_eq!(before.setting("name_map_file").unwrap(), None);
+        assert_eq!(before.setting("name_map_loaded_at").unwrap(), None);
+        assert_eq!(before.setting("threshold").unwrap().as_deref(), Some("80"));
+
+        let m = before.match_for_name("barezpakhsh", "m").unwrap().unwrap();
+        assert_eq!(m.how, "AUTO");
+        assert_eq!(m.code, "M1");
+        assert_eq!(m.product_id.as_deref(), Some("pm"));
+        assert_eq!(m.priced_at.as_deref(), Some("2026-09-20T00:00:00Z"));
+        let how = |n: &str| {
+            before
+                .match_for_name("barezpakhsh", n)
+                .unwrap()
+                .unwrap()
+                .how
+        };
+        assert_eq!(how("u"), "USER");
+        assert_eq!(how("a"), "AUTO");
+        assert_eq!(how("n"), "NONE");
     }
 }

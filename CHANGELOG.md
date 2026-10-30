@@ -16,6 +16,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Links the name map made become automatic matches; a decision file's MAP rows import as automatic. @vhidvz
+- A shelf row with no link is reported at once and linked once its part arrives on an imported invoice. @vhidvz
 - Fewer sessions when added ones stop raising throughput (slow link) or 3 of 24 replies need a retry. @vhidvz
 - Supplier requests retry six times over ~1¾ min, including a body cut off mid-download. @vhidvz
 - Settings' login check keeps the short budget (three attempts in ~4 s) and answers in seconds. @vhidvz
@@ -30,4 +32,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- `docs/` (specs, plans, runbook, calibration record, font note); `calibrate` now writes `target/`. @vhidvz
+- The landau-parts name map: its Settings card, its table and the `calibrate` tool. @vhidvz
+- `docs/` (specs, plans, runbook, calibration record, font note). @vhidvz

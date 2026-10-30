@@ -4,11 +4,10 @@ export type Phase = 'PREFLIGHT' | 'FETCH' | 'AGGREGATE' | 'MATCH' | 'REVIEW' | '
 
 export interface BridgeError { kind: string; message: string; detail: string }
 
-export interface NameMapInfo { rows: number; products: number; loaded_at: string | null; file: string | null }
 export interface SettingsView {
   landau_url: string; has_landau_token: boolean; store: string | null; store_name: string | null;
   supplier_user: string | null; has_supplier_password: boolean; default_authenticity: Authenticity;
-  threshold: number; vat_percent: number; min_margin_percent: number; overwrite_manual: boolean; fetch_since_only: boolean; name_map: NameMapInfo;
+  threshold: number; vat_percent: number; min_margin_percent: number; overwrite_manual: boolean; fetch_since_only: boolean;
   secret_backend: 'keyring' | 'file'; data_dir: string;
 }
 export interface SettingsPatch {
@@ -40,7 +39,7 @@ export interface Dashboard {
   appimage_offer: boolean;
 }
 export interface MatchRow {
-  supplier: string; name_key: string; code: string; product_id: string | null; product_name: string | null; how: 'AUTO' | 'USER' | 'NONE' | 'MAP';
+  supplier: string; name_key: string; code: string; product_id: string | null; product_name: string | null; how: 'AUTO' | 'USER' | 'NONE';
   similarity: number | null; name_seen: string; priced_at: string | null; decided_at: string;
 }
 /** A part ended import jobs left without a decision, with the candidates review showed then. */

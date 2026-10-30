@@ -23,7 +23,6 @@ const settings: SettingsView = {
   landau_url: 'https://api.landau.ir', has_landau_token: true, store: 'st_01', store_name: 'یدکی مرکزی',
   supplier_user: 'yadaki.markazi', has_supplier_password: true, default_authenticity: 'ORIGINAL', threshold: 80,
   vat_percent: 10, min_margin_percent: 15, overwrite_manual: false, fetch_since_only: true, secret_backend: 'keyring', data_dir: '/home/vahid/.local/share/ir.landau.bridge',
-  name_map: { rows: 29472, products: 28643, loaded_at: ago(1, 12, 0), file: '/home/vahid/WorkSpace/landau-parts/output/parts_map.csv' },
 };
 const settingsEmpty: SettingsView = {
   ...settings, has_landau_token: false, store: null, store_name: null, supplier_user: null, has_supplier_password: false,
@@ -85,7 +84,7 @@ const doneItems: JobItemRow[] = [
   item(5, 'BP-51002', 'دیسک ترمز جلو سمند', 4, { product_id: 'p_12', product_name: 'دیسک ترمز جلو سمند', action: 'ATTACH', qty_after: 4, cost: 2_960_000, price_after: 3_650_000, reprice_verdict: 'REPRICED:3650000' }),
   item(6, 'BP-60233', 'روغن موتور ۴ لیتری بهران', 24, { status: 'SKIPPED', error_kind: 'NoneDecision', error_msg: 'در فهرست لاندا نیست' }),
   item(7, 'BP-71850', 'واشر سرسیلندر ۲۰۶', 10, { product_id: 'p_15', product_name: 'واشر سرسیلندر پژو ۲۰۶', action: 'ATTACH', qty_after: 10, cost: 940_000, price_after: 1_170_000, reprice_verdict: 'REPRICED:1170000' }),
-  item(8, 'BP-80017', 'پمپ بنزین پراید', 5, { product_id: 'p_16', product_name: 'پمپ بنزین پراید', action: 'PATCH', qty_before: 2, qty_after: 7, cost: 1_650_000, price_before: 2_050_000, price_after: 2_050_000, reprice_verdict: 'UNCHANGED', available: true, note: 'از نگاشت نام‌ها وصل شد' }),
+  item(8, 'BP-80017', 'پمپ بنزین پراید', 5, { product_id: 'p_16', product_name: 'پمپ بنزین پراید', action: 'PATCH', qty_before: 2, qty_after: 7, cost: 1_650_000, price_before: 2_050_000, price_after: 2_050_000, reprice_verdict: 'UNCHANGED', available: true, note: 'کد بارزپخش عوض شد: BP-80016 ← BP-80017' }),
 ];
 
 const ev = (id: number, level: JobEventRow['level'], phase: string, message: string, minutesAgo: number): JobEventRow =>
@@ -143,7 +142,7 @@ const matches: MatchRow[] = [
   match('BP-44120', 'تسمه تایم ۴۰۵', 'AUTO', 'تسمه تایم پژو ۴۰۵', 84, 1),
   match('BP-51002', 'دیسک ترمز جلو سمند', 'AUTO', 'دیسک ترمز جلو سمند', 95, 3),
   match('BP-60233', 'روغن موتور ۴ لیتری بهران', 'NONE', null, null, 3),
-  match('BP-70110', 'سیبک فرمان چپ پژو 405 امیرنیا', 'MAP', 'سیبک فرمان چپ پژو ۴۰۵', null, 0),
+  match('BP-70110', 'سیبک فرمان چپ پژو 405 امیرنیا', 'AUTO', 'سیبک فرمان چپ پژو ۴۰۵', null, 0),
   match('BP-71850', 'واشر سرسیلندر ۲۰۶', 'USER', 'واشر سرسیلندر پژو ۲۰۶', 78, 9),
   match('BP-80017', 'پمپ بنزین پراید', 'AUTO', 'پمپ بنزین پراید', 100, 9),
   match('BP-90311', 'کمک فنر عقب تیبا', 'AUTO', 'کمک فنر عقب تیبا', 93, 12),
@@ -194,7 +193,6 @@ export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {
     switch (cmd) {
       case 'settings_get': return state === 'empty' ? settingsEmpty : settings;
       case 'settings_save': return { ...(state === 'empty' ? settingsEmpty : settings), ...(args.patch as object) };
-      case 'name_map_load': return settings.name_map;
       case 'landau_validate': return landau;
       case 'supplier_test_login': return undefined;
       case 'dashboard_get': return dashboard(state);

@@ -1,11 +1,11 @@
-//! Portable match decisions (LND-Q07). Every stored decision — automatic, the seller's own, from
-//! the name map, «not in Landau» — goes into a versioned JSON file, and a file from another
+//! Portable match decisions (LND-Q07). Every stored decision — automatic, the seller's own,
+//! «not in Landau» — goes into a versioned JSON file, and a file from another
 //! installation merges into this one without undoing the seller's work here:
 //!
 //! - a name with no decision here takes the file's;
 //! - the same decision on both sides changes nothing;
 //! - a different one goes to whichever is more deliberate — the seller's pick or «not in Landau»
-//!   over the name map over an automatic match — and on a tie this installation's stays, listed as
+//!   over an automatic match — and on a tie this installation's stays, listed as
 //!   a conflict, unless the seller asked for the file's to win;
 //! - a decision whose product this Landau no longer lists is not applied, so the part comes back
 //!   to review rather than being written against a product that is gone;
@@ -41,7 +41,7 @@ pub struct Decision {
     pub name_seen: String,
     #[serde(default)]
     pub code: String,
-    /// AUTO | USER | MAP | NONE
+    /// AUTO | USER | NONE (a pre-1.0.0 file's MAP is read as AUTO)
     pub how: String,
     #[serde(default)]
     pub product_id: Option<String>,
@@ -146,15 +146,22 @@ pub fn parse(text: &str, supplier: &str) -> Result<DecisionFile> {
             file.supplier
         )));
     }
+    let mut file = file;
+    for d in &mut file.decisions {
+        // Files exported before 1.0.0 carry links the removed name map made; they were
+        // migrated to automatic matches here too (migration 0003).
+        if d.how == "MAP" {
+            d.how = "AUTO".into();
+        }
+    }
     Ok(file)
 }
 
-/// How deliberate a decision is: the seller's own (a pick, or «not in Landau») over the name map
-/// over an automatic match.
+/// How deliberate a decision is: the seller's own (a pick, or «not in Landau») over an automatic
+/// match.
 fn rank(how: &str) -> u8 {
     match how {
         "USER" | "NONE" => 2,
-        "MAP" => 1,
         _ => 0,
     }
 }
@@ -167,7 +174,7 @@ fn valid(d: &Decision) -> bool {
     !d.name_seen.trim().is_empty()
         && match d.how.as_str() {
             "NONE" => d.product_id.is_none(),
-            "USER" | "MAP" | "AUTO" => has_product,
+            "USER" | "AUTO" => has_product,
             _ => false,
         }
 }
@@ -374,6 +381,30 @@ mod tests {
         Decision::from(&row(name, code, how, product))
     }
 
+    /// A file exported before 1.0.0 may carry links the removed name map made.
+    fn file_with_map(name: &str, product: &str) -> DecisionFile {
+        let text = serde_json::to_string(&file(vec![d(name, "M1", "MAP", Some(product))])).unwrap();
+        parse(&text, SUP).unwrap()
+    }
+
+    #[test]
+    fn a_map_decision_in_a_file_imports_as_auto() {
+        let incoming = file_with_map("map part", "p-map");
+        assert_eq!(incoming.decisions[0].how, "AUTO");
+        let plan = plan(&incoming, local_of(vec![]), false).unwrap();
+        assert_eq!(plan.report.added, 1);
+        assert_eq!(plan.writes[0].0.how, "AUTO");
+    }
+
+    #[test]
+    fn map_in_a_file_ranks_like_auto() {
+        let here = vec![row("map part", "M1", "AUTO", Some("p-auto"))];
+        let incoming = file_with_map("map part", "p-map");
+        let plan = plan(&incoming, local_of(here), false).unwrap();
+        assert_eq!(plan.report.replaced, 0, "equal rank keeps this install's");
+        assert_eq!(plan.report.kept.len(), 1);
+    }
+
     #[test]
     fn the_merge_keeps_deliberate_decisions_and_reports_true_conflicts() {
         let here = vec![
@@ -389,7 +420,7 @@ mod tests {
             d("auto here", "AH", "USER", Some("p-user")), // manual beats automatic
             d("mine manual", "MM", "AUTO", Some("p-auto")), // automatic loses to manual
             d("tie", "T", "USER", Some("p-file")),        // equal rank: a conflict
-            d("none here", "NH", "MAP", Some("p-map")),   // «not in Landau» outranks the map
+            d("none here", "NH", "AUTO", Some("p-auto")), // «not in Landau» outranks automatic
             Decision {
                 how: "BOGUS".into(),
                 ..d("bad", "X", "USER", Some("p"))

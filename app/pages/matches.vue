@@ -6,7 +6,7 @@ import type { BridgeError, DecisionImportReport, MatchRow, Scored, UndecidedRow 
 const rows = ref<MatchRow[]>([]);
 const undecided = ref<UndecidedRow[]>([]);
 const error = ref<BridgeError | null>(null);
-const filter = ref<'ALL' | 'AUTO' | 'USER' | 'MAP' | 'NONE' | 'UNDECIDED'>('ALL');
+const filter = ref<'ALL' | 'AUTO' | 'USER' | 'NONE' | 'UNDECIDED'>('ALL');
 const query = ref('');
 const editing = ref<MatchRow | null>(null);
 const deciding = ref<UndecidedRow | null>(null);
@@ -26,9 +26,9 @@ const shownUndecided = computed(() => undecided.value.filter((u) => has(u.name_s
 const PAGE = 50;
 const { page: matchPage, rows: matchRows } = usePaged(shown, PAGE, [filter, query]);
 const { page: undecidedPage, rows: undecidedRows, showIndex: showUndecided } = usePaged(shownUndecided, PAGE, [filter, query]);
-const howLabel: Record<string, string> = { AUTO: 'خودکار', USER: 'انتخاب شما', MAP: 'از نگاشت', NONE: 'در لاندا نیست' };
+const howLabel: Record<string, string> = { AUTO: 'خودکار', USER: 'انتخاب شما', NONE: 'در لاندا نیست' };
 const filters = computed(() => [
-  { value: 'ALL', label: 'همه' }, { value: 'AUTO', label: 'خودکار' }, { value: 'USER', label: 'انتخاب شما' }, { value: 'MAP', label: 'از نگاشت' }, { value: 'NONE', label: 'در لاندا نیست' },
+  { value: 'ALL', label: 'همه' }, { value: 'AUTO', label: 'خودکار' }, { value: 'USER', label: 'انتخاب شما' }, { value: 'NONE', label: 'در لاندا نیست' },
   { value: 'UNDECIDED', label: undecided.value.length ? `بدون تصمیم · ${faNumber(undecided.value.length)}` : 'بدون تصمیم' },
 ] as const);
 
@@ -217,7 +217,7 @@ const closeImport = () => { importing.value = null; report.value = null; };
     <UModal :open="!!importing" title="بازیابی تصمیم‌ها" @update:open="(v: boolean) => { if (!v && busy !== 'import') closeImport(); }">
       <template #body>
         <div v-if="!report" class="space-y-4">
-          <p class="text-sm">تصمیم‌های فایل با تصمیم‌های این برنامه ادغام می‌شوند. تصمیمی که شما گرفته‌اید (انتخاب یا «در لاندا نیست») بر تطبیق خودکار و نگاشت مقدم است. محصول هر تصمیم پیش از ثبت در فهرست فعلی لاندا بررسی می‌شود و اگر دیگر نباشد ثبت نمی‌شود.</p>
+          <p class="text-sm">تصمیم‌های فایل با تصمیم‌های این برنامه ادغام می‌شوند. تصمیمی که شما گرفته‌اید (انتخاب یا «در لاندا نیست») بر تطبیق خودکار مقدم است. محصول هر تصمیم پیش از ثبت در فهرست فعلی لاندا بررسی می‌شود و اگر دیگر نباشد ثبت نمی‌شود.</p>
           <label class="flex items-center gap-2 text-sm"><input v-model="preferFile" type="checkbox" />اگر هر دو طرف تصمیمِ هم‌ارز و متفاوتی دارند، تصمیم فایل جایگزین شود</label>
           <div class="flex justify-end gap-2 border-t hairline pt-4">
             <button type="button" class="btn-ghost" :disabled="busy === 'import'" @click="closeImport">انصراف</button>

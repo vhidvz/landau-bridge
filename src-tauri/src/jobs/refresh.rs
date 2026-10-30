@@ -1,5 +1,5 @@
-//! Feature 2 (spec §7.2, §14): every shelf row gets today's cost — by its stored link, else
-//! through the landau-parts name map — and Landau's rule prices each write.
+//! Feature 2 (spec §7.2, §14): every shelf row gets today's cost by its stored link, and Landau's
+//! rule prices each write. A row with no link is reported, never searched for.
 
 use std::collections::HashMap;
 
@@ -53,17 +53,16 @@ fn links(ctx: &JobCtx) -> Result<HashMap<String, (MatchRow, usize)>> {
 
 /// How one shelf row reached (or failed to reach) a supplier quote.
 enum Resolved {
-    /// `(name, code, quote, from_map)`
-    Quoted(String, String, Costed, bool),
-    /// The link or every map name answered no price: `(name, code)`.
+    /// `(name, code, quote)`
+    Quoted(String, String, Costed),
+    /// The link answered no price: `(name, code)`.
     NoPrice(String, String),
-    /// Neither a link nor a map entry.
+    /// No stored link.
     NoLink,
 }
 
-/// A stored link first; else the landau-parts map (§14 c), trying its raw names available-first
-/// until one prices, and recording that name as a `MAP` link. Transport/session failures stop the
-/// job; a per-item failure surfaces as the error.
+/// The stored link's quote. Transport/session failures stop the job; a per-item failure surfaces
+/// as the error.
 async fn resolve(
     ctx: &JobCtx,
     svc: &Services,
@@ -72,62 +71,26 @@ async fn resolve(
     links: &HashMap<String, (MatchRow, usize)>,
     vat: &mut VatMismatches,
 ) -> Result<Resolved> {
-    if let Some((link, n)) = links.get(&row.product) {
-        if *n > 1 {
-            ctx.warn(
-                "PRICE",
-                kinds::AMBIGUOUS_SUPPLIER_LINK,
-                &format!(
-                    "قطعه {name} به {n} نام بارزپخش وصل است؛ «{}» (آخرین قیمت) ملاک شد.",
-                    link.name_seen
-                ),
-                Some(json!({"product": row.product, "chosen": link.name_seen})),
-            );
-        }
-        return Ok(
-            match quote_for(ctx, svc, &link.name_seen, &link.code, vat).await? {
-                Some(q) => Resolved::Quoted(link.name_seen.clone(), link.code.clone(), q, false),
-                None => Resolved::NoPrice(link.name_seen.clone(), link.code.clone()),
-            },
+    let Some((link, n)) = links.get(&row.product) else {
+        return Ok(Resolved::NoLink);
+    };
+    if *n > 1 {
+        ctx.warn(
+            "PRICE",
+            kinds::AMBIGUOUS_SUPPLIER_LINK,
+            &format!(
+                "قطعه {name} به {n} نام بارزپخش وصل است؛ «{}» (آخرین قیمت) ملاک شد.",
+                link.name_seen
+            ),
+            Some(json!({"product": row.product, "chosen": link.name_seen})),
         );
     }
-    let entries = ctx
-        .db
-        .raw_names_for(name, row.brand.as_deref().unwrap_or(""))?;
-    if entries.is_empty() {
-        return Ok(Resolved::NoLink);
-    }
-    for e in &entries {
-        match quote_for(ctx, svc, &e.raw_name, &e.code, vat).await {
-            Ok(Some(q)) => {
-                ctx.db.set_match(
-                    SUPPLIER_ID,
-                    &e.raw_name,
-                    &e.code,
-                    Some((&row.product, name)),
-                    "MAP",
-                    None,
-                )?;
-                return Ok(Resolved::Quoted(
-                    e.raw_name.clone(),
-                    e.code.clone(),
-                    q,
-                    true,
-                ));
-            }
-            Ok(None) => continue,
-            Err(err) if fatal(&err) => return Err(err),
-            Err(err) => {
-                tracing::warn!(name = %e.raw_name, error = %err, "map name failed; trying the next");
-                continue;
-            }
-        }
-    }
-    let first = &entries[0];
-    Ok(Resolved::NoPrice(
-        first.raw_name.clone(),
-        first.code.clone(),
-    ))
+    Ok(
+        match quote_for(ctx, svc, &link.name_seen, &link.code, vat).await? {
+            Some(q) => Resolved::Quoted(link.name_seen.clone(), link.code.clone(), q),
+            None => Resolved::NoPrice(link.name_seen.clone(), link.code.clone()),
+        },
+    )
 }
 
 pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
@@ -170,9 +133,9 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
                 continue;
             }
         };
-        let (link_name, link_code, quoted, from_map) = match resolved {
-            Resolved::Quoted(name, code, q, from_map) => (name, code, Some(q), from_map),
-            Resolved::NoPrice(name, code) => (name, code, None, false),
+        let (link_name, link_code, quoted) = match resolved {
+            Resolved::Quoted(name, code, q) => (name, code, Some(q)),
+            Resolved::NoPrice(name, code) => (name, code, None),
             Resolved::NoLink => {
                 let id = ctx.db.add_job_item(ctx.job_id, "", &name, row.inventory)?;
                 ctx.item(
@@ -187,7 +150,7 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
                         ("error_kind", t(kinds::NO_SUPPLIER_LINK)),
                         (
                             "error_msg",
-                            t("این ردیف به هیچ نام بارزپخش وصل نیست و در نگاشت نام‌ها هم نبود."),
+                            t("این ردیف به هیچ نام بارزپخش وصل نیست؛ وقتی این قطعه در فاکتوری از بارزپخش وارد شود، وصل می‌شود."),
                         ),
                     ],
                 )?;
@@ -208,9 +171,6 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
                 ("qty_before", i(row.inventory)),
             ],
         )?;
-        if from_map {
-            ctx.db.add_item_note(id, "از نگاشت نام‌ها وصل شد")?;
-        }
         match quoted {
             Some(c) => {
                 // §14 d: an unavailable quote never lowers a row's cost.
@@ -332,7 +292,6 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
     let summary = json!({
         "rows": all.len(),
         "linked": all.iter().filter(|i| i.error_kind.as_deref() != Some(kinds::NO_SUPPLIER_LINK)).count(),
-        "from_map": all.iter().filter(|i| i.note.as_deref().map(|n| n.contains("از نگاشت")).unwrap_or(false)).count(),
         "patched": all.iter().filter(|i| i.action.as_deref() == Some("PATCH")).count(),
         "unchanged": all.iter().filter(|i| i.action.as_deref() == Some("SKIP") && i.status == "DONE").count(),
         "repriced": all.iter().filter(|i| i.reprice_verdict.as_deref().map(|v| v.starts_with("REPRICED:")).unwrap_or(false)).count(),
@@ -383,6 +342,154 @@ mod tests {
         assert_eq!(
             (chosen["p2"].0.name_seen.as_str(), chosen["p2"].1),
             ("ب", 2)
+        );
+    }
+
+    /// Counts every price lookup; a name search answers `quote` (none by default).
+    #[derive(Default)]
+    struct CountingSupplier {
+        calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        quote: Option<crate::domain::PriceQuote>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::supplier::Supplier for CountingSupplier {
+        fn id(&self) -> &'static str {
+            "counting"
+        }
+        async fn login(&self) -> Result<()> {
+            Ok(())
+        }
+        async fn ledger(
+            &self,
+            _from: Option<&str>,
+            _progress: crate::supplier::Progress,
+        ) -> Result<Vec<crate::domain::InvoiceHeader>> {
+            Ok(vec![])
+        }
+        async fn invoice_lines(&self, _url: &str) -> Result<Vec<crate::domain::InvoiceLine>> {
+            Ok(vec![])
+        }
+        async fn price_of(&self, _code: &str) -> Result<Option<crate::domain::PriceQuote>> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(None)
+        }
+        async fn quotes_by_name(&self, _name: &str) -> Result<Vec<crate::domain::PriceQuote>> {
+            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(self.quote.clone().into_iter().collect())
+        }
+    }
+
+    fn fixture(supplier: CountingSupplier) -> (JobCtx, Services) {
+        let db = crate::db::Db::in_memory().unwrap();
+        let job_id = db
+            .create_job("REFRESH", None, None, "store1", false)
+            .unwrap();
+        let ctx = JobCtx {
+            db,
+            app: None,
+            job_id,
+            cancel: Default::default(),
+        };
+        let svc = Services {
+            landau: crate::landau::LandauClient::new("http://127.0.0.1:1", "apt-test").unwrap(),
+            supplier: Box::new(supplier),
+            settings: crate::settings::Settings {
+                landau_url: "http://127.0.0.1:1".into(),
+                landau_token: Some("apt-test".into()),
+                store: Some("store1".into()),
+                store_name: None,
+                supplier_user: None,
+                supplier_password: None,
+                default_authenticity: crate::domain::Authenticity::Original,
+                threshold: 85,
+                vat_percent: 10.0,
+                min_margin_percent: 15.0,
+                overwrite_manual: false,
+                fetch_since_only: true,
+            },
+        };
+        (ctx, svc)
+    }
+
+    fn shelf_row(product: &str) -> ShelfRow {
+        ShelfRow {
+            id: "s1".into(),
+            product: product.into(),
+            product_name: Some("آرمیچر استارت پراید".into()),
+            brand: Some("کروز".into()),
+            store: Some("store1".into()),
+            inventory: 2,
+            price: None,
+            cost: None,
+            condition: None,
+            authenticity: None,
+            price_source: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn an_unlinked_row_is_skipped_without_searching() {
+        let supplier = CountingSupplier::default();
+        let calls = supplier.calls.clone();
+        let (ctx, svc) = fixture(supplier);
+        let resolved = resolve(
+            &ctx,
+            &svc,
+            &shelf_row("p-unlinked"),
+            "آرمیچر استارت پراید",
+            &HashMap::new(),
+            &mut VatMismatches::default(),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(resolved, Resolved::NoLink));
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+    }
+
+    /// Characterises the stored-link path the map removal had to keep: the chosen link's name
+    /// and code price the row, and a product with several links is warned about.
+    #[tokio::test]
+    async fn a_linked_row_is_priced_by_its_stored_link() {
+        let supplier = CountingSupplier {
+            quote: Some(crate::domain::PriceQuote {
+                code: "C9".into(),
+                name: "لنت جلو پراید".into(),
+                list_price: 100_000,
+                vat_percent: Some(10.0),
+                has_vat: true,
+                available: true,
+                unit: "عدد".into(),
+            }),
+            ..Default::default()
+        };
+        let (ctx, svc) = fixture(supplier);
+        let mut links = HashMap::new();
+        links.insert(
+            "p-linked".to_string(),
+            (link("لنت جلو پراید", "C9", "p-linked", None), 2),
+        );
+        let resolved = resolve(
+            &ctx,
+            &svc,
+            &shelf_row("p-linked"),
+            "لنت جلو",
+            &links,
+            &mut VatMismatches::default(),
+        )
+        .await
+        .unwrap();
+        let Resolved::Quoted(name, code, costed) = resolved else {
+            panic!("expected a quote");
+        };
+        assert_eq!((name.as_str(), code.as_str()), ("لنت جلو پراید", "C9"));
+        assert_eq!(costed.cost, 110_000);
+        let events = ctx.db.job_detail(ctx.job_id).unwrap().events;
+        assert!(
+            events
+                .iter()
+                .any(|e| e.level == "WARN" && e.message.contains("به 2 نام")),
+            "{events:?}"
         );
     }
 }

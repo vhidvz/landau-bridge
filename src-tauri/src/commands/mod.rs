@@ -12,7 +12,6 @@ use crate::appimage;
 use crate::db::errors::ErrorRow;
 use crate::db::jobs::{JobDetail, JobItemRow, JobRow};
 use crate::db::matches::{MatchRow, UndecidedRow};
-use crate::db::name_map::NameMapInfo;
 use crate::db::Db;
 use crate::decisions::{self, ImportReport};
 use crate::domain::ImportMode;
@@ -83,7 +82,6 @@ pub async fn settings_get(state: State<'_, AppState>) -> Result<SettingsView> {
         min_margin_percent: s.min_margin_percent,
         overwrite_manual: s.overwrite_manual,
         fetch_since_only: s.fetch_since_only,
-        name_map: state.db.name_map_info()?,
         secret_backend: state.secrets.backend().into(),
         data_dir: state.data_dir.display().to_string(),
     })
@@ -96,21 +94,6 @@ pub async fn settings_save(
 ) -> Result<SettingsView> {
     Settings::save(&state.db, &state.secrets, &patch)?;
     settings_get(state).await
-}
-
-/// Load `landau-parts/output/parts_map.csv` (spec §14 c). The file is read here, never by the
-/// webview, so no fs scope is needed for it.
-#[tauri::command(rename_all = "snake_case")]
-pub async fn name_map_load(state: State<'_, AppState>, path: String) -> Result<NameMapInfo> {
-    let file = std::fs::File::open(&path)
-        .map_err(|e| BridgeError::Other(format!("خواندن فایل نگاشت ممکن نشد: {e}")))?;
-    let rows = crate::db::name_map::parse_parts_map(std::io::BufReader::new(file))?;
-    if rows.is_empty() {
-        return Err(BridgeError::Other(
-            "این فایل هیچ ردیفی با نام محصول ندارد؛ parts_map.csv خروجی landau-parts را انتخاب کنید.".into(),
-        ));
-    }
-    state.db.replace_name_map(&rows, &path)
 }
 
 #[tauri::command(rename_all = "snake_case")]

@@ -3,7 +3,6 @@
 use serde::{Deserialize, Serialize};
 
 use crate::db::jobs::JobRow;
-use crate::db::name_map::NameMapInfo;
 use crate::domain::Authenticity;
 use crate::landau::Store;
 
@@ -21,8 +20,6 @@ pub struct SettingsView {
     pub min_margin_percent: f64,
     pub overwrite_manual: bool,
     pub fetch_since_only: bool,
-    /// The landau-parts map loaded from Settings (spec §14 c).
-    pub name_map: NameMapInfo,
     pub secret_backend: String,
     pub data_dir: String,
 }

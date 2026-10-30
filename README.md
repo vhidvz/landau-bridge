@@ -3,7 +3,7 @@
 A desktop app for a Landau retail seller. It does two things:
 
 1. **Imports Barezpakhsh invoices onto your Landau shelf.** Every paid invoice up to today is read; each line is matched to the right part with Landau's fuzzy search (ambiguous lines are shown to you for a decision, and your decision is remembered — by the part's Barezpakhsh *name*, since their codes change). Cost = Barezpakhsh's current price plus VAT, looked up by that name; the shelf price is set by **your own pricing rules in Landau** on the write itself, so a row is never on sale at cost. Two modes: *with quantities, from a date* or *with zero quantities, for review*.
-2. **Refreshes prices.** Whenever you like, the cost of every shelf row is refreshed from Barezpakhsh's current price and Landau's rule prices it again. A price Barezpakhsh lists as «ناموجود» (out of stock) is applied only when it *raises* a cost — it is stale and will be relisted higher. Rows you never bought through the app are linked through the name map (below).
+2. **Refreshes prices.** Whenever you like, the cost of every shelf row is refreshed from Barezpakhsh's current price and Landau's rule prices it again. A price Barezpakhsh lists as «ناموجود» (out of stock) is applied only when it *raises* a cost — it is stale and will be relisted higher. A shelf row the app has no link for (a part never bought through it) is listed in the report as unlinked; it gets its link the first time that part arrives on an imported invoice.
 
 The interface is in Persian (right-to-left, Persian numerals, Jalali dates).
 
@@ -75,7 +75,6 @@ The app uses Microsoft Edge WebView2, which Windows 10 (1803+) and Windows 11 al
 1. In Landau: *Account → API keys → create a key*. The key is shown only once — copy it.
 2. Open the app → **تنظیمات** (Settings): paste the key, click **بررسی اتصال** (check connection), pick the destination store (the gateway address already has a default and sits under **تنظیمات پیشرفته**, advanced); enter your Barezpakhsh username and password and click **آزمایش ورود** (test login); save.
 3. In Landau, create at least one active pricing rule. **The app refuses to run without one** — otherwise rows would sit on the shelf at cost. Settings also carries **حداقل سود خرده‌فروش** (minimum retail margin, default 15 %): new rows are created with at least that margin until Landau's rule prices them, and the report flags any row whose final price ends up below it (a manual price, or a thin rule).
-4. *Optional.* Load the **name map**: Settings → **بارگذاری فایل نگاشت** → pick `output/parts_map.csv` from the `landau-parts` project (the data-cleaning step that built Landau's parts registry from Barezpakhsh). It tells the app which Barezpakhsh names each Landau product was imported under, so a price refresh can also cost shelf rows that never appeared on one of your invoices. Without it the app still runs: an import is unaffected, and a price refresh costs every row it has a link for and skips the rest, listing each skipped row in the report as «این ردیف به هیچ نام بارزپخش وصل نیست» — you can link those by hand on the **تطبیق‌ها** (matches) page instead. Load it again after every new `landau-parts` export.
 
 ## Good to know
 
@@ -83,7 +82,7 @@ The app uses Microsoft Edge WebView2, which Windows 10 (1803+) and Windows 11 al
 - Each invoice is added to stock only once; running an import again is safe.
 - A **با تعداد، از تاریخ** (quantities since a date) import asks Barezpakhsh only for invoices from that date on. Switch off **فقط فاکتورهای از این تاریخ از بارزپخش خوانده شود** (read only invoices from this date) — next to the date, on the import page — to list and cache the whole statement instead; slower, but only the first time, since every invoice is downloaded once.
 - A part that is not in Landau's catalogue: choose **هیچ‌کدام** (none) and open a ticket with Landau support to have it added.
-- The report shows, per row, whether Barezpakhsh had the part in stock and any remark: a held-back «ناموجود» price, a changed code or name, a link made from the name map, a final price below the minimum margin.
+- The report shows, per row, whether Barezpakhsh had the part in stock and any remark: a held-back «ناموجود» price, a changed code or name, a final price below the minimum margin.
 - Upgrading from a build older than 2026-09-16 migrates the database in place; your match decisions are kept.
 - Every error and warning is listed on the **خطاها و هشدارها** (errors and warnings) page and written to the log folder; **عملیات‌ها** (operations) keeps every run with its report and events.
 - **Where your data lives.** The database, logs and settings are in one folder, shown on the Settings page:
