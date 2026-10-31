@@ -46,11 +46,18 @@ fn install_on_exit(app: &AppHandle) {
         job_active,
         state.updater.declined(),
     );
-    if action == update::QuitAction::InstallThenExit {
-        tracing::info!("installing the staged update before exit");
-        if let Err(e) = tauri::async_runtime::block_on(state.updater.install(false, false)) {
-            tracing::warn!("update not installed on exit: {e}");
+    match action {
+        update::QuitAction::InstallThenExit => {
+            tracing::info!("installing the staged update before exit");
+            if let Err(e) = tauri::async_runtime::block_on(state.updater.install(false, false)) {
+                tracing::warn!("update not installed on exit: {e}");
+            }
         }
+        update::QuitAction::WaitForInstall => {
+            tracing::info!("waiting for the install in flight before exit");
+            tauri::async_runtime::block_on(state.updater.settle());
+        }
+        update::QuitAction::Exit => {}
     }
 }
 
@@ -78,21 +85,22 @@ pub fn run() {
 
             let db = match db::Db::open(&data_dir.join("bridge.sqlite")) {
                 Ok(db) => db,
-                Err(e @ errors::BridgeError::DbNewer { .. }) => {
-                    // An older build over a newer build's data: say so and leave the file alone.
-                    tracing::error!("{e}");
+                Err(e) => {
+                    // An older build over a newer build's data, a full disk, a locked file: say why
+                    // and stop, leaving the data alone — never a crash with no word, which after an
+                    // unattended update would be all the seller sees.
+                    tracing::error!("open database: {e}");
                     if let Some(w) = app.get_webview_window("main") {
                         let _ = w.hide();
                     }
                     let handle = app.handle().clone();
                     app.dialog()
-                        .message(e.message_fa())
+                        .message(db::open_failure_fa(&e))
                         .title("پل لاندا")
                         .kind(MessageDialogKind::Error)
                         .show(move |_| handle.exit(1));
                     return Ok(());
                 }
-                Err(e) => panic!("open database: {e}"),
             };
             for id in db.interrupt_stale_jobs().expect("stale jobs") {
                 let _ = db.record_error(

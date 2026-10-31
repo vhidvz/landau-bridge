@@ -57,7 +57,8 @@ test('with a signing key the packed AppImage is signed again', () => {
   const { calls, exec } = recorder()
   finalize({ bundleDir: dir, exec, env: { TAURI_SIGNING_PRIVATE_KEY: 'k' }, toolsDir: '/tools' })
   assert.equal(calls.length, 2)
-  assert.deepEqual(calls[1].args.slice(-3), ['signer', 'sign', join(dir, 'landau-bridge_1.0.0_amd64.AppImage')])
+  assert.deepEqual(calls[1].args.slice(-5), [
+    'signer', 'sign', '--app-version', '1.0.0', join(dir, 'landau-bridge_1.0.0_amd64.AppImage')])
   assert.equal(existsSync(join(dir, 'landau-bridge_1.0.0_amd64.AppImage.sig')), false, 'the old signature never survives')
 })
 

@@ -48,7 +48,11 @@ const updLine = computed(() => (upd.value ? updateLabel(upd.value.state, upd.val
 let offUpdate: (() => void) | null = null;
 onMounted(async () => {
   try { upd.value = await bridge.updateStatus(); } catch (e) { error.value = e as BridgeError; }
-  offUpdate = await onUpdateState((s) => { if (upd.value) upd.value = { ...upd.value, state: s }; });
+  offUpdate = await onUpdateState((s) => {
+    if (upd.value) upd.value = { ...upd.value, state: s };
+    // a cycle ended: pick up its «آخرین بررسی» time
+    if (['Idle', 'Ready', 'Failed'].includes(s.state)) bridge.updateStatus().then((v) => { upd.value = v; }).catch(() => {});
+  });
 });
 onBeforeUnmount(() => offUpdate?.());
 const checkUpdate = async () => {

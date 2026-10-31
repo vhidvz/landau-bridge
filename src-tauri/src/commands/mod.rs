@@ -284,10 +284,15 @@ pub async fn update_status(app: AppHandle, state: State<'_, AppState>) -> Result
     update_view(&app, &state)
 }
 
-/// The seller's «بررسی نسخهٔ جدید»: one cycle now, whatever `auto_update` says.
+/// The seller's «بررسی نسخهٔ جدید»: one cycle now, whatever `auto_update` says. It runs in the
+/// background — a download can take long on a slow link — and reports on `update://state`.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn update_check(app: AppHandle, state: State<'_, AppState>) -> Result<UpdateView> {
-    run_update_cycle(&app, &state).await;
+    let handle = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let state = handle.state::<AppState>();
+        run_update_cycle(&handle, &state).await;
+    });
     update_view(&app, &state)
 }
 

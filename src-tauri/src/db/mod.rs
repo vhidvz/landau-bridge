@@ -172,6 +172,17 @@ fn newer_guard(current: i64) -> Result<()> {
     Ok(())
 }
 
+/// What the seller is told when the database cannot be opened at launch — after an unattended
+/// update this is the first thing they see, so it says where to look, never just "failed".
+pub fn open_failure_fa(e: &BridgeError) -> String {
+    match e {
+        BridgeError::DbNewer { .. } => e.message_fa(),
+        other => format!(
+            "پایگاه دادهٔ برنامه باز نشد؛ فضای خالی دیسک و دسترسی به پوشهٔ داده را بررسی کنید و برنامه را دوباره باز کنید. دادهٔ شما تغییری نکرده است.\n({other})"
+        ),
+    }
+}
+
 /// Backups kept beside the database, newest schema first.
 const KEEP_BACKUPS: usize = 2;
 
@@ -210,7 +221,10 @@ fn backup(conn: &Connection, path: &Path, schema: i64) -> Result<()> {
         .collect();
     found.sort_by_key(|f| std::cmp::Reverse(f.0));
     for (_, old) in found.into_iter().skip(KEEP_BACKUPS) {
-        std::fs::remove_file(&old).map_err(io)?;
+        // An old backup that will not go (held open, permissions) costs disk, never the launch.
+        if let Err(e) = std::fs::remove_file(&old) {
+            tracing::warn!("old backup {} not removed: {e}", old.display());
+        }
     }
     Ok(())
 }
@@ -794,6 +808,30 @@ mod tests {
             backups(dir.path()),
             vec!["bridge.sqlite.v1.bak", "bridge.sqlite.v2.bak"]
         );
+    }
+
+    #[test]
+    fn a_backup_that_cannot_be_pruned_does_not_stop_the_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.sqlite");
+        version_2_file(&path);
+        // something the prune cannot delete: a directory under a backup's name
+        std::fs::create_dir_all(dir.path().join("bridge.sqlite.v0.bak/held")).unwrap();
+        std::fs::write(dir.path().join("bridge.sqlite.v1.bak"), b"older").unwrap();
+        let db = Db::open(&path).expect("opened despite the stuck backup");
+        assert_eq!(db.user_version().unwrap(), SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn every_open_failure_has_a_persian_reason() {
+        let newer = BridgeError::DbNewer {
+            found: 9,
+            supported: 3,
+        };
+        assert_eq!(open_failure_fa(&newer), newer.message_fa());
+        let full = open_failure_fa(&BridgeError::Db("database or disk is full".into()));
+        assert!(full.contains("فضای خالی دیسک"), "{full}");
+        assert!(full.contains("database or disk is full"), "{full}");
     }
 
     #[test]

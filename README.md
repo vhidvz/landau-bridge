@@ -147,7 +147,11 @@ sudo pacman -S --needed webkit2gtk-4.1 base-devel curl wget file openssl \
 
 Bundling the AppImage downloads `linuxdeploy` and `appimagetool` on first use, which is why `curl`/`wget` and `file` are in every list. Running AppImages needs FUSE 2 (`fuse2`, `libfuse2` or `fuse-libs`, see above).
 
-On Arch/Manjaro (and any distribution with a recent glibc) the AppImage step can fail with `failed to run linuxdeploy` after a wall of `unknown type [0x13] section '.relr.dyn'` messages: the `strip` inside `linuxdeploy` is too old for today's libraries. The `tauri` script in `package.json` already skips that stripping (`NO_STRIP=true`); call the CLI through it (`pnpm tauri …`), not directly.
+On Arch/Manjaro (and any distribution with a recent glibc) the AppImage step can fail with `failed to run linuxdeploy` after a wall of `unknown type [0x13] section '.relr.dyn'` messages: the `strip` inside `linuxdeploy` is too old for today's libraries. Skip its stripping — the `.deb` and `.rpm` are unaffected — by prefixing the build with `NO_STRIP=true` (Linux shells only; it is not needed on Windows):
+
+```sh
+NO_STRIP=true pnpm tauri build --config src-tauri/tauri.unsigned.conf.json
+```
 
 If it still fails, now with `Failed to run plugin: gtk` right after `realpath: /usr/lib/gdk-pixbuf-2.0/2.10.0: No such file or directory`, the `gdk-pixbuf2` package no longer ships that folder (it loads images through `glycin` since 2.44) while its `pkg-config` file still names it, and `linuxdeploy`'s GTK plugin copies it unconditionally. `webp-pixbuf-loader` in the list above puts a real loader there, and pacman's hook writes its `loaders.cache`.
 
@@ -165,6 +169,7 @@ git clone <this repository> landau-bridge
 cd landau-bridge
 pnpm install          # also runs `nuxt prepare`
 pnpm tauri build --config src-tauri/tauri.unsigned.conf.json   # UI, Rust core in release mode, bundles
+                                     # (Linux: NO_STRIP=true pnpm tauri build …, see above)
 node scripts/finalize-appimage.mjs   # Linux: drop the bundled libwayland from the AppImage
 ```
 

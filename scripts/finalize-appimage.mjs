@@ -16,8 +16,8 @@
  * plugin and rewrites the cached copy whenever it differs. But it leaves the finished AppDir beside
  * the AppImage, so this removes the libraries there and packs the AppImage again with the same
  * linuxdeploy output plugin. Packing invalidates the updater signature the build wrote: with a
- * signing key in the environment the new file is signed again, without one the stale `.sig` is
- * removed — a signature that does not match is worse than none. `scripts/check-appimage.mjs`
+ * signing key in the environment the new file is signed again, bound to its version, without one
+ * the stale `.sig` is removed — a signature that does not match is worse than none. `scripts/check-appimage.mjs`
  * gates the result.
  */
 import { execFileSync } from 'node:child_process'
@@ -56,7 +56,13 @@ export function finalize({ bundleDir, exec = execFileSync, env = process.env, to
 
   rmSync(`${appImage}.sig`, { force: true })
   const signed = Boolean(env.TAURI_SIGNING_PRIVATE_KEY || env.TAURI_SIGNING_PRIVATE_KEY_PATH)
-  if (signed) exec('pnpm', ['exec', 'tauri', 'signer', 'sign', appImage], { env, stdio: 'inherit' })
+  if (signed) {
+    // Bound to the version as `tauri build` binds its own signatures, so the updater can refuse a
+    // manifest that pairs a newer version number with an older package (requireSignedVersion).
+    const version = /_([^_]+)_amd64\.AppImage$/.exec(appImage)?.[1]
+    if (!version) throw new Error(`no version in ${appImage}`)
+    exec('pnpm', ['exec', 'tauri', 'signer', 'sign', '--app-version', version, appImage], { env, stdio: 'inherit' })
+  }
   return { removed, signed }
 }
 
