@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- The database is backed up before an upgrade, and an older build refuses data a newer one wrote. @vhidvz
 - Invoice pages are fetched in parallel, one per supplier session, 2 to 8 sessions as the link allows. @vhidvz
 - Matches lists the parts a run left undecided, with review's saved candidates, to decide at any time. @vhidvz
 - Decisions export to a JSON file and import on another install; your picks win, gone products are skipped. @vhidvz

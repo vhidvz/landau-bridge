@@ -20,6 +20,9 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0003_drop_name_map.sql"),
 ];
 
+/// The schema this build writes: one version per migration.
+pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
+
 #[derive(Clone)]
 pub struct Db {
     conn: Arc<Mutex<Connection>>,
@@ -30,8 +33,15 @@ impl Db {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| BridgeError::Db(e.to_string()))?;
         }
+        let existed = path.is_file();
         let conn = Connection::open(path)?;
+        let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        // Refuse a newer schema before anything (even the journal mode) is written to it.
+        newer_guard(current)?;
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")?;
+        if existed && current > 0 && current < SCHEMA_VERSION {
+            backup(&conn, path, current)?;
+        }
         let db = Db {
             conn: Arc::new(Mutex::new(conn)),
         };
@@ -67,6 +77,7 @@ impl Db {
     /// old version number (which would re-run the script over existing tables next launch).
     pub fn migrate(&self) -> Result<()> {
         let current = self.user_version()?;
+        newer_guard(current)?;
         self.with(|c| {
             for (i, sql) in MIGRATIONS.iter().enumerate() {
                 let version = i as i64 + 1;
@@ -149,6 +160,59 @@ impl Db {
             Ok(())
         })
     }
+}
+
+fn newer_guard(current: i64) -> Result<()> {
+    if current > SCHEMA_VERSION {
+        return Err(BridgeError::DbNewer {
+            found: current,
+            supported: SCHEMA_VERSION,
+        });
+    }
+    Ok(())
+}
+
+/// Backups kept beside the database, newest schema first.
+const KEEP_BACKUPS: usize = 2;
+
+/// Copy the database as it is to `<db>.v<schema>.bak` before migrating it, so data a newer build
+/// rewrote can be put back under an older one. Written under a `.part` name and renamed, so a crash
+/// never leaves a half backup that looks whole; then all but the newest [`KEEP_BACKUPS`] go.
+fn backup(conn: &Connection, path: &Path, schema: i64) -> Result<()> {
+    let io = |e: std::io::Error| BridgeError::Db(format!("backup: {e}"));
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let target = path.with_file_name(format!("{name}.v{schema}.bak"));
+    let part = path.with_file_name(format!("{name}.v{schema}.bak.part"));
+    match std::fs::remove_file(&part) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(io(e)),
+        _ => {}
+    }
+    conn.execute("VACUUM INTO ?1", [part.to_string_lossy()])?;
+    std::fs::rename(&part, &target).map_err(io)?;
+
+    let dir = path.parent().unwrap_or(Path::new("."));
+    let prefix = format!("{name}.v");
+    let mut found: Vec<(i64, std::path::PathBuf)> = std::fs::read_dir(dir)
+        .map_err(io)?
+        .flatten()
+        .filter_map(|e| {
+            let file = e.file_name().to_string_lossy().into_owned();
+            let v = file
+                .strip_prefix(&prefix)?
+                .strip_suffix(".bak")?
+                .parse()
+                .ok()?;
+            Some((v, e.path()))
+        })
+        .collect();
+    found.sort_by_key(|f| std::cmp::Reverse(f.0));
+    for (_, old) in found.into_iter().skip(KEEP_BACKUPS) {
+        std::fs::remove_file(&old).map_err(io)?;
+    }
+    Ok(())
 }
 
 /// ISO-8601 UTC timestamp used for every `*_at` column.
@@ -648,6 +712,95 @@ mod tests {
                ('barezpakhsh', 'n', 'N1', NULL, NULL, 'NONE', NULL, 'n', NULL, '2026-09-16T00:00:00Z');",
         )
         .unwrap();
+    }
+
+    fn backups(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.ends_with(".bak"))
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn a_newer_database_is_refused_and_left_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.sqlite");
+        drop(Db::open(&path).unwrap());
+        {
+            let c = Connection::open(&path).unwrap();
+            c.pragma_update(None, "user_version", SCHEMA_VERSION + 1)
+                .unwrap();
+        }
+        let before = std::fs::read(&path).unwrap();
+        let err = Db::open(&path).err().expect("refused");
+        assert_eq!(
+            err,
+            BridgeError::DbNewer {
+                found: SCHEMA_VERSION + 1,
+                supported: SCHEMA_VERSION
+            }
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before, "file untouched");
+        assert!(backups(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn a_pending_migration_is_backed_up_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.sqlite");
+        version_2_file(&path);
+        Db::open(&path).unwrap();
+        assert_eq!(backups(dir.path()), vec!["bridge.sqlite.v2.bak"]);
+        let bak = Connection::open(dir.path().join("bridge.sqlite.v2.bak")).unwrap();
+        let v: i64 = bak
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, 2);
+        let maps: i64 = bak
+            .query_row("SELECT count(*) FROM name_map", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(maps, 1, "the backup holds the data as it was");
+    }
+
+    #[test]
+    fn an_up_to_date_database_is_not_backed_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.sqlite");
+        drop(Db::open(&path).unwrap());
+        Db::open(&path).unwrap();
+        assert!(backups(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn a_new_database_is_not_backed_up() {
+        let dir = tempfile::tempdir().unwrap();
+        Db::open(&dir.path().join("bridge.sqlite")).unwrap();
+        assert!(backups(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn only_the_two_newest_backups_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.sqlite");
+        version_2_file(&path);
+        std::fs::write(dir.path().join("bridge.sqlite.v0.bak"), b"old").unwrap();
+        std::fs::write(dir.path().join("bridge.sqlite.v1.bak"), b"older").unwrap();
+        Db::open(&path).unwrap();
+        assert_eq!(
+            backups(dir.path()),
+            vec!["bridge.sqlite.v1.bak", "bridge.sqlite.v2.bak"]
+        );
+    }
+
+    #[test]
+    fn self_check_creates_and_migrates_a_fresh_database() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(crate::self_check(dir.path()), Ok(SCHEMA_VERSION));
+        assert!(dir.path().join("bridge.sqlite").is_file());
     }
 
     #[test]

@@ -55,6 +55,9 @@ pub enum BridgeError {
     NoPricingRule,
     #[error("database: {0}")]
     Db(String),
+    /// The data folder was written by a newer build (schema `found`); this one knows `supported`.
+    #[error("database schema {found} is newer than {supported}")]
+    DbNewer { found: i64, supported: i64 },
     #[error("keyring unavailable: {0}")]
     KeyringUnavailable(String),
     #[error("{0}")]
@@ -104,6 +107,7 @@ impl BridgeError {
             SettingsIncomplete(_) => "SettingsIncomplete",
             NoPricingRule => "NoPricingRule",
             Db(_) => "Db",
+            DbNewer { .. } => "DbNewer",
             KeyringUnavailable(_) => "KeyringUnavailable",
             Other(_) => "Other",
         }
@@ -135,6 +139,7 @@ impl BridgeError {
             SettingsIncomplete(w) => format!("تنظیمات ناقص است: {w}"),
             NoPricingRule => "در لاندا هیچ قاعدهٔ قیمت‌گذاری فعالی ندارید. اول یک قاعده بسازید تا قفسه بدون سود نماند.".into(),
             Db(_) => "خطای پایگاه داده برنامه. جزئیات در گزارش خطاها ثبت شد.".into(),
+            DbNewer { found, supported } => format!("این داده‌ها را نسخهٔ جدیدتری از برنامه ساخته است (نسخهٔ داده {found}، این برنامه تا {supported}). نسخهٔ جدیدتر را نصب کنید؛ پشتیبان پیش از ارتقا کنار پایگاه داده است."),
             KeyringUnavailable(_) => "ذخیره‌ساز امن سیستم در دسترس نیست؛ رمزها در پرونده برنامه نگه داشته می‌شوند.".into(),
             Other(d) => d.clone(),
         }

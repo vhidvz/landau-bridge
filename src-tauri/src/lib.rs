@@ -13,11 +13,19 @@ pub mod secrets;
 pub mod settings;
 pub mod supplier;
 
+use std::path::Path;
 use std::sync::Arc;
 
 use tauri::Manager;
+use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 use commands::AppState;
+
+/// `landau-bridge --self-check <dir>`: open (and so create and migrate) a database in `dir` and
+/// answer its schema version, with no window — what CI runs on every built program.
+pub fn self_check(dir: &Path) -> errors::Result<i64> {
+    db::Db::open(&dir.join("bridge.sqlite"))?.user_version()
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -40,7 +48,24 @@ pub fn run() {
                 .init();
             tracing::info!("landau-bridge starting; data dir {}", data_dir.display());
 
-            let db = db::Db::open(&data_dir.join("bridge.sqlite")).expect("open database");
+            let db = match db::Db::open(&data_dir.join("bridge.sqlite")) {
+                Ok(db) => db,
+                Err(e @ errors::BridgeError::DbNewer { .. }) => {
+                    // An older build over a newer build's data: say so and leave the file alone.
+                    tracing::error!("{e}");
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.hide();
+                    }
+                    let handle = app.handle().clone();
+                    app.dialog()
+                        .message(e.message_fa())
+                        .title("پل لاندا")
+                        .kind(MessageDialogKind::Error)
+                        .show(move |_| handle.exit(1));
+                    return Ok(());
+                }
+                Err(e) => panic!("open database: {e}"),
+            };
             for id in db.interrupt_stale_jobs().expect("stale jobs") {
                 let _ = db.record_error(
                     Some(id),
