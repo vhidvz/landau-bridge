@@ -511,18 +511,20 @@ pub enum QuitAction {
     WaitForInstall,
 }
 
-/// What closing the app does with a staged update.
+/// What closing the app does with a staged update. With `auto_update` off nothing installs on
+/// its own — that is how a seller who rolled back keeps the older version.
 pub fn quit_action(
     kind: InstallKind,
     state: &UpdateState,
     job_active: bool,
     declined: bool,
+    auto_update: bool,
 ) -> QuitAction {
     if matches!(state, UpdateState::Installing { .. }) {
         return QuitAction::WaitForInstall;
     }
     let ready = matches!(state, UpdateState::Ready { .. });
-    if ready && !job_active && !declined && installs_on_quit(kind) {
+    if ready && auto_update && !job_active && !declined && installs_on_quit(kind) {
         QuitAction::InstallThenExit
     } else {
         QuitAction::Exit
@@ -750,7 +752,7 @@ mod tests {
         cycle(&u).await; // the next check finds the same version, staged
         assert!(u.declined());
         assert_eq!(
-            quit_action(InstallKind::AppImage, &u.state(), false, u.declined()),
+            quit_action(InstallKind::AppImage, &u.state(), false, u.declined(), true),
             QuitAction::Exit
         );
     }
@@ -853,11 +855,11 @@ mod tests {
             version: "1.0.1".into(),
         };
         assert_eq!(
-            quit_action(InstallKind::AppImage, &installing, false, false),
+            quit_action(InstallKind::AppImage, &installing, false, false, true),
             QuitAction::WaitForInstall
         );
         assert_eq!(
-            quit_action(InstallKind::Deb, &installing, true, true),
+            quit_action(InstallKind::Deb, &installing, true, true, true),
             QuitAction::WaitForInstall
         );
     }
@@ -880,7 +882,7 @@ mod tests {
     #[test]
     fn quit_install_skipped_while_a_job_waits_in_review() {
         assert_eq!(
-            quit_action(InstallKind::AppImage, &ready(), true, false),
+            quit_action(InstallKind::AppImage, &ready(), true, false, true),
             QuitAction::Exit
         );
     }
@@ -888,11 +890,26 @@ mod tests {
     #[test]
     fn quit_installs_a_ready_appimage() {
         assert_eq!(
-            quit_action(InstallKind::AppImage, &ready(), false, false),
+            quit_action(InstallKind::AppImage, &ready(), false, false, true),
             QuitAction::InstallThenExit
         );
         assert_eq!(
-            quit_action(InstallKind::AppImage, &UpdateState::Idle, false, false),
+            quit_action(
+                InstallKind::AppImage,
+                &UpdateState::Idle,
+                false,
+                false,
+                true
+            ),
+            QuitAction::Exit
+        );
+    }
+
+    #[test]
+    fn quit_never_installs_with_auto_update_off() {
+        // a seller who rolled back switches it off: closing must not bring the newer one back
+        assert_eq!(
+            quit_action(InstallKind::AppImage, &ready(), false, false, false),
             QuitAction::Exit
         );
     }
@@ -900,7 +917,7 @@ mod tests {
     #[test]
     fn quit_never_installs_a_deb() {
         assert_eq!(
-            quit_action(InstallKind::Deb, &ready(), false, false),
+            quit_action(InstallKind::Deb, &ready(), false, false, true),
             QuitAction::Exit
         );
     }

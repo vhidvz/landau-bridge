@@ -44,7 +44,7 @@ onMounted(load);
 const RELEASES = 'https://github.com/vhidvz/landau-bridge/releases';
 const upd = ref<UpdateView | null>(null);
 const updBusy = ref<'check' | 'install' | null>(null);
-const updLine = computed(() => (upd.value ? updateLabel(upd.value.state, upd.value.kind) : null));
+const updLine = computed(() => (upd.value ? updateLabel(upd.value.state, upd.value.kind, upd.value.auto_update) : null));
 let offUpdate: (() => void) | null = null;
 onMounted(async () => {
   try { upd.value = await bridge.updateStatus(); } catch (e) { error.value = e as BridgeError; }

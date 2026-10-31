@@ -40,11 +40,15 @@ fn install_on_exit(app: &AppHandle) {
         return; // the database was refused: nothing was set up, nothing to install
     };
     let job_active = state.db.running_job().map(|j| j.is_some()).unwrap_or(true);
+    let auto_update = settings::Settings::load(&state.db, &state.secrets)
+        .map(|s| s.auto_update)
+        .unwrap_or(false);
     let action = update::quit_action(
         update::install_kind(),
         &state.updater.state(),
         job_active,
         state.updater.declined(),
+        auto_update,
     );
     match action {
         update::QuitAction::InstallThenExit => {

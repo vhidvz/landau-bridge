@@ -94,7 +94,7 @@ const dismissAppImage = async () => {
         <UIcon name="i-lucide-circle-arrow-down" class="size-6 shrink-0 text-crimson-400" aria-hidden="true" />
         <div class="min-w-0 flex-1">
           <p class="font-medium text-paper">نسخهٔ تازهٔ پل لاندا آماده است</p>
-          <p class="text-sm text-paper-mute">{{ updateLabel(upd.state, upd.kind).text }}</p>
+          <p class="text-sm text-paper-mute">{{ updateLabel(upd.state, upd.kind, upd.auto_update).text }}</p>
         </div>
         <div class="flex gap-2">
           <UButton size="sm" icon="i-lucide-rotate-cw" :loading="updInstalling" :disabled="!!dash.running" @click="installUpdate">نصب و راه‌اندازی دوباره</UButton>

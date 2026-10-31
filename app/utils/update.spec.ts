@@ -24,6 +24,11 @@ describe('update', () => {
     expect(updateLabel({ state: 'Ready', version: '1.0.1' }, 'unknown').text).toBe('نسخهٔ ۱.۰.۱ آماده نصب است.');
   });
 
+  it('with automatic updates off, a ready version waits for the button', () => {
+    expect(updateLabel({ state: 'Ready', version: '1.0.1' }, 'appimage', false))
+      .toEqual({ text: 'نسخهٔ ۱.۰.۱ آماده است؛ با دکمهٔ «نصب و راه‌اندازی دوباره» نصب می‌شود.', tone: 'ok' });
+  });
+
   it('shows a failure as the core worded it, as a warning', () => {
     const failed = { state: 'Failed', kind: 'Network', message: 'اتصال به GitHub برقرار نشد؛ بعداً دوباره بررسی می‌شود.', at: '2026-10-31T10:00:00Z' } as const;
     expect(updateLabel(failed, 'appimage')).toEqual({ text: failed.message, tone: 'warn' });

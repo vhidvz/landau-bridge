@@ -18,7 +18,7 @@ The interface is in Persian (right-to-left, Persian numerals, Jalali dates).
 
 ## Install a release
 
-Download the file for your system from the latest release on [GitHub Releases](https://github.com/vhidvz/landau-bridge/releases/latest) (or [build it yourself](#build-from-source)); `SHA256SUMS` there lists each file's checksum (`sha256sum -c SHA256SUMS --ignore-missing`). The version number in the file names is the app's version; `1.0.0` is used in the examples below. From then on the app [updates itself](#updates).
+Download the file for your system from the latest release on [GitHub Releases](https://github.com/vhidvz/landau-bridge/releases/latest) (or [build it yourself](#build-from-source)); `SHA256SUMS` there lists each package's checksum (`sha256sum -c SHA256SUMS --ignore-missing`). The version number in the file names is the app's version; `1.0.0` is used in the examples below. From then on the app [updates itself](#updates).
 
 ### Debian / Ubuntu / Linux Mint
 
@@ -102,7 +102,15 @@ From 1.0.0 the app keeps itself up to date from [GitHub Releases](https://github
 
 ### Rolling back
 
-Updates only ever move forward. To go back to an earlier version, close the app and install that version's file from [GitHub Releases](https://github.com/vhidvz/landau-bridge/releases) as under [Install a release](#install-a-release). If the newer version had changed the database, the older one says so and will not open it: replace `bridge.sqlite` in the data folder with the matching `bridge.sqlite.v<N>.bak` and delete `bridge.sqlite-wal` and `bridge.sqlite-shm` — the decisions and history since that update are lost with it.
+Updates only ever move forward, so going back is done by hand:
+
+1. In the app, **switch off** Settings → **بررسی و دریافت خودکار نسخهٔ جدید** — otherwise the newer version is fetched again and goes back in the next time the app closes. Then close the app.
+2. Download the older version's file from [GitHub Releases](https://github.com/vhidvz/landau-bridge/releases) and install it over the newer one:
+   - AppImage: replace `~/.local/bin/landau-bridge.AppImage` (or wherever you keep it) with the older file;
+   - Debian/Ubuntu: `sudo apt install --allow-downgrades ./landau-bridge_<version>_amd64.deb`;
+   - Fedora/RHEL: `sudo dnf downgrade ./landau-bridge-<version>-1.x86_64.rpm`; openSUSE: `sudo zypper install --oldpackage ./…rpm`;
+   - Windows: run the older `…_x64-setup.exe`.
+3. If the newer version had changed the database, the older one says so and will not open it: with the app closed, replace `bridge.sqlite` in the data folder with the matching `bridge.sqlite.v<N>.bak` and delete `bridge.sqlite-wal` and `bridge.sqlite-shm` — the decisions and history since that update are lost with it. The backup still has automatic updates on, so switch them off again (step 1) before you next close the app.
 
 ## Build from source
 
@@ -204,6 +212,7 @@ A release is a version bump merged into `main`; GitHub Actions does the rest.
 
 1. On a branch: `node scripts/release.mjs 1.2.0` — sets the version in `src-tauri/Cargo.toml` (the one source), `package.json` and `Cargo.lock`, and turns the CHANGELOG's `[Unreleased]` section into `[1.2.0]` dated in Tehran. A version with a suffix (`1.2.0-rc.1`) is published as a prerelease, which installed apps never pick up.
 2. Merge it into `main`. `.github/workflows/release.yml` builds the AppImage, `.deb` and `.rpm` on Ubuntu 22.04 and the setup `.exe` on Windows, signs them for the updater, writes `latest.json` and `SHA256SUMS`, and publishes `v1.2.0` — as a draft first, made public only once all ten files are there. A pull request into `main` runs the same build without publishing anything.
+3. If the run fails half-way (a runner hiccup, an expired secret), fix the cause and re-run it from *Actions → release → Run workflow* on `main`; a draft it left behind is replaced, a published release is never touched.
 
 The signing key lives in the repository's Actions secrets (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) and in the maintainer's own keeping; its public half is in `src-tauri/tauri.conf.json`. **Losing the key means installed copies can never update again** — they would need a manual reinstall of a build signed with a new one. To try a prerelease on one machine without offering it to anyone, run the app with `LANDAU_BRIDGE_UPDATE_ENDPOINT=https://github.com/vhidvz/landau-bridge/releases/download/v1.2.0-rc.1/latest.json`.
 
