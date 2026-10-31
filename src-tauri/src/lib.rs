@@ -12,6 +12,7 @@ pub mod matching;
 pub mod secrets;
 pub mod settings;
 pub mod supplier;
+pub mod update;
 
 use std::path::Path;
 use std::sync::Arc;
