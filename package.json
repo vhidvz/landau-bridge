@@ -9,7 +9,7 @@
     "preview": "nuxt preview",
     "typecheck": "nuxt typecheck",
     "test": "vitest run",
-    "tauri": "tauri",
+    "tauri": "NO_STRIP=true tauri",
     "postinstall": "nuxt prepare"
   },
   "dependencies": {

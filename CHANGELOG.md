@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- The AppImage no longer bundles libwayland, which left the window blank on a current Mesa. @vhidvz
 - The site's error page (its `/Error` redirect answers 200) is retried, not reported as a layout change. @vhidvz
 - An invoice the site keeps failing on is reported as `SupplierFaulted`, the site's fault, not its layout. @vhidvz
 - README names the supplier host the app calls, `33314466.ir`, not `barezpakhsh.ir`. @vhidvz

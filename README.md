@@ -136,11 +136,7 @@ sudo pacman -S --needed webkit2gtk-4.1 base-devel curl wget file openssl \
 
 Bundling the AppImage downloads `linuxdeploy` and `appimagetool` on first use, which is why `curl`/`wget` and `file` are in every list. Running AppImages needs FUSE 2 (`fuse2`, `libfuse2` or `fuse-libs`, see above).
 
-On Arch/Manjaro (and any distribution with a recent glibc) the AppImage step can fail with `failed to run linuxdeploy` after a wall of `unknown type [0x13] section '.relr.dyn'` messages: the `strip` inside `linuxdeploy` is too old for today's libraries. Skip its stripping — the `.deb` and `.rpm` are unaffected:
-
-```sh
-NO_STRIP=true pnpm tauri build
-```
+On Arch/Manjaro (and any distribution with a recent glibc) the AppImage step can fail with `failed to run linuxdeploy` after a wall of `unknown type [0x13] section '.relr.dyn'` messages: the `strip` inside `linuxdeploy` is too old for today's libraries. The `tauri` script in `package.json` already skips that stripping (`NO_STRIP=true`); call the CLI through it (`pnpm tauri …`), not directly.
 
 If it still fails, now with `Failed to run plugin: gtk` right after `realpath: /usr/lib/gdk-pixbuf-2.0/2.10.0: No such file or directory`, the `gdk-pixbuf2` package no longer ships that folder (it loads images through `glycin` since 2.44) while its `pkg-config` file still names it, and `linuxdeploy`'s GTK plugin copies it unconditionally. `webp-pixbuf-loader` in the list above puts a real loader there, and pacman's hook writes its `loaders.cache`.
 
@@ -157,19 +153,22 @@ If it still fails, now with `Failed to run plugin: gtk` right after `realpath: /
 git clone <this repository> landau-bridge
 cd landau-bridge
 pnpm install          # also runs `nuxt prepare`
-pnpm tauri build      # generates the UI, compiles the Rust core in release mode, bundles
+pnpm tauri build --config src-tauri/tauri.unsigned.conf.json   # UI, Rust core in release mode, bundles
+node scripts/finalize-appimage.mjs   # Linux: drop the bundled libwayland from the AppImage
 ```
+
+`tauri.unsigned.conf.json` turns off the update signatures, which need the release key only CI holds; a build without it stops with an error about the missing private key. `finalize-appimage.mjs` removes the `libwayland` libraries `linuxdeploy` copies in and packs the AppImage again: a bundled old copy stops a current Mesa from loading its graphics driver and the window stays blank on Arch, Manjaro and Fedora. `node scripts/check-appimage.mjs` confirms the result.
 
 Bundles land in `src-tauri/target/release/bundle/`:
 
 | OS | Files |
 | --- | --- |
 | Linux | `deb/landau-bridge_0.1.0_amd64.deb`, `rpm/landau-bridge-0.1.0-1.x86_64.rpm`, `appimage/landau-bridge_0.1.0_amd64.AppImage` |
-| Windows | `nsis\landau-bridge_0.1.0_x64-setup.exe`, `msi\landau-bridge_0.1.0_x64_en-US.msi` |
+| Windows | `nsis\landau-bridge_0.1.0_x64-setup.exe` |
 
 The UI ships one self-hosted variable font from the Landau front end, **Mikhak** (headings and text), under the SIL Open Font License 1.1 (`public/fonts/`). Estedad, the front end's text face, is not shipped: it builds every dotted Arabic letter out of a dotless skeleton plus a separate dot mark, and WebKitGTK — the engine Tauri uses on Linux — drops those marks, so Persian text loses its dots in the desktop window.
 
-The bare executable is `src-tauri/target/release/landau-bridge` (`.exe` on Windows) — it runs without installing, but only on the machine it was built on or one with the same libraries. To build only some bundles: `pnpm tauri build --bundles appimage` (or `deb`, `rpm`, `nsis`, `msi`).
+The bare executable is `src-tauri/target/release/landau-bridge` (`.exe` on Windows) — it runs without installing, but only on the machine it was built on or one with the same libraries. To build only some bundles: `pnpm tauri build --bundles appimage` (or `deb`, `rpm`, `nsis`).
 
 To install what you just built, follow [Install a release](#install-a-release).
 
