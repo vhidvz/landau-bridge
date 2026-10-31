@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::jobs::JobRow;
 use crate::domain::Authenticity;
 use crate::landau::Store;
+use crate::update::{InstallKind, UpdateState};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SettingsView {
@@ -22,6 +23,16 @@ pub struct SettingsView {
     pub fetch_since_only: bool,
     pub secret_backend: String,
     pub data_dir: String,
+}
+
+/// The Settings card «نسخهٔ برنامه».
+#[derive(Debug, Clone, Serialize)]
+pub struct UpdateView {
+    pub current: String,
+    pub state: UpdateState,
+    pub kind: InstallKind,
+    pub auto_update: bool,
+    pub last_check: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]

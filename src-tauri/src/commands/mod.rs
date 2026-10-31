@@ -22,6 +22,7 @@ use crate::matching::{candidates, score, Matcher, Scored};
 use crate::secrets::SecretStore;
 use crate::settings::{Settings, SettingsPatch, SUPPLIER_ID};
 use crate::supplier;
+use crate::update::{self, PluginSource, UpdateState, Updater};
 use dto::*;
 
 pub struct AppState {
@@ -29,6 +30,7 @@ pub struct AppState {
     pub secrets: SecretStore,
     pub jobs: Arc<JobRegistry>,
     pub data_dir: PathBuf,
+    pub updater: Arc<Updater<PluginSource>>,
     pub _log_guard: tracing_appender::non_blocking::WorkerGuard,
 }
 
@@ -177,6 +179,24 @@ pub async fn dashboard_get(app: AppHandle, state: State<'_, AppState>) -> Result
 /// Settings key set once the seller answers "don't ask again" to the AppImage menu offer.
 const APPIMAGE_DISMISSED: &str = "appimage_install_dismissed";
 
+/// After the updater replaced the installed AppImage in place, point its menu entry at the new
+/// version. Best effort: a menu entry is never worth failing a launch for.
+pub fn refresh_appimage_entry(app: &AppHandle) {
+    let (Some(running), Ok(layout)) = (appimage_running(), appimage_layout(app)) else {
+        return;
+    };
+    let canon = |p: &std::path::Path| p.canonicalize().ok();
+    if canon(&running.image).is_none() || canon(&running.image) != canon(&layout.image()) {
+        return;
+    }
+    let version = app.package_info().version.to_string();
+    match appimage::refresh_entry(&layout, &version) {
+        Ok(true) => tracing::info!("menu entry now names {version}"),
+        Ok(false) => {}
+        Err(e) => tracing::warn!("menu entry not refreshed: {e}"),
+    }
+}
+
 /// The AppImage runtime exports `APPIMAGE`/`APPDIR`; nothing else sets them, so their presence
 /// on Linux is the whole "which install am I" detection.
 fn appimage_running() -> Option<appimage::AppImage> {
@@ -232,6 +252,58 @@ pub async fn appimage_install(app: AppHandle) -> Result<String> {
 #[tauri::command(rename_all = "snake_case")]
 pub async fn appimage_dismiss(state: State<'_, AppState>) -> Result<()> {
     state.db.set_setting(APPIMAGE_DISMISSED, "1")
+}
+
+// ------------------------------------------------------------ updates
+
+const UPDATE_LAST_CHECK: &str = "update_last_check";
+
+/// One update cycle, broadcast on `update://state`; the time is kept for Settings.
+pub async fn run_update_cycle(app: &AppHandle, state: &AppState) -> UpdateState {
+    let emit =
+        |s: &UpdateState| jobs::emit_event(&Some(app.clone()), update::EVENT_UPDATE, s.clone());
+    let s = state.updater.check_and_stage(&emit).await;
+    if let Err(e) = state.db.set_setting(UPDATE_LAST_CHECK, &crate::db::now()) {
+        tracing::warn!("update check time not kept: {e}");
+    }
+    s
+}
+
+fn update_view(app: &AppHandle, state: &AppState) -> Result<UpdateView> {
+    Ok(UpdateView {
+        current: app.package_info().version.to_string(),
+        state: state.updater.state(),
+        kind: update::install_kind(),
+        auto_update: settings(state)?.auto_update,
+        last_check: state.db.setting(UPDATE_LAST_CHECK)?,
+    })
+}
+
+#[tauri::command(rename_all = "snake_case")]
+pub async fn update_status(app: AppHandle, state: State<'_, AppState>) -> Result<UpdateView> {
+    update_view(&app, &state)
+}
+
+/// The seller's «بررسی نسخهٔ جدید»: one cycle now, whatever `auto_update` says.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn update_check(app: AppHandle, state: State<'_, AppState>) -> Result<UpdateView> {
+    run_update_cycle(&app, &state).await;
+    update_view(&app, &state)
+}
+
+/// «نصب و راه‌اندازی دوباره». Refused while a job is active; on Linux the new copy is started
+/// here, on Windows the installer has already closed the app and starts it again.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn update_install(app: AppHandle, state: State<'_, AppState>) -> Result<()> {
+    let job_active = state.db.running_job()?.is_some();
+    let installed = state.updater.install(job_active, true).await;
+    jobs::emit_event(
+        &Some(app.clone()),
+        update::EVENT_UPDATE,
+        state.updater.state(),
+    );
+    installed?;
+    app.restart()
 }
 
 // ------------------------------------------------------------ jobs

@@ -407,6 +407,7 @@ mod tests {
                 min_margin_percent: 15.0,
                 overwrite_manual: false,
                 fetch_since_only: true,
+                auto_update: true,
             },
         };
         (ctx, svc)

@@ -15,9 +15,10 @@ pub mod supplier;
 pub mod update;
 
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use tauri::Manager;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::{DialogExt, MessageDialogKind};
 
 use commands::AppState;
@@ -26,6 +27,31 @@ use commands::AppState;
 /// answer its schema version, with no window — what CI runs on every built program.
 pub fn self_check(dir: &Path) -> errors::Result<i64> {
     db::Db::open(&dir.join("bridge.sqlite"))?.user_version()
+}
+
+/// Closing the app installs a staged update when [`update::quit_action`] says so — never during a
+/// job, never a deb/rpm (it asks for a password). Runs once, whatever fires the exit.
+fn install_on_exit(app: &AppHandle) {
+    static DONE: AtomicBool = AtomicBool::new(false);
+    if DONE.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let Some(state) = app.try_state::<AppState>() else {
+        return; // the database was refused: nothing was set up, nothing to install
+    };
+    let job_active = state.db.running_job().map(|j| j.is_some()).unwrap_or(true);
+    let action = update::quit_action(
+        update::install_kind(),
+        &state.updater.state(),
+        job_active,
+        state.updater.declined(),
+    );
+    if action == update::QuitAction::InstallThenExit {
+        tracing::info!("installing the staged update before exit");
+        if let Err(e) = tauri::async_runtime::block_on(state.updater.install(false, false)) {
+            tracing::warn!("update not installed on exit: {e}");
+        }
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -77,12 +103,33 @@ pub fn run() {
                 );
             }
             let secrets = secrets::SecretStore::open(&data_dir);
+            let updater = Arc::new(update::Updater::new(
+                update::PluginSource::new(app.handle().clone()),
+                update::Staging::new(&data_dir),
+            ));
             app.manage(AppState {
                 db,
                 secrets,
                 jobs: Arc::new(jobs::JobRegistry::default()),
                 data_dir,
+                updater,
                 _log_guard: guard,
+            });
+            commands::refresh_appimage_entry(app.handle());
+
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                tokio::time::sleep(update::FIRST_CHECK).await;
+                loop {
+                    let state = handle.state::<AppState>();
+                    let auto = settings::Settings::load(&state.db, &state.secrets)
+                        .map(|s| s.auto_update)
+                        .unwrap_or(true);
+                    if auto {
+                        commands::run_update_cycle(&handle, &state).await;
+                    }
+                    tokio::time::sleep(update::CHECK_EVERY).await;
+                }
             });
             Ok(())
         })
@@ -113,7 +160,15 @@ pub fn run() {
             commands::open_log_folder,
             commands::appimage_install,
             commands::appimage_dismiss,
+            commands::update_status,
+            commands::update_check,
+            commands::update_install,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if let tauri::RunEvent::ExitRequested { .. } = event {
+                install_on_exit(app);
+            }
+        });
 }

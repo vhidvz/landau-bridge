@@ -317,6 +317,121 @@ impl<S: Source> Updater<S> {
     }
 }
 
+/// The event every state change is broadcast on.
+pub const EVENT_UPDATE: &str = "update://state";
+/// The first check waits for the app to settle; later ones follow every six hours while it runs.
+pub const FIRST_CHECK: std::time::Duration = std::time::Duration::from_secs(60);
+pub const CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(6 * 60 * 60);
+
+/// Answers a check within this; a release page that does not answer is not waited on.
+const CHECK_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// A 100 MB package over a slow link: the whole download, not one read.
+const DOWNLOAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+/// Overrides the configured endpoint (any build): how a prerelease is tried without offering it to
+/// sellers. Safe, because the embedded public key still verifies whatever it serves.
+pub const ENDPOINT_ENV: &str = "LANDAU_BRIDGE_UPDATE_ENDPOINT";
+
+/// [`Source`] over `tauri-plugin-updater`, which checks the endpoint's `latest.json`, downloads
+/// and verifies the package for this install kind, and installs it.
+pub struct PluginSource {
+    app: tauri::AppHandle,
+    update: Mutex<Option<tauri_plugin_updater::Update>>,
+}
+
+impl PluginSource {
+    pub fn new(app: tauri::AppHandle) -> PluginSource {
+        PluginSource {
+            app,
+            update: Mutex::new(None),
+        }
+    }
+
+    fn update_for(
+        &self,
+        offer: &Offer,
+    ) -> std::result::Result<tauri_plugin_updater::Update, Failure> {
+        lock(&self.update)
+            .clone()
+            .filter(|u| u.version == offer.version)
+            .ok_or_else(|| Failure::new(FailKind::Other, "no checked update for this version"))
+    }
+}
+
+fn failure(e: tauri_plugin_updater::Error, otherwise: FailKind) -> Failure {
+    use tauri_plugin_updater::Error as E;
+    let kind = match &e {
+        E::Reqwest(_) | E::Network(_) => FailKind::Network,
+        E::Minisign(_) => FailKind::Signature,
+        E::AuthenticationFailed => FailKind::Declined,
+        _ => otherwise,
+    };
+    Failure::new(kind, e.to_string())
+}
+
+#[async_trait]
+impl Source for PluginSource {
+    async fn check(&self) -> std::result::Result<Option<Offer>, Failure> {
+        use tauri_plugin_updater::UpdaterExt;
+        let other = |e: tauri_plugin_updater::Error| failure(e, FailKind::Other);
+        let mut builder = self.app.updater_builder().timeout(CHECK_TIMEOUT);
+        if let Ok(url) = std::env::var(ENDPOINT_ENV) {
+            let url = url
+                .parse()
+                .map_err(|e| Failure::new(FailKind::Other, format!("{ENDPOINT_ENV}: {e}")))?;
+            builder = builder.endpoints(vec![url]).map_err(other)?;
+        }
+        let found = builder
+            .build()
+            .map_err(other)?
+            .check()
+            .await
+            .map_err(other)?;
+        let offer = found.as_ref().map(|u| Offer {
+            version: u.version.clone(),
+        });
+        *lock(&self.update) = found.map(|mut u| {
+            u.timeout = Some(DOWNLOAD_TIMEOUT);
+            u
+        });
+        Ok(offer)
+    }
+
+    async fn download(
+        &self,
+        offer: &Offer,
+        progress: &(dyn Fn(u8) + Send + Sync),
+    ) -> std::result::Result<Vec<u8>, Failure> {
+        let update = self.update_for(offer)?;
+        let mut received: u64 = 0;
+        update
+            .download(
+                |chunk, total| {
+                    received += chunk as u64;
+                    if let Some(total) = total.filter(|t| *t > 0) {
+                        progress((received * 100 / total).min(100) as u8);
+                    }
+                },
+                || {},
+            )
+            .await
+            .map_err(|e| failure(e, FailKind::Network))
+    }
+
+    async fn install(
+        &self,
+        offer: &Offer,
+        bytes: Vec<u8>,
+        restart: bool,
+    ) -> std::result::Result<(), Failure> {
+        let update = self.update_for(offer)?.restart_after_install(restart);
+        // Writes the package (an AppImage is ~100 MB) or runs the installer: off the async threads.
+        tauri::async_runtime::spawn_blocking(move || update.install(bytes))
+            .await
+            .map_err(|e| Failure::new(FailKind::Install, e.to_string()))?
+            .map_err(|e| failure(e, FailKind::Install))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QuitAction {
     Exit,

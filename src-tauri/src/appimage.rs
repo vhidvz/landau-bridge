@@ -118,6 +118,24 @@ fn io_err(path: &Path, e: std::io::Error) -> BridgeError {
     BridgeError::Other(format!("{}: {e}", path.display()))
 }
 
+/// After the updater replaced the installed copy in place, its menu entry still names the old
+/// version: rewrite it when `X-AppImage-Version` differs. `false` when there is no entry or it is
+/// current.
+pub fn refresh_entry(layout: &Layout, version: &str) -> Result<bool> {
+    let path = layout.desktop();
+    let Ok(entry) = std::fs::read_to_string(&path) else {
+        return Ok(false);
+    };
+    if entry
+        .lines()
+        .any(|l| l.strip_prefix("X-AppImage-Version=") == Some(version))
+    {
+        return Ok(false);
+    }
+    std::fs::write(&path, desktop_entry(&layout.image(), version)).map_err(|e| io_err(&path, e))?;
+    Ok(true)
+}
+
 /// Ask when the running image is not the installed copy and the seller has not said "don't ask".
 /// "The installed copy" is the same file or one of the same size: a re-run of the file that was
 /// installed a minute ago stays quiet, a newer build (which changes size) is offered again.
@@ -271,6 +289,35 @@ mod tests {
         std::fs::write(layout.image(), b"old version").unwrap();
         install(&r, &layout, "0.2.0").unwrap();
         assert_eq!(std::fs::read(layout.image()).unwrap(), b"AppImage bytes");
+    }
+
+    #[test]
+    fn refresh_entry_rewrites_a_stale_version() {
+        let tmp = tempfile::tempdir().unwrap();
+        let r = fake_appimage(tmp.path(), b"png");
+        let layout = Layout::new(tmp.path());
+        install(&r, &layout, "1.0.0").unwrap();
+        assert!(refresh_entry(&layout, "1.0.1").unwrap(), "rewritten");
+        let entry = std::fs::read_to_string(layout.desktop()).unwrap();
+        assert!(entry.contains("X-AppImage-Version=1.0.1\n"), "{entry}");
+        assert!(
+            entry.contains(&format!("Exec=\"{}\"\n", layout.image().display())),
+            "{entry}"
+        );
+    }
+
+    #[test]
+    fn refresh_entry_leaves_a_current_entry_alone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let r = fake_appimage(tmp.path(), b"png");
+        let layout = Layout::new(tmp.path());
+        install(&r, &layout, "1.0.1").unwrap();
+        assert!(!refresh_entry(&layout, "1.0.1").unwrap());
+        let bare = Layout::new(tmp.path().join("no-home"));
+        assert!(
+            !refresh_entry(&bare, "1.0.1").unwrap(),
+            "no entry, nothing to do"
+        );
     }
 
     #[test]
