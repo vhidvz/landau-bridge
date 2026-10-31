@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Settings shows the app's version, its update status, and a switch, a check button and install-and-restart. @vhidvz
 - The app checks GitHub Releases, downloads a newer version in the background and installs it on quit. @vhidvz
 - The database is backed up before an upgrade, and an older build refuses data a newer one wrote. @vhidvz
 - Invoice pages are fetched in parallel, one per supplier session, 2 to 8 sessions as the link allows. @vhidvz

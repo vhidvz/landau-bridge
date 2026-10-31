@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { BridgeError, LandauStatus, SettingsView } from '~/types/bridge';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import type { BridgeError, LandauStatus, SettingsView, UpdateView } from '~/types/bridge';
 
 const DEFAULT_URL = 'https://api.landau.ir';
 const toast = useToast();
@@ -38,6 +39,44 @@ const load = async () => {
   } catch (e) { error.value = e as BridgeError; }
 };
 onMounted(load);
+
+// The app's own version: shown, checked and installed here; state changes arrive on update://state.
+const RELEASES = 'https://github.com/vhidvz/landau-bridge/releases';
+const upd = ref<UpdateView | null>(null);
+const updBusy = ref<'check' | 'install' | null>(null);
+const updLine = computed(() => (upd.value ? updateLabel(upd.value.state, upd.value.kind) : null));
+let offUpdate: (() => void) | null = null;
+onMounted(async () => {
+  try { upd.value = await bridge.updateStatus(); } catch (e) { error.value = e as BridgeError; }
+  offUpdate = await onUpdateState((s) => { if (upd.value) upd.value = { ...upd.value, state: s }; });
+});
+onBeforeUnmount(() => offUpdate?.());
+const checkUpdate = async () => {
+  error.value = null; updBusy.value = 'check';
+  try { upd.value = await bridge.updateCheck(); } catch (e) { error.value = e as BridgeError; } finally { updBusy.value = null; }
+};
+// On success the app restarts (Linux) or the installer takes over (Windows): nothing to do after.
+const installUpdate = async () => {
+  error.value = null; updBusy.value = 'install';
+  try { await bridge.updateInstall(); } catch (e) {
+    error.value = e as BridgeError;
+    upd.value = await bridge.updateStatus().catch(() => upd.value);
+  } finally { updBusy.value = null; }
+};
+const autoUpdate = computed({
+  get: () => upd.value?.auto_update ?? true,
+  set: async (on: boolean) => {
+    if (!upd.value) return;
+    upd.value = { ...upd.value, auto_update: on };
+    try { await bridge.settingsSave({ auto_update: on }); } catch (e) {
+      error.value = e as BridgeError;
+      upd.value = { ...upd.value, auto_update: !on };
+    }
+  },
+});
+const openReleases = async () => {
+  try { await openUrl(RELEASES); } catch { toast.add({ title: RELEASES, description: 'این نشانی را در مرورگر باز کنید', color: 'neutral' }); }
+};
 
 const save = async () => {
   error.value = null; busy.value = 'save';
@@ -165,6 +204,31 @@ const authItems = [{ label: 'اصلی', value: 'ORIGINAL' }, { label: 'غیرا�
             </UFormField>
           </div>
         </details>
+      </GlassCard>
+
+      <GlassCard data-reveal>
+        <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
+          <h2 class="display text-xl text-paper">نسخهٔ برنامه</h2>
+          <bdi v-if="upd" dir="ltr" class="tabular text-sm text-paper-dim">{{ faVersion(upd.current) }}</bdi>
+        </div>
+        <div class="flex items-center justify-between gap-6">
+          <div>
+            <div class="text-sm text-paper">بررسی و دریافت خودکار نسخهٔ جدید</div>
+            <p class="text-xs text-paper-mute">هر چند ساعت از GitHub بررسی می‌شود و در پس‌زمینه دریافت می‌شود؛ هیچ‌وقت وسط یک عملیات نصب نمی‌شود. بدون اینترنت برنامه مثل همیشه کار می‌کند.</p>
+          </div>
+          <USwitch v-model="autoUpdate" :disabled="!upd" aria-label="بررسی و دریافت خودکار نسخهٔ جدید" />
+        </div>
+        <div v-if="upd && updLine" class="mt-5 flex flex-wrap items-center justify-between gap-3 border-t hairline pt-4">
+          <div class="min-w-0">
+            <StatusPill :tone="updLine.tone" :label="updLine.text" />
+            <p class="mt-2 text-xs text-paper-mute">آخرین بررسی: {{ upd.last_check ? isoToLocal(upd.last_check) : 'هنوز نه' }}</p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <UButton v-if="canInstallNow(upd)" size="sm" icon="i-lucide-rotate-cw" :loading="updBusy === 'install'" :disabled="updBusy === 'check'" @click="installUpdate">نصب و راه‌اندازی دوباره</UButton>
+            <UButton size="sm" color="neutral" variant="outline" icon="i-lucide-refresh-cw" :loading="updBusy === 'check'" :disabled="updBusy === 'install'" @click="checkUpdate">بررسی نسخهٔ جدید</UButton>
+            <UButton size="sm" color="neutral" variant="ghost" icon="i-lucide-external-link" @click="openReleases">یادداشت‌های انتشار</UButton>
+          </div>
+        </div>
       </GlassCard>
 
       <GlassCard :pad="false" class="px-6 py-4" data-reveal>

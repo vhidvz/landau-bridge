@@ -12,6 +12,7 @@ The interface is in Persian (right-to-left, Persian numerals, Jalali dates).
 - [Install a release](#install-a-release)
 - [First-time setup](#first-time-setup)
 - [Good to know](#good-to-know)
+- [Updates](#updates)
 - [Build from source](#build-from-source)
 - [For developers](#for-developers)
 
@@ -92,6 +93,19 @@ The app uses Microsoft Edge WebView2, which Windows 10 (1803+) and Windows 11 al
   Back up that folder to keep your match decisions and import history. Deleting it resets the app.
 - **Where your passwords live.** The Landau key and the Barezpakhsh password go into the operating system's keyring when there is one (GNOME Keyring or KDE Wallet on Linux, Credential Manager on Windows). Without a keyring they are stored in `secrets.json` inside the data folder, readable only by your user. The Settings page tells you which of the two is in use.
 - The app talks directly to Landau's gateway and to Barezpakhsh's site at `33314466.ir` (`src-tauri/src/supplier/barezpakhsh/client.rs`); it never uses a proxy.
+
+## Updates
+
+From 1.0.0 the app keeps itself up to date from [GitHub Releases](https://github.com/vhidvz/landau-bridge/releases). A minute after it starts, and every six hours while it runs, it asks whether a newer version is out; if so it downloads it in the background and checks its signature against the key built into the app — a file that does not match is never installed. Settings → **نسخهٔ برنامه** (app version) shows where it stands and has the switch **بررسی و دریافت خودکار نسخهٔ جدید** (check and download automatically); with it off, the **بررسی نسخهٔ جدید** button still checks on demand.
+
+- **When it goes in.** An AppImage or a Windows install takes the new version when you close the app; **نصب و راه‌اندازی دوباره** (install and restart), on Settings or the dashboard, does it right away. A `.deb`/`.rpm` install asks for the administrator password, so it only installs from that button. Nothing is installed while an import or a price refresh is running or waiting in review.
+- **Your data stays.** The database, decisions, logs and passwords live in the data folder, outside the program, and an update never touches them. When a new version changes the database, it first copies it beside the original as `bridge.sqlite.v<N>.bak` (the two newest are kept).
+- **No internet, no harm.** If GitHub cannot be reached the app works as before and Settings says when it last tried; it tries again later. A download cut off half-way starts again on the next try.
+- An installation older than 1.0.0 has no updater: install 1.0.0 once by hand, as under [Install a release](#install-a-release).
+
+### Rolling back
+
+Updates only ever move forward. To go back to an earlier version, close the app and install that version's file from [GitHub Releases](https://github.com/vhidvz/landau-bridge/releases) as under [Install a release](#install-a-release). If the newer version had changed the database, the older one says so and will not open it: replace `bridge.sqlite` in the data folder with the matching `bridge.sqlite.v<N>.bak` and delete `bridge.sqlite-wal` and `bridge.sqlite-shm` — the decisions and history since that update are lost with it.
 
 ## Build from source
 

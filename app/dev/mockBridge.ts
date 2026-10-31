@@ -2,7 +2,7 @@
 // useBridge.ts only reaches for this file behind `import.meta.dev`.
 import type {
   DecisionImportReport, Dashboard, ErrorRow, JobDetail, JobEventRow, JobItemRow, JobRow, LandauStatus, MatchRow, Scored, SettingsView,
-  UndecidedRow,
+  UndecidedRow, UpdateView,
 } from '~/types/bridge';
 import type { JobHandlers } from '~/composables/useBridge';
 
@@ -184,6 +184,16 @@ const detail = (id: number, state: State): JobDetail => {
   return { job: j, items: j.status === 'DONE' ? doneItems : [], events: j.status === 'DONE' ? doneEvents : doneEvents.slice(0, 2) };
 };
 
+/** `?update=ready|failed|downloading|deb` shows the app-update card and band in that state. */
+const updateView = (): UpdateView => {
+  const u = new URLSearchParams(location.search).get('update');
+  const base = { current: '1.0.0', kind: u === 'deb' ? 'deb' : 'appimage', auto_update: true, last_check: ago(0, 9, 5) } as const;
+  if (u === 'ready' || u === 'deb') return { ...base, state: { state: 'Ready', version: '1.0.1' } };
+  if (u === 'downloading') return { ...base, state: { state: 'Downloading', version: '1.0.1', percent: 42 } };
+  if (u === 'failed') return { ...base, state: { state: 'Failed', kind: 'Network', message: 'اتصال به GitHub برقرار نشد؛ بعداً دوباره بررسی می‌شود.', at: ago(0, 9, 5) } };
+  return { ...base, state: { state: 'Idle' } };
+};
+
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
@@ -193,6 +203,8 @@ export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {
     switch (cmd) {
       case 'settings_get': return state === 'empty' ? settingsEmpty : settings;
       case 'settings_save': return { ...(state === 'empty' ? settingsEmpty : settings), ...(args.patch as object) };
+      case 'update_status': case 'update_check': return updateView();
+      case 'update_install': return undefined;
       case 'landau_validate': return landau;
       case 'supplier_test_login': return undefined;
       case 'dashboard_get': return dashboard(state);

@@ -10,10 +10,16 @@ export interface SettingsView {
   threshold: number; vat_percent: number; min_margin_percent: number; overwrite_manual: boolean; fetch_since_only: boolean;
   secret_backend: 'keyring' | 'file'; data_dir: string;
 }
+export type InstallKind = 'appimage' | 'nsis' | 'deb' | 'rpm' | 'unknown';
+export type UpdateState =
+  | { state: 'Idle' } | { state: 'Checking' } | { state: 'Available'; version: string }
+  | { state: 'Downloading'; version: string; percent: number } | { state: 'Ready'; version: string }
+  | { state: 'Installing'; version: string } | { state: 'Failed'; kind: string; message: string; at: string };
+export interface UpdateView { current: string; state: UpdateState; kind: InstallKind; auto_update: boolean; last_check: string | null }
 export interface SettingsPatch {
   landau_url?: string; landau_token?: string; store?: string; store_name?: string; supplier_user?: string;
   supplier_password?: string; default_authenticity?: Authenticity; threshold?: number; vat_percent?: number; min_margin_percent?: number; overwrite_manual?: boolean;
-  fetch_since_only?: boolean;
+  fetch_since_only?: boolean; auto_update?: boolean;
 }
 export interface Store { id: string; name: string | null; kind: string | null; state: string | null; status: string | null }
 export interface LandauStatus { business: string; business_name: string | null; approved: boolean; stores: Store[]; active_rules: number }
