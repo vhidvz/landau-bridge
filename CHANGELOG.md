@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-31
+
 ### Added
 
 - Releases are built, signed and published by GitHub Actions when main carries a new version. @vhidvz
