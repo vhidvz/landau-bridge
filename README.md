@@ -101,7 +101,7 @@ Each operating system builds its own installers — there is no cross-compiling.
 
 | Tool | Version | How |
 | --- | --- | --- |
-| Rust (stable) | ≥ 1.80 | [rustup.rs](https://rustup.rs) — `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` on Linux, `rustup-init.exe` on Windows |
+| Rust (stable) | ≥ 1.90 | [rustup.rs](https://rustup.rs) — `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \| sh` on Linux, `rustup-init.exe` on Windows |
 | Node.js | ≥ 22.19 (22 LTS) or ≥ 24.11 | [nodejs.org](https://nodejs.org) or your package manager |
 | pnpm | ≥ 10 | `corepack enable pnpm` (comes with Node) or `npm install -g pnpm` |
 | git | any | your package manager |
