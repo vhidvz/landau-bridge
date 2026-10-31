@@ -4,17 +4,22 @@ export type Phase = 'PREFLIGHT' | 'FETCH' | 'AGGREGATE' | 'MATCH' | 'REVIEW' | '
 
 export interface BridgeError { kind: string; message: string; detail: string }
 
-export interface NameMapInfo { rows: number; products: number; loaded_at: string | null; file: string | null }
 export interface SettingsView {
   landau_url: string; has_landau_token: boolean; store: string | null; store_name: string | null;
   supplier_user: string | null; has_supplier_password: boolean; default_authenticity: Authenticity;
-  threshold: number; vat_percent: number; min_margin_percent: number; overwrite_manual: boolean; fetch_since_only: boolean; name_map: NameMapInfo;
+  threshold: number; vat_percent: number; min_margin_percent: number; overwrite_manual: boolean; fetch_since_only: boolean;
   secret_backend: 'keyring' | 'file'; data_dir: string;
 }
+export type InstallKind = 'appimage' | 'nsis' | 'deb' | 'rpm' | 'unknown';
+export type UpdateState =
+  | { state: 'Idle' } | { state: 'Checking' } | { state: 'Available'; version: string }
+  | { state: 'Downloading'; version: string; percent: number } | { state: 'Ready'; version: string }
+  | { state: 'Installing'; version: string } | { state: 'Failed'; kind: string; message: string; at: string };
+export interface UpdateView { current: string; state: UpdateState; kind: InstallKind; auto_update: boolean; last_check: string | null }
 export interface SettingsPatch {
   landau_url?: string; landau_token?: string; store?: string; store_name?: string; supplier_user?: string;
   supplier_password?: string; default_authenticity?: Authenticity; threshold?: number; vat_percent?: number; min_margin_percent?: number; overwrite_manual?: boolean;
-  fetch_since_only?: boolean;
+  fetch_since_only?: boolean; auto_update?: boolean;
 }
 export interface Store { id: string; name: string | null; kind: string | null; state: string | null; status: string | null }
 export interface LandauStatus { business: string; business_name: string | null; approved: boolean; stores: Store[]; active_rules: number }
@@ -40,7 +45,7 @@ export interface Dashboard {
   appimage_offer: boolean;
 }
 export interface MatchRow {
-  supplier: string; name_key: string; code: string; product_id: string | null; product_name: string | null; how: 'AUTO' | 'USER' | 'NONE' | 'MAP';
+  supplier: string; name_key: string; code: string; product_id: string | null; product_name: string | null; how: 'AUTO' | 'USER' | 'NONE';
   similarity: number | null; name_seen: string; priced_at: string | null; decided_at: string;
 }
 /** A part ended import jobs left without a decision, with the candidates review showed then. */

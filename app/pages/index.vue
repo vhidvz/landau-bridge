@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BridgeError, Dashboard, JobRow, SettingsView } from '~/types/bridge';
+import type { BridgeError, Dashboard, JobRow, SettingsView, UpdateView } from '~/types/bridge';
 
 const toast = useToast();
 const dash = ref<Dashboard | null>(null);
@@ -18,6 +18,23 @@ const load = async () => {
   } catch (e) { error.value = e as BridgeError; }
 };
 onMounted(load);
+
+// A newer version waiting to go in: a band here, the details on Settings.
+const upd = ref<UpdateView | null>(null);
+const updInstalling = ref(false);
+let offUpdate: (() => void) | null = null;
+onMounted(async () => {
+  upd.value = await bridge.updateStatus().catch(() => null);
+  offUpdate = await onUpdateState((s) => { if (upd.value) upd.value = { ...upd.value, state: s }; });
+});
+onBeforeUnmount(() => offUpdate?.());
+const installUpdate = async () => {
+  error.value = null; updInstalling.value = true;
+  try { await bridge.updateInstall(); } catch (e) {
+    error.value = e as BridgeError;
+    upd.value = await bridge.updateStatus().catch(() => upd.value);
+  } finally { updInstalling.value = false; }
+};
 // the followed job finished: refresh the overview so «آخرین …» and the list catch up
 watch(job.status, (s) => { if (s && !['RUNNING', 'REVIEW'].includes(s)) load(); });
 
@@ -73,6 +90,18 @@ const dismissAppImage = async () => {
     <ErrorBanner :error="error" />
 
     <template v-if="dash">
+      <div v-if="upd && canInstallNow(upd)" class="glass-inset mb-6 flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4" data-reveal>
+        <UIcon name="i-lucide-circle-arrow-down" class="size-6 shrink-0 text-crimson-400" aria-hidden="true" />
+        <div class="min-w-0 flex-1">
+          <p class="font-medium text-paper">نسخهٔ تازهٔ پل لاندا آماده است</p>
+          <p class="text-sm text-paper-mute">{{ updateLabel(upd.state, upd.kind, upd.auto_update).text }}</p>
+        </div>
+        <div class="flex gap-2">
+          <UButton size="sm" icon="i-lucide-rotate-cw" :loading="updInstalling" :disabled="!!dash.running" @click="installUpdate">نصب و راه‌اندازی دوباره</UButton>
+          <UButton size="sm" variant="outline" color="neutral" to="/settings">جزئیات</UButton>
+        </div>
+      </div>
+
       <div v-if="dash.appimage_offer" class="glass-inset mb-6 flex flex-wrap items-center gap-x-4 gap-y-3 px-5 py-4" data-reveal>
         <UIcon name="i-lucide-package-plus" class="size-6 shrink-0 text-crimson-400" aria-hidden="true" />
         <div class="min-w-0 flex-1">

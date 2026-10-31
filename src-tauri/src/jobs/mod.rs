@@ -535,6 +535,7 @@ mod tests {
                 min_margin_percent,
                 overwrite_manual: false,
                 fetch_since_only: true,
+                auto_update: true,
             },
         }
     }

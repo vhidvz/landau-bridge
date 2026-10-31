@@ -1,0 +1,236 @@
+# Releases (.superpowers/specs/2026-10-30-lnd-bridge-release-and-update-design.md §3).
+#
+#   - push to main whose Cargo.toml version has no tag yet → build every bundle, then publish
+#     v<version> with latest.json and SHA256SUMS. The version bump (scripts/release.mjs <x.y.z>)
+#     is the only human step; a version already tagged makes the run a no-op.
+#   - pull request into main → the same run, dry: everything is built and the manifest assembled,
+#     uploaded as artifacts, and nothing is created on GitHub. (workflow_dispatch only works once a
+#     workflow is on the default branch, so this is how a change to it is tried first.)
+#   - workflow_dispatch → re-runs a release that failed half-way (from main only; any other branch
+#     is refused, so a stray dropdown choice can never publish unmerged code).
+#
+# A release is created as a draft, checked to hold all ten files, and only then published, so the
+# tag and releases/latest never point at an incomplete set. Third-party actions are pinned to a full
+# commit SHA; the tag beside each is for the reader.
+name: release
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
+  cancel-in-progress: false
+
+env:
+  # linuxdeploy's strip breaks on newer ELF sections; the npm `tauri` script sets it too, but
+  # cmd.exe cannot run that script's prefix, so CI calls the CLI directly with this in env.
+  NO_STRIP: 'true'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      release: ${{ steps.v.outputs.release }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+      dry: ${{ steps.v.outputs.dry }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - id: v
+        name: Version
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DRY: ${{ github.event_name == 'pull_request' }}
+          # a fork's pull request gets no Actions secrets, so it could never sign: no dry build for it
+          FORK: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+        run: |
+          set -euo pipefail
+          V=$(sed -n 's/^version = "\(.*\)"$/\1/p' src-tauri/Cargo.toml | head -1)
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "dry=$DRY" >> "$GITHUB_OUTPUT"
+          case "$V" in
+            *-*) PRE=true; ALL=() ;;
+            *) PRE=false; ALL=(--exclude-pre-releases) ;; # a stable version answers to stable ones only
+          esac
+          echo "prerelease=$PRE" >> "$GITHUB_OUTPUT"
+          if [ "$DRY" != true ] && [ "$GITHUB_REF" != refs/heads/main ]; then
+            echo "::error::releases are published from main only (this run is on $GITHUB_REF)"
+            exit 1
+          fi
+          if [ "$FORK" = true ]; then
+            echo "A fork's pull request: no signing key, no dry build."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          rc=0; git ls-remote --exit-code --tags origin "refs/tags/v$V" > /dev/null || rc=$?
+          [ "$rc" -eq 0 ] || [ "$rc" -eq 2 ] || { echo "::error::cannot read the tags (git ls-remote exit $rc)"; exit 1; }
+          if [ "$rc" -eq 0 ]; then
+            if [ "$DRY" != true ]; then
+              echo "v$V is already released; nothing to do."
+              echo "release=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            # a pull request that is not a release: build it all the same, under the current version
+            node scripts/release.mjs --check
+            echo "Dry run of $V." > notes.md
+          else
+            # a new version, on main or in the pull request that brings it: every check a release makes
+            node scripts/release.mjs --check-tag "v$V"
+            LATEST=$(gh release list --exclude-drafts "${ALL[@]}" --limit 1 --json tagName -q '.[0].tagName // ""')
+            node scripts/release.mjs --check-newer "$LATEST"
+            node scripts/release.mjs --notes "$V" > notes.md
+          fi
+          echo "release=true" >> "$GITHUB_OUTPUT"
+      - if: steps.v.outputs.release == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: notes
+          path: notes.md
+          if-no-files-found: error
+
+  ci:
+    needs: prepare
+    if: needs.prepare.outputs.release == 'true'
+    uses: ./.github/workflows/ci.yml
+
+  build:
+    needs: [prepare, ci]
+    if: needs.prepare.outputs.release == 'true'
+    timeout-minutes: 90
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-22.04 # the oldest glibc and webkit the README supports
+            name: linux
+            bundles: appimage,deb,rpm
+          - os: windows-latest
+            name: windows
+            bundles: nsis
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Rust
+        run: rustup toolchain install stable --profile minimal && rustup default stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+      - name: System libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libsoup-3.0-dev librsvg2-dev \
+            libayatana-appindicator3-dev libssl-dev libxdo-dev patchelf file
+      - run: pnpm install --frozen-lockfile
+      - name: Signing key present
+        shell: bash
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          test -n "$TAURI_SIGNING_PRIVATE_KEY" || {
+            echo "::error::the TAURI_SIGNING_PRIVATE_KEY secret is not set; updates cannot be signed"; exit 1; }
+      # The signing key reaches only the two steps that sign.
+      - name: Build
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: pnpm exec tauri build --bundles ${{ matrix.bundles }} -- --locked
+      - name: AppImage without libwayland, signed again
+        if: runner.os == 'Linux'
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: node scripts/finalize-appimage.mjs && node scripts/check-appimage.mjs
+      - name: Self-check (Linux)
+        if: runner.os == 'Linux'
+        run: ./src-tauri/target/release/landau-bridge --self-check "$RUNNER_TEMP/self-check"
+      - name: Self-check (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath src-tauri\target\release\landau-bridge.exe `
+            -ArgumentList '--self-check', "$env:RUNNER_TEMP\self-check" -Wait -PassThru -NoNewWindow
+          if ($p.ExitCode -ne 0) { throw "self-check exited $($p.ExitCode)" }
+          if (-not (Test-Path "$env:RUNNER_TEMP\self-check\bridge.sqlite")) { throw 'self-check wrote no database' }
+      - name: Collect
+        shell: bash
+        run: |
+          mkdir -p out
+          find src-tauri/target/release/bundle -maxdepth 2 -type f \( -name '*.AppImage' -o -name '*.deb' \
+            -o -name '*.rpm' -o -name '*-setup.exe' -o -name '*.sig' \) -exec cp {} out/ \;
+          ls -l out
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: bundles-${{ matrix.name }}
+          path: out/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [prepare, build]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      V: ${{ needs.prepare.outputs.version }}
+      PRE: ${{ needs.prepare.outputs.prerelease }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: bundles-*
+          path: out
+          merge-multiple: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: notes
+      - name: latest.json and SHA256SUMS
+        run: |
+          node scripts/latest-json.mjs --dir out --version "$V" --notes-file notes.md \
+            --base "https://github.com/${GITHUB_REPOSITORY}/releases/download/v$V"
+          cat out/latest.json
+      - name: Keep the manifest (dry run)
+        if: needs.prepare.outputs.dry == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-preview
+          path: |
+            out/latest.json
+            out/SHA256SUMS
+      - name: Publish
+        if: needs.prepare.outputs.dry != 'true'
+        run: |
+          set -euo pipefail
+          # A draft left by a run that failed half-way is replaced; a published release never is.
+          if [ "$(gh release view "v$V" --json isDraft -q .isDraft 2>/dev/null || true)" = true ]; then
+            gh release delete "v$V" --yes
+          fi
+          pre=(); [ "$PRE" = true ] && pre=(--prerelease)
+          gh release create "v$V" --draft --target "$GITHUB_SHA" --title "v$V" --notes-file notes.md "${pre[@]}" out/*
+          n=$(gh release view "v$V" --json assets -q '.assets | length')
+          [ "$n" -eq 10 ] || { echo "::error::v$V holds $n files, not 10; left as a draft"; exit 1; }
+          if [ "$PRE" = true ]; then
+            gh release edit "v$V" --draft=false --prerelease
+          else
+            gh release edit "v$V" --draft=false --latest
+          fi

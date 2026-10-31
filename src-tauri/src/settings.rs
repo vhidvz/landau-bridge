@@ -8,7 +8,7 @@ use crate::errors::{BridgeError, Result};
 use crate::secrets::{SecretKey, SecretStore};
 use crate::supplier::Credentials;
 
-/// Calibrated 2026-09-13 by `bin/calibrate.rs`: the lowest threshold with ≥ 98 % auto-accept precision.
+/// Calibrated 2026-09-13 (by the since-removed `calibrate` tool): the lowest threshold with ≥ 98 % auto-accept precision.
 pub const DEFAULT_THRESHOLD: u8 = 85;
 pub const DEFAULT_VAT_PERCENT: f64 = 10.0;
 /// «حداقل سود خرده‌فروش» (spec §14 e): the provisional attach price and the report audit.
@@ -32,6 +32,8 @@ pub struct Settings {
     pub overwrite_manual: bool,
     /// A «quantities since ‹date›» run asks the supplier only for invoices from that date on.
     pub fetch_since_only: bool,
+    /// Check GitHub Releases for a newer version and download it in the background.
+    pub auto_update: bool,
 }
 
 /// Fields a save may carry. `None` = untouched; an empty string on a secret = untouched too.
@@ -49,6 +51,7 @@ pub struct SettingsPatch {
     pub min_margin_percent: Option<f64>,
     pub overwrite_manual: Option<bool>,
     pub fetch_since_only: Option<bool>,
+    pub auto_update: Option<bool>,
 }
 
 impl Settings {
@@ -75,6 +78,7 @@ impl Settings {
                 .unwrap_or(DEFAULT_MIN_MARGIN_PERCENT),
             overwrite_manual: get("overwrite_manual")?.map(|v| v == "1").unwrap_or(false),
             fetch_since_only: get("fetch_since_only")?.map(|v| v == "1").unwrap_or(true),
+            auto_update: get("auto_update")?.map(|v| v == "1").unwrap_or(true),
         })
     }
 
@@ -118,6 +122,9 @@ impl Settings {
         }
         if let Some(v) = p.fetch_since_only {
             db.set_setting("fetch_since_only", if v { "1" } else { "0" })?;
+        }
+        if let Some(v) = p.auto_update {
+            db.set_setting("auto_update", if v { "1" } else { "0" })?;
         }
         Ok(())
     }
@@ -165,6 +172,19 @@ mod tests {
             SecretStore::file_only(dir.path()),
             dir,
         )
+    }
+
+    #[test]
+    fn auto_update_defaults_on_and_round_trips() {
+        let (db, sec, _d) = stores();
+        assert!(Settings::load(&db, &sec).unwrap().auto_update);
+        let off = SettingsPatch {
+            auto_update: Some(false),
+            ..Default::default()
+        };
+        Settings::save(&db, &sec, &off).unwrap();
+        assert!(!Settings::load(&db, &sec).unwrap().auto_update);
+        assert_eq!(db.setting("auto_update").unwrap().as_deref(), Some("0"));
     }
 
     #[test]

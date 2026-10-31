@@ -14,7 +14,7 @@ pub struct MatchRow {
     pub code: String,
     pub product_id: Option<String>,
     pub product_name: Option<String>,
-    /// AUTO | USER | NONE | MAP
+    /// AUTO | USER | NONE
     pub how: String,
     pub similarity: Option<i64>,
     pub name_seen: String,

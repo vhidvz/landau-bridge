@@ -1,7 +1,8 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
-  BridgeError, Dashboard, ErrorRow, JobDetail, JobDone, JobEvent, JobItemRow, JobRow, LandauStatus, MatchRow, Progress, ReviewDecision, Scored, SettingsPatch, SettingsView, NameMapInfo, UndecidedRow, DecisionImportReport,
+  BridgeError, Dashboard, ErrorRow, JobDetail, JobDone, JobEvent, JobItemRow, JobRow, LandauStatus, MatchRow, Progress, ReviewDecision, Scored, SettingsPatch, SettingsView, UndecidedRow, DecisionImportReport,
+  UpdateState, UpdateView,
 } from '~/types/bridge';
 
 export const isBridgeError = (e: unknown): e is BridgeError =>
@@ -24,8 +25,10 @@ async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> 
 
 export const bridge = {
   settingsGet: () => call<SettingsView>('settings_get'),
+  updateStatus: () => call<UpdateView>('update_status'),
+  updateCheck: () => call<UpdateView>('update_check'),
+  updateInstall: () => call<void>('update_install'),
   settingsSave: (patch: SettingsPatch) => call<SettingsView>('settings_save', { patch }),
-  nameMapLoad: (path: string) => call<NameMapInfo>('name_map_load', { path }),
   landauValidate: () => call<LandauStatus>('landau_validate'),
   supplierTestLogin: () => call<void>('supplier_test_login'),
   dashboardGet: () => call<Dashboard>('dashboard_get'),
@@ -58,6 +61,12 @@ export interface JobHandlers {
   progress?: (p: Progress) => void;
   event?: (e: JobEvent) => void;
   done?: (d: JobDone) => void;
+}
+
+/** Follow the app's own update (`update://state`); returns the unsubscribe function. */
+export async function onUpdateState(h: (s: UpdateState) => void): Promise<UnlistenFn> {
+  if (useMock) return () => {};
+  return listen<UpdateState>('update://state', (e) => h(e.payload));
 }
 
 /** Subscribe to the three job events; returns one function that unsubscribes all. */

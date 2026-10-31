@@ -4,7 +4,6 @@ pub mod errors;
 pub mod invoices;
 pub mod jobs;
 pub mod matches;
-pub mod name_map;
 pub mod prices;
 pub mod settings;
 
@@ -18,7 +17,11 @@ use crate::errors::{BridgeError, Result};
 const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0001_init.sql"),
     include_str!("migrations/0002_names.sql"),
+    include_str!("migrations/0003_drop_name_map.sql"),
 ];
+
+/// The schema this build writes: one version per migration.
+pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
 
 #[derive(Clone)]
 pub struct Db {
@@ -30,8 +33,15 @@ impl Db {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| BridgeError::Db(e.to_string()))?;
         }
+        let existed = path.is_file();
         let conn = Connection::open(path)?;
+        let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+        // Refuse a newer schema before anything (even the journal mode) is written to it.
+        newer_guard(current)?;
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")?;
+        if existed && current > 0 && current < SCHEMA_VERSION {
+            backup(&conn, path, current)?;
+        }
         let db = Db {
             conn: Arc::new(Mutex::new(conn)),
         };
@@ -67,6 +77,7 @@ impl Db {
     /// old version number (which would re-run the script over existing tables next launch).
     pub fn migrate(&self) -> Result<()> {
         let current = self.user_version()?;
+        newer_guard(current)?;
         self.with(|c| {
             for (i, sql) in MIGRATIONS.iter().enumerate() {
                 let version = i as i64 + 1;
@@ -151,6 +162,73 @@ impl Db {
     }
 }
 
+fn newer_guard(current: i64) -> Result<()> {
+    if current > SCHEMA_VERSION {
+        return Err(BridgeError::DbNewer {
+            found: current,
+            supported: SCHEMA_VERSION,
+        });
+    }
+    Ok(())
+}
+
+/// What the seller is told when the database cannot be opened at launch — after an unattended
+/// update this is the first thing they see, so it says where to look, never just "failed".
+pub fn open_failure_fa(e: &BridgeError) -> String {
+    match e {
+        BridgeError::DbNewer { .. } => e.message_fa(),
+        other => format!(
+            "پایگاه دادهٔ برنامه باز نشد؛ فضای خالی دیسک و دسترسی به پوشهٔ داده را بررسی کنید و برنامه را دوباره باز کنید. دادهٔ شما تغییری نکرده است.\n({other})"
+        ),
+    }
+}
+
+/// Backups kept beside the database, newest schema first.
+const KEEP_BACKUPS: usize = 2;
+
+/// Copy the database as it is to `<db>.v<schema>.bak` before migrating it, so data a newer build
+/// rewrote can be put back under an older one. Written under a `.part` name and renamed, so a crash
+/// never leaves a half backup that looks whole; then all but the newest [`KEEP_BACKUPS`] go.
+fn backup(conn: &Connection, path: &Path, schema: i64) -> Result<()> {
+    let io = |e: std::io::Error| BridgeError::Db(format!("backup: {e}"));
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let target = path.with_file_name(format!("{name}.v{schema}.bak"));
+    let part = path.with_file_name(format!("{name}.v{schema}.bak.part"));
+    match std::fs::remove_file(&part) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(io(e)),
+        _ => {}
+    }
+    conn.execute("VACUUM INTO ?1", [part.to_string_lossy()])?;
+    std::fs::rename(&part, &target).map_err(io)?;
+
+    let dir = path.parent().unwrap_or(Path::new("."));
+    let prefix = format!("{name}.v");
+    let mut found: Vec<(i64, std::path::PathBuf)> = std::fs::read_dir(dir)
+        .map_err(io)?
+        .flatten()
+        .filter_map(|e| {
+            let file = e.file_name().to_string_lossy().into_owned();
+            let v = file
+                .strip_prefix(&prefix)?
+                .strip_suffix(".bak")?
+                .parse()
+                .ok()?;
+            Some((v, e.path()))
+        })
+        .collect();
+    found.sort_by_key(|f| std::cmp::Reverse(f.0));
+    for (_, old) in found.into_iter().skip(KEEP_BACKUPS) {
+        // An old backup that will not go (held open, permissions) costs disk, never the launch.
+        if let Err(e) = std::fs::remove_file(&old) {
+            tracing::warn!("old backup {} not removed: {e}", old.display());
+        }
+    }
+    Ok(())
+}
+
 /// ISO-8601 UTC timestamp used for every `*_at` column.
 pub fn now() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
@@ -180,13 +258,13 @@ mod tests {
         assert_eq!(db.setting("threshold").unwrap().as_deref(), Some("80"));
         // migrating again is a no-op
         db.migrate().unwrap();
-        assert_eq!(db.user_version().unwrap(), 2);
+        assert_eq!(db.user_version().unwrap(), 3);
     }
 
     #[test]
     fn migrates_to_version_2_and_moves_old_links_under_their_name_key() {
         let db = Db::in_memory().unwrap();
-        assert_eq!(db.user_version().unwrap(), 2);
+        assert_eq!(db.user_version().unwrap(), 3);
         // simulate a row left behind by a v1 database
         db.with(|c| {
             c.execute_batch(
@@ -626,5 +704,179 @@ mod tests {
             fresh.list_matches(sup).unwrap().is_empty(),
             "rolled back whole"
         );
+    }
+
+    /// A database at version 2, as an installed 0.1.0 leaves it: the landau-parts map loaded
+    /// and one link of every kind, `MAP` among them.
+    fn version_2_file(path: &Path) {
+        let c = Connection::open(path).unwrap();
+        for sql in &MIGRATIONS[..2] {
+            c.execute_batch(sql).unwrap();
+        }
+        c.pragma_update(None, "user_version", 2).unwrap();
+        c.execute_batch(
+            "DROP TABLE matches_old;
+             INSERT INTO name_map VALUES ('p', 'b', 'raw', 'C1', 1, 0);
+             INSERT INTO settings(key, value) VALUES ('name_map_file', '/x/parts_map.csv'),
+               ('name_map_loaded_at', '2026-09-16T00:00:00Z'), ('threshold', '80');
+             INSERT INTO matches(supplier, name_key, code, product_id, product_name, how, similarity, name_seen, priced_at, decided_at) VALUES
+               ('barezpakhsh', 'm', 'M1', 'pm', 'map part', 'MAP', NULL, 'm', '2026-09-20T00:00:00Z', '2026-09-16T00:00:00Z'),
+               ('barezpakhsh', 'u', 'U1', 'pu', 'user part', 'USER', NULL, 'u', NULL, '2026-09-16T00:00:00Z'),
+               ('barezpakhsh', 'a', 'A1', 'pa', 'auto part', 'AUTO', 91, 'a', NULL, '2026-09-16T00:00:00Z'),
+               ('barezpakhsh', 'n', 'N1', NULL, NULL, 'NONE', NULL, 'n', NULL, '2026-09-16T00:00:00Z');",
+        )
+        .unwrap();
+    }
+
+    fn backups(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.ends_with(".bak"))
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn a_newer_database_is_refused_and_left_untouched() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.sqlite");
+        drop(Db::open(&path).unwrap());
+        {
+            let c = Connection::open(&path).unwrap();
+            c.pragma_update(None, "user_version", SCHEMA_VERSION + 1)
+                .unwrap();
+        }
+        let before = std::fs::read(&path).unwrap();
+        let err = Db::open(&path).err().expect("refused");
+        assert_eq!(
+            err,
+            BridgeError::DbNewer {
+                found: SCHEMA_VERSION + 1,
+                supported: SCHEMA_VERSION
+            }
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before, "file untouched");
+        assert!(backups(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn a_pending_migration_is_backed_up_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.sqlite");
+        version_2_file(&path);
+        Db::open(&path).unwrap();
+        assert_eq!(backups(dir.path()), vec!["bridge.sqlite.v2.bak"]);
+        let bak = Connection::open(dir.path().join("bridge.sqlite.v2.bak")).unwrap();
+        let v: i64 = bak
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, 2);
+        let maps: i64 = bak
+            .query_row("SELECT count(*) FROM name_map", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(maps, 1, "the backup holds the data as it was");
+    }
+
+    #[test]
+    fn an_up_to_date_database_is_not_backed_up() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.sqlite");
+        drop(Db::open(&path).unwrap());
+        Db::open(&path).unwrap();
+        assert!(backups(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn a_new_database_is_not_backed_up() {
+        let dir = tempfile::tempdir().unwrap();
+        Db::open(&dir.path().join("bridge.sqlite")).unwrap();
+        assert!(backups(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn only_the_two_newest_backups_are_kept() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.sqlite");
+        version_2_file(&path);
+        std::fs::write(dir.path().join("bridge.sqlite.v0.bak"), b"old").unwrap();
+        std::fs::write(dir.path().join("bridge.sqlite.v1.bak"), b"older").unwrap();
+        Db::open(&path).unwrap();
+        assert_eq!(
+            backups(dir.path()),
+            vec!["bridge.sqlite.v1.bak", "bridge.sqlite.v2.bak"]
+        );
+    }
+
+    #[test]
+    fn a_backup_that_cannot_be_pruned_does_not_stop_the_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.sqlite");
+        version_2_file(&path);
+        // something the prune cannot delete: a directory under a backup's name
+        std::fs::create_dir_all(dir.path().join("bridge.sqlite.v0.bak/held")).unwrap();
+        std::fs::write(dir.path().join("bridge.sqlite.v1.bak"), b"older").unwrap();
+        let db = Db::open(&path).expect("opened despite the stuck backup");
+        assert_eq!(db.user_version().unwrap(), SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn every_open_failure_has_a_persian_reason() {
+        let newer = BridgeError::DbNewer {
+            found: 9,
+            supported: 3,
+        };
+        assert_eq!(open_failure_fa(&newer), newer.message_fa());
+        let full = open_failure_fa(&BridgeError::Db("database or disk is full".into()));
+        assert!(full.contains("فضای خالی دیسک"), "{full}");
+        assert!(full.contains("database or disk is full"), "{full}");
+    }
+
+    #[test]
+    fn self_check_creates_and_migrates_a_fresh_database() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(crate::self_check(dir.path()), Ok(SCHEMA_VERSION));
+        assert!(dir.path().join("bridge.sqlite").is_file());
+    }
+
+    #[test]
+    fn migration_3_drops_the_map_and_turns_map_links_into_auto() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.sqlite");
+        version_2_file(&path);
+        let before = Db::open(&path).unwrap();
+        assert_eq!(before.user_version().unwrap(), 3);
+
+        let tables: i64 = before
+            .with(|c| {
+                c.query_row(
+                    "SELECT count(*) FROM sqlite_master WHERE name = 'name_map'",
+                    [],
+                    |r| r.get(0),
+                )
+            })
+            .unwrap();
+        assert_eq!(tables, 0, "the map table is gone");
+        assert_eq!(before.setting("name_map_file").unwrap(), None);
+        assert_eq!(before.setting("name_map_loaded_at").unwrap(), None);
+        assert_eq!(before.setting("threshold").unwrap().as_deref(), Some("80"));
+
+        let m = before.match_for_name("barezpakhsh", "m").unwrap().unwrap();
+        assert_eq!(m.how, "AUTO");
+        assert_eq!(m.code, "M1");
+        assert_eq!(m.product_id.as_deref(), Some("pm"));
+        assert_eq!(m.priced_at.as_deref(), Some("2026-09-20T00:00:00Z"));
+        let how = |n: &str| {
+            before
+                .match_for_name("barezpakhsh", n)
+                .unwrap()
+                .unwrap()
+                .how
+        };
+        assert_eq!(how("u"), "USER");
+        assert_eq!(how("a"), "AUTO");
+        assert_eq!(how("n"), "NONE");
     }
 }
