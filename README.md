@@ -18,12 +18,12 @@ The interface is in Persian (right-to-left, Persian numerals, Jalali dates).
 
 ## Install a release
 
-Get the package for your system from whoever built it (or [build it yourself](#build-from-source)). The version number in the file names follows `src-tauri/tauri.conf.json`; `0.1.0` is used in the examples below.
+Download the file for your system from the latest release on [GitHub Releases](https://github.com/vhidvz/landau-bridge/releases/latest) (or [build it yourself](#build-from-source)); `SHA256SUMS` there lists each file's checksum (`sha256sum -c SHA256SUMS --ignore-missing`). The version number in the file names is the app's version; `1.0.0` is used in the examples below. From then on the app [updates itself](#updates).
 
 ### Debian / Ubuntu / Linux Mint
 
 ```sh
-sudo apt install ./landau-bridge_0.1.0_amd64.deb
+sudo apt install ./landau-bridge_1.0.0_amd64.deb
 ```
 
 `apt` pulls in the two runtime libraries the app needs (`libwebkit2gtk-4.1-0`, `libgtk-3-0`). The app appears in the applications menu as **پل لاندا**. To remove it: `sudo apt remove landau-bridge`.
@@ -31,8 +31,8 @@ sudo apt install ./landau-bridge_0.1.0_amd64.deb
 ### Fedora / RHEL / openSUSE (RPM)
 
 ```sh
-sudo dnf install ./landau-bridge-0.1.0-1.x86_64.rpm      # Fedora, RHEL
-sudo zypper install ./landau-bridge-0.1.0-1.x86_64.rpm   # openSUSE
+sudo dnf install ./landau-bridge-1.0.0-1.x86_64.rpm      # Fedora, RHEL
+sudo zypper install ./landau-bridge-1.0.0-1.x86_64.rpm   # openSUSE
 ```
 
 To remove it: `sudo dnf remove landau-bridge`.
@@ -42,8 +42,8 @@ To remove it: `sudo dnf remove landau-bridge`.
 The AppImage is a single file that runs on any 64-bit Linux desktop; nothing is installed system-wide.
 
 ```sh
-chmod +x landau-bridge_0.1.0_amd64.AppImage
-./landau-bridge_0.1.0_amd64.AppImage
+chmod +x landau-bridge_1.0.0_amd64.AppImage
+./landau-bridge_1.0.0_amd64.AppImage
 ```
 
 **Add it to the applications menu.** On the first run from an AppImage the dashboard offers to install the app for you. It detects on its own that it is running from an AppImage on Linux — the offer never appears on Windows or on a `.deb`/`.rpm` install, which already register themselves. Click **نصب** (install) and the app:
@@ -59,15 +59,12 @@ To undo the install, delete the three items above.
 **If the AppImage does not start** with a message about FUSE, either install FUSE 2 (`sudo pacman -S fuse2` on Arch/Manjaro, `sudo apt install libfuse2` on Ubuntu, `sudo dnf install fuse-libs` on Fedora) or run it without mounting:
 
 ```sh
-./landau-bridge_0.1.0_amd64.AppImage --appimage-extract-and-run
+./landau-bridge_1.0.0_amd64.AppImage --appimage-extract-and-run
 ```
 
 ### Windows 10 / 11
 
-Run either installer:
-
-- `landau-bridge_0.1.0_x64-setup.exe` — per-user setup wizard (no administrator rights needed), or
-- `landau-bridge_0.1.0_x64_en-US.msi` — MSI package, for a system-wide install.
+Run `landau-bridge_1.0.0_x64-setup.exe`, a per-user setup wizard (no administrator rights needed).
 
 The app uses Microsoft Edge WebView2, which Windows 10 (1803+) and Windows 11 already ship; if it is missing, the installer downloads it. Uninstall from *Settings → Apps* as usual.
 
@@ -177,8 +174,8 @@ Bundles land in `src-tauri/target/release/bundle/`:
 
 | OS | Files |
 | --- | --- |
-| Linux | `deb/landau-bridge_0.1.0_amd64.deb`, `rpm/landau-bridge-0.1.0-1.x86_64.rpm`, `appimage/landau-bridge_0.1.0_amd64.AppImage` |
-| Windows | `nsis\landau-bridge_0.1.0_x64-setup.exe` |
+| Linux | `deb/landau-bridge_1.0.0_amd64.deb`, `rpm/landau-bridge-1.0.0-1.x86_64.rpm`, `appimage/landau-bridge_1.0.0_amd64.AppImage` |
+| Windows | `nsis\landau-bridge_1.0.0_x64-setup.exe` |
 
 The UI ships one self-hosted variable font from the Landau front end, **Mikhak** (headings and text), under the SIL Open Font License 1.1 (`public/fonts/`). Estedad, the front end's text face, is not shipped: it builds every dotted Arabic letter out of a dotless skeleton plus a separate dot mark, and WebKitGTK — the engine Tauri uses on Linux — drops those marks, so Persian text loses its dots in the desktop window.
 
@@ -195,6 +192,15 @@ pnpm test && pnpm typecheck                   # UI utils, TypeScript
 ```
 
 ## For developers
+
+### Releasing
+
+A release is a version bump merged into `main`; GitHub Actions does the rest.
+
+1. On a branch: `node scripts/release.mjs 1.2.0` — sets the version in `src-tauri/Cargo.toml` (the one source), `package.json` and `Cargo.lock`, and turns the CHANGELOG's `[Unreleased]` section into `[1.2.0]` dated in Tehran. A version with a suffix (`1.2.0-rc.1`) is published as a prerelease, which installed apps never pick up.
+2. Merge it into `main`. `.github/workflows/release.yml` builds the AppImage, `.deb` and `.rpm` on Ubuntu 22.04 and the setup `.exe` on Windows, signs them for the updater, writes `latest.json` and `SHA256SUMS`, and publishes `v1.2.0` — as a draft first, made public only once all ten files are there. A pull request into `main` runs the same build without publishing anything.
+
+The signing key lives in the repository's Actions secrets (`TAURI_SIGNING_PRIVATE_KEY`, `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`) and in the maintainer's own keeping; its public half is in `src-tauri/tauri.conf.json`. **Losing the key means installed copies can never update again** — they would need a manual reinstall of a build signed with a new one. To try a prerelease on one machine without offering it to anyone, run the app with `LANDAU_BRIDGE_UPDATE_ENDPOINT=https://github.com/vhidvz/landau-bridge/releases/download/v1.2.0-rc.1/latest.json`.
 
 Tauri 2 + Nuxt 4 + Rust core.
 
