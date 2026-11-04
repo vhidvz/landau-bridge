@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-11-04
+
 ### Changed
 
 - Every table pages its rows and stays within twice the window's height, its header pinned. @vhidvz
