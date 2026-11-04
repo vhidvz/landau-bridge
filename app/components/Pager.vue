@@ -2,10 +2,10 @@
 // The one pager under every paged list: «۱ تا ۱۵ از ۴۱۲» beside UPagination's buttons.
 //
 // UPagination is reka-ui's primitives rendered `as-child`, each hard-coding an English aria-label
-// ("Next Page", "Page 3") and its own direction-aware icons, which it derives from its locale's
-// `dir` — LTR here, since the app sets `dir="rtl"` on <html> but no Nuxt UI locale — so the
-// arrows pointed inward. A slot's button replaces the primitive's, and the child's props win the
-// `mergeProps`, so each control below carries its own Persian label and an RTL icon. Every button
+// ("Next Page", "Page 3") that no Nuxt UI locale reaches (`fa_ir` has no pagination key). A slot's
+// button replaces the primitive's and the child's props win the `mergeProps`, so each control below
+// carries its own Persian label. A slot also replaces UPagination's icon, which it picks from the
+// locale's `dir` (rtl, via `fa_ir` in app.vue), so the RTL icons are restated here. Every button
 // is one fixed circle: a page label's own width («۱» against «۴۰») would make the row uneven.
 //
 // After a page change the list's top (`[data-paged]`, or the pager's parent) is brought back into

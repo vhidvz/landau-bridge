@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-04
+
+### Fixed
+
+- The 1.1.0 notes claimed a pager-arrow fix; the arrows were already right in RTL. @vhidvz
+
 ## [1.1.0] - 2026-11-04
 
 ### Changed
@@ -20,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- The pager's arrows point the right way in RTL, its buttons are Persian-labelled and even. @vhidvz
+- The pager's buttons are Persian-labelled for screen readers and all one size. @vhidvz
 - Search ignores Arabic ي/ك, digit script and ZWNJ differences. @vhidvz
 - Start dates show Persian digits, and an item's error no longer repeats its own kind. @vhidvz
 - The filter control moves with the arrow keys; jobs and errors no longer flash "empty" on load. @vhidvz
