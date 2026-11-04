@@ -83,7 +83,7 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
 
 <template>
   <div v-reveal>
-    <PageHeader kicker="وارد کردن فاکتورها · ۰۲" title="فاکتورها، روی قفسه." lede="فاکتورهای پرداخت‌شده خوانده می‌شود، هر قلم به قطعهٔ لاندا وصل می‌شود و با قیمت روز روی قفسه می‌نشیند.">
+    <PageHeader title="وارد کردن فاکتورها" lede="اقلام فاکتورهای پرداخت‌شدهٔ بارزپخش روی قفسهٔ لاندا می‌رود.">
       <template v-if="active" #actions>
         <button type="button" class="btn-danger" @click="cancel"><UIcon name="i-lucide-square" class="size-4" />توقف</button>
       </template>

@@ -30,6 +30,10 @@ export const jalaliYearStart = (): string => `${jalaliToday().year}/01/01`;
 export const isoToLocal = (iso: string | null | undefined): string =>
   iso ? new Intl.DateTimeFormat('fa-IR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso)) : '—';
 
+/** The day only, for a table column where the hour is noise. */
+export const isoToDate = (iso: string | null | undefined): string =>
+  iso ? new Intl.DateTimeFormat('fa-IR', { dateStyle: 'medium' }).format(new Date(iso)) : '—';
+
 export const phaseLabel: Record<string, string> = {
   PREFLIGHT: 'بررسی اتصال‌ها',
   FETCH: 'دریافت فاکتورها',
@@ -61,9 +65,10 @@ const skipLabel: Record<string, string> = {
   UNCHANGED: 'بدون تغییر',
 };
 
-export const verdictLabel = (v: string | null | undefined): string => {
+/** `short` leaves the new price out — for the report table, whose shelf-price column shows it. */
+export const verdictLabel = (v: string | null | undefined, { short = false } = {}): string => {
   if (!v) return '—';
-  if (v.startsWith('REPRICED:')) return `قیمت‌گذاری شد: ${rials(Number(v.slice(9)))}`;
+  if (v.startsWith('REPRICED:')) return short ? 'قیمت‌گذاری شد' : `قیمت‌گذاری شد: ${rials(Number(v.slice(9)))}`;
   if (v.startsWith('SKIPPED:')) return skipLabel[v.slice(8)] ?? v;
   if (v === 'UNCHANGED') return 'بدون تغییر';
   if (v === 'MISSING') return 'دیگر روی قفسه نیست';
@@ -131,7 +136,9 @@ export const faDuration = (startIso: string, endIso?: string | null, now: number
   return m === 0 ? `${faNumber(h)} ساعت` : `${faNumber(h)} ساعت و ${faNumber(m)} دقیقه`;
 };
 
-export const faVersion = (v: string): string => v.replace(/\d/g, (d) => FA_DIGITS[Number(d)]!);
+/** Latin digits → Persian, everything else kept: a Jalali `1405/01/01`, a version `1.0.1`. */
+export const faDigits = (s: string): string => s.replace(/\d/g, (d) => FA_DIGITS[Number(d)]!);
+export const faVersion = faDigits;
 
 export const jobKindLabel = (job: Pick<JobRow, 'kind' | 'mode'>): string =>
   job.kind === 'REFRESH' ? 'به‌روزرسانی قیمت‌ها' : job.mode === 'ZERO' ? 'وارد کردن با تعداد صفر' : 'وارد کردن با تعداد';
@@ -143,7 +150,7 @@ export const statusTone = (status: string | null | undefined): Tone =>
 export interface SummaryTile { label: string; value: number }
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const IMPORT_TILES: readonly [string, string][] = [['items', 'اقلام'], ['done', 'انجام‌شده'], ['attached', 'افزوده'], ['patched', 'به‌روز'], ['skipped', 'ردشده'], ['failed', 'ناموفق']];
-const REFRESH_TILES: readonly [string, string][] = [['rows', 'ردیف‌ها'], ['changed', 'تغییر قیمت'], ['skipped_manual', 'قیمت دستی حفظ‌شده']];
+const REFRESH_TILES: readonly [string, string][] = [['rows', 'ردیف‌ها'], ['changed', 'تغییر قیمت'], ['skipped_manual', 'قیمت دستی']];
 
 /** The numeric parts of a job summary, in display order; keys that are missing or not numbers are skipped. */
 export const summaryTiles = (job: Pick<JobRow, 'kind' | 'summary'>): SummaryTile[] => {
@@ -154,6 +161,11 @@ export const summaryTiles = (job: Pick<JobRow, 'kind' | 'summary'>): SummaryTile
     return value == null ? [] : [{ label, value }];
   });
 };
+
+/** Three headline tiles per run, so the dashboard's two last runs stand as equals side by side. */
+const KEY_TILES: Record<JobRow['kind'], readonly string[]> = { IMPORT: ['اقلام', 'انجام‌شده', 'ناموفق'], REFRESH: ['ردیف‌ها', 'تغییر قیمت', 'قیمت دستی'] };
+export const keyTiles = (job: Pick<JobRow, 'kind' | 'summary'>): SummaryTile[] =>
+  summaryTiles(job).filter((t) => KEY_TILES[job.kind].includes(t.label));
 
 /** «۸۹ اقلام · ۳۴ افزوده · …» — zero parts are dropped except the first; '' without a summary. */
 export const summaryLabel = (job: Pick<JobRow, 'kind' | 'summary'>): string =>
@@ -201,3 +213,13 @@ export const priceDelta = (item: Pick<JobItemRow, 'price_before' | 'price_after'
 };
 export const priceDeltaLabel = (d: PriceDelta | null): string =>
   !d || d.dir === 'flat' ? '—' : `${d.dir === 'up' ? '▲' : '▼'} ${faPercent(d.pct)}`;
+
+/** An item's failure as one line: the kind's label, then the message — unless the message already
+ *  says it («در فهرست لاندا نیست: در فهرست لاندا نیست» read as a stutter). */
+export const errorText = (kind: string | null | undefined, message: string | null | undefined): string => {
+  const label = kind ? kindLabel(kind) : '';
+  const msg = (message ?? '').trim();
+  if (!msg) return label;
+  if (!label || msg.includes(label) || label.includes(msg)) return msg;
+  return `${label}: ${msg}`;
+};

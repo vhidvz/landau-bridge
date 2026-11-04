@@ -26,19 +26,12 @@ watch(job.detail, (d) => { if (d) detail.value = d; });
 const active = computed(() => job.status.value === 'RUNNING' || job.status.value === 'REVIEW');
 const live = computed(() => (active.value ? { phase: job.phase.value, progress: job.progress.value, events: job.events.value, status: job.status.value } : null));
 const storeName = computed(() => (settings.value && detail.value && settings.value.store === detail.value.job.store ? settings.value.store_name : null));
-const lede = computed(() => {
-  const j = detail.value?.job;
-  if (!j) return '';
-  return j.finished_at
-    ? `شروع ${isoToLocal(j.started_at)} · پایان ${isoToLocal(j.finished_at)} · ${faDuration(j.started_at, j.finished_at)}`
-    : `در حال اجرا از ${isoToLocal(j.started_at)}`;
-});
 const openFolder = async () => { error.value = null; try { await bridge.openLogFolder(); } catch (e) { error.value = e as BridgeError; } };
 </script>
 
 <template>
   <div v-reveal>
-    <PageHeader :kicker="`عملیات · ${faNumber(id)}`" :title="detail ? jobKindLabel(detail.job) : 'عملیات'" :lede="lede">
+    <PageHeader :title="detail ? jobKindLabel(detail.job) : 'عملیات'" :lede="`عملیات ${faNumber(id)}`">
       <template #actions>
         <UButton to="/jobs" color="neutral" variant="outline" icon="i-lucide-arrow-right">همهٔ عملیات‌ها</UButton>
         <UButton color="neutral" variant="outline" icon="i-lucide-folder-open" @click="openFolder">باز کردن پوشهٔ لاگ</UButton>

@@ -12,6 +12,10 @@ export const devState = (): State => {
   return s === 'empty' || s === 'running' || s === 'review' || s === 'refreshing' ? s : 'done';
 };
 
+// `?bulk=1`: lists long enough to page through — 130 decisions, 120 undecided parts, 45 in review,
+// a 412-row report, 42 jobs and 126 errors.
+const bulk = typeof location !== 'undefined' && new URLSearchParams(location.search).has('bulk');
+
 const ago = (days: number, hour = 10, minute = 20): string => {
   const d = new Date();
   d.setDate(d.getDate() - days);
@@ -47,6 +51,7 @@ const jobs: JobRow[] = [
   job(39, 'IMPORT', 'DONE', 'REPORT', 9, doneSummary),
   job(38, 'REFRESH', 'CANCELLED', 'WRITE', 12),
   job(37, 'IMPORT', 'DONE', 'REPORT', 20, doneSummary),
+  ...(bulk ? Array.from({ length: 36 }, (_, i) => job(36 - i, i % 3 ? 'IMPORT' : 'REFRESH', i % 11 ? 'DONE' : 'FAILED', i % 11 ? 'REPORT' : 'FETCH', 21 + i, i % 11 ? doneSummary : null)) : []),
 ];
 const runningJob = job(43, 'IMPORT', 'RUNNING', 'MATCH', 0);
 const reviewJob = job(43, 'IMPORT', 'REVIEW', 'REVIEW', 0);
@@ -64,8 +69,8 @@ const item = (id: number, code: string, name: string, qty: number, extra: Partia
 });
 
 const reviewItems: JobItemRow[] = [
-  ...(typeof location !== 'undefined' && new URLSearchParams(location.search).has('bulk')
-    ? Array.from({ length: 42 }, (_, i) => item(1000 + i, `BP-5${String(i).padStart(4, '0')}`, `قلم بازبینی ${i + 1}`, i + 1, { status: 'REVIEW', candidates: [scored(`p_r${i}`, `پیشنهاد ${i + 1}`, null, 80)] }))
+  ...(bulk
+    ? Array.from({ length: 42 }, (_, i) => item(1000 + i, `BP-5${String(i).padStart(4, '0')}`, `قلم بازبینی ${i + 1}`, i + 1, { status: 'REVIEW', candidates: Array.from({ length: i % 2 ? 10 : 1 }, (_, k) => scored(`p_r${i}_${k}`, `پیشنهاد ${k + 1} برای قلم ${i + 1}`, k % 2 ? 'برند' : null, 90 - k * 4)) }))
     : []),
   item(901, 'BP-10422', 'لنت ترمز جلو پراید', 12, { status: 'REVIEW', candidates: [
     scored('p_1', 'لنت ترمز جلو پراید ۱۳۱', 'فرانتک', 91), scored('p_2', 'لنت ترمز عقب پراید', 'فرانتک', 74), scored('p_3', 'لنت ترمز جلو تیبا', 'پارس', 62),
@@ -86,6 +91,17 @@ const doneItems: JobItemRow[] = [
   item(7, 'BP-71850', 'واشر سرسیلندر ۲۰۶', 10, { product_id: 'p_15', product_name: 'واشر سرسیلندر پژو ۲۰۶', action: 'ATTACH', qty_after: 10, cost: 940_000, price_after: 1_170_000, reprice_verdict: 'REPRICED:1170000' }),
   item(8, 'BP-80017', 'پمپ بنزین پراید', 5, { product_id: 'p_16', product_name: 'پمپ بنزین پراید', action: 'PATCH', qty_before: 2, qty_after: 7, cost: 1_650_000, price_before: 2_050_000, price_after: 2_050_000, reprice_verdict: 'UNCHANGED', available: true, note: 'کد بارزپخش عوض شد: BP-80016 ← BP-80017' }),
 ];
+
+if (bulk) {
+  for (let i = 0; i < 404; i++) {
+    const cost = 200_000 + ((i * 7919) % 90) * 25_000;
+    const before = Math.round(cost * 1.2 / 1000) * 1000;
+    const after = i % 4 ? before : before + 30_000;
+    doneItems.push(item(100 + i, `BP-8${String(i).padStart(4, '0')}`, `قطعهٔ گزارش شمارهٔ ${i + 1}`, 1 + (i % 9), i % 37 === 5
+      ? { status: 'FAILED', error_kind: 'NoCurrentPrice', error_msg: 'بارزپخش برای این کد قیمت روز ندارد' }
+      : { product_id: `p_g${i}`, product_name: `قطعهٔ لاندا شمارهٔ ${i + 1}`, action: 'PATCH', qty_before: i % 9, qty_after: i % 9, cost, price_before: before, price_after: after, reprice_verdict: after === before ? 'UNCHANGED' : `REPRICED:${after}`, available: i % 13 ? true : false, note: i % 13 ? null : 'ناموجود؛ قیمت پایین‌تر نادیده گرفته شد' }));
+  }
+}
 
 const ev = (id: number, level: JobEventRow['level'], phase: string, message: string, minutesAgo: number): JobEventRow =>
   ({ id, at: new Date(Date.now() - minutesAgo * 60_000).toISOString(), level, phase, message, detail: null });
@@ -113,8 +129,6 @@ const undecided: UndecidedRow[] = [
   undecidedPart('BP-90013', 'رادیاتور آب سمند EF7', 1, [scored('p_u6', 'رادیاتور سمند', 'رادیسا', 66)]),
   undecidedPart('BP-90014', 'پیستون ۲۰۶ تیپ ۲ استاندارد', 3, []),
 ];
-// `?bulk=1`: lists long enough to page through (130 decisions, 120 undecided parts, 45 in review).
-const bulk = typeof location !== 'undefined' && new URLSearchParams(location.search).has('bulk');
 if (bulk) {
   for (let i = 1; i <= 116; i++) {
     undecided.push(undecidedPart(`BP-7${String(i).padStart(4, '0')}`, `قطعهٔ آزمایشی شمارهٔ ${i}`, 1 + (i % 3), [
@@ -160,6 +174,7 @@ const errors: ErrorRow[] = [
   err(58, 3, 40, 'SupplierUnreachable', 'پاسخی از بارزپخش نیامد (timeout after 30s)', { url: 'https://barezpakhsh.ir/invoices' }),
   err(57, 5, null, 'LandauUnauthorized', 'کلید API لاندا پذیرفته نشد'),
   err(56, 12, 38, 'JobCancelled', 'به درخواست شما متوقف شد'),
+  ...(bulk ? Array.from({ length: 120 }, (_, i) => err(55 - i, 13 + Math.floor(i / 4), 36 - Math.floor(i / 4), i % 2 ? 'NoCurrentPrice' : 'SupplierUnreachable', i % 2 ? `بارزپخش برای BP-8${String(i).padStart(4, '0')} قیمت روز ندارد` : 'پاسخی از بارزپخش نیامد (timeout after 30s)', i % 2 ? { code: `BP-8${String(i).padStart(4, '0')}` } : null)) : []),
 ];
 
 const dashboard = (state: State): Dashboard => {

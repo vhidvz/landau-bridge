@@ -20,10 +20,9 @@ const load = async () => {
 };
 onMounted(load);
 
-const has = (s: string | null | undefined) => !query.value || (s ?? '').includes(query.value);
-const shown = computed(() => rows.value.filter((r) => (filter.value === 'ALL' || r.how === filter.value) && (has(r.name_seen) || has(r.code) || has(r.product_name))));
-const shownUndecided = computed(() => undecided.value.filter((u) => has(u.name_seen) || has(u.code) || u.candidates.some((c) => has(c.candidate.name))));
-const PAGE = 50;
+const shown = computed(() => rows.value.filter((r) => (filter.value === 'ALL' || r.how === filter.value) && matchesQuery(query.value, [r.name_seen, r.code, r.product_name])));
+const shownUndecided = computed(() => undecided.value.filter((u) => matchesQuery(query.value, [u.name_seen, u.code, ...u.candidates.map((c) => c.candidate.name)])));
+const PAGE = PAGE_SIZE.table;
 const { page: matchPage, rows: matchRows } = usePaged(shown, PAGE, [filter, query]);
 const { page: undecidedPage, rows: undecidedRows, showIndex: showUndecided } = usePaged(shownUndecided, PAGE, [filter, query]);
 const howLabel: Record<string, string> = { AUTO: 'خودکار', USER: 'انتخاب شما', NONE: 'در لاندا نیست' };
@@ -118,69 +117,73 @@ const closeImport = () => { importing.value = null; report.value = null; };
 
 <template>
   <div v-reveal>
-    <PageHeader kicker="تطبیق‌ها · ۰۴" title="هر کد، یک قطعه." lede="هر کد بارزپخش یک بار به یک قطعهٔ لاندا وصل می‌شود و دیگر پرسیده نمی‌شود." />
+    <PageHeader title="تطبیق‌ها" lede="هر کالای بارزپخش به کدام قطعهٔ لاندا وصل است.">
+      <template #actions>
+        <UButton color="neutral" variant="outline" icon="i-lucide-download" :disabled="!!busy" :loading="busy === 'export'" @click="exportDecisions">ذخیرهٔ تصمیم‌ها</UButton>
+        <UButton color="neutral" variant="outline" icon="i-lucide-upload" :disabled="!!busy" @click="chooseImport">بازیابی تصمیم‌ها</UButton>
+      </template>
+    </PageHeader>
     <ErrorBanner :error="error" />
 
     <div class="mb-4 flex flex-wrap items-center gap-3" data-reveal>
       <SegmentedControl v-model="filter" :items="filters" aria-label="نوع تطبیق" />
-      <span class="tabular text-xs text-paper-mute">{{ filter === 'UNDECIDED' ? `${faNumber(shownUndecided.length)} قطعه بدون تصمیم` : `${faNumber(shown.length)} تطبیق` }}</span>
-      <div class="ms-auto flex flex-wrap items-center gap-2">
-        <button type="button" class="btn-ghost btn-sm" :disabled="!!busy" @click="exportDecisions"><UIcon name="i-lucide-download" class="size-4" />ذخیرهٔ تصمیم‌ها</button>
-        <button type="button" class="btn-ghost btn-sm" :disabled="!!busy" @click="chooseImport"><UIcon name="i-lucide-upload" class="size-4" />بازیابی تصمیم‌ها</button>
-        <div class="relative w-72">
-          <input v-model="query" class="field pe-9" placeholder="جست‌وجو در نام یا کد" aria-label="جست‌وجو در تطبیق‌ها" />
-          <UIcon name="i-lucide-search" class="pointer-events-none absolute inset-y-0 end-3 my-auto size-4 text-paper-mute" aria-hidden="true" />
-        </div>
+      <div class="relative ms-auto w-72">
+        <input v-model="query" type="search" class="field pe-9" placeholder="جست‌وجو در نام یا کد" aria-label="جست‌وجو در تطبیق‌ها" />
+        <UIcon name="i-lucide-search" class="pointer-events-none absolute inset-y-0 end-3 my-auto size-4 text-paper-mute" aria-hidden="true" />
       </div>
     </div>
 
     <template v-if="filter === 'UNDECIDED'">
       <LedgerTable v-if="shownUndecided.length" class="glass" data-reveal>
         <thead>
-          <tr><th>نام در فاکتور</th><th>کد</th><th>نزدیک‌ترین پیشنهاد</th><th>شباهت</th><th>دفعات</th><th>آخرین بار</th><th></th></tr>
+          <tr><th>نام در فاکتور</th><th>نزدیک‌ترین پیشنهاد</th><th>شباهت</th><th>دفعات</th><th>آخرین بار</th><th></th></tr>
         </thead>
         <tbody>
           <tr v-for="u in undecidedRows" :key="u.name_key">
-            <td class="font-medium text-paper">{{ u.name_seen }}</td>
-            <td><bdi dir="ltr" class="whitespace-nowrap">{{ u.code }}</bdi></td>
-            <td>{{ u.candidates[0]?.candidate.name ?? '—' }}</td>
+            <td class="w-1/2 max-w-0">
+              <p class="truncate font-medium text-paper" :title="u.name_seen">{{ u.name_seen }}</p>
+              <p class="truncate text-xs text-paper-mute"><bdi dir="ltr">{{ u.code }}</bdi></p>
+            </td>
+            <td class="w-1/2 max-w-0"><p class="truncate" :title="u.candidates[0]?.candidate.name">{{ u.candidates[0]?.candidate.name ?? '—' }}</p></td>
             <td><SimilarityBar v-if="u.candidates[0]" :value="u.candidates[0].similarity" /><span v-else class="text-paper-mute">—</span></td>
             <td class="tabular">{{ faNumber(u.times) }}</td>
-            <td class="whitespace-nowrap">{{ isoToLocal(u.seen_at) }}</td>
+            <td class="whitespace-nowrap">{{ isoToDate(u.seen_at) }}</td>
             <td class="text-end"><button type="button" class="btn-primary btn-sm" @click="openDecide(u)">تصمیم</button></td>
           </tr>
         </tbody>
+        <template #footer><Pager v-model:page="undecidedPage" :total="shownUndecided.length" :items-per-page="PAGE" label="قطعهٔ بدون تصمیم" /></template>
       </LedgerTable>
-      <Pager v-if="shownUndecided.length > PAGE" v-model:page="undecidedPage" :total="shownUndecided.length" :items-per-page="PAGE" class="mt-4 flex justify-center" />
       <GlassCard v-if="!shownUndecided.length" :pad="false" data-reveal>
         <EmptyState
           :title="undecided.length ? 'قطعه‌ای با این عبارت نیست' : 'قطعهٔ بدون تصمیمی نمانده'"
-          :description="undecided.length ? 'عبارت جست‌وجو را عوض کنید.' : 'قطعه‌هایی که در بازبینی «بعداً» خورده‌اند و عملیات بدون آن‌ها ادامه یافته، با همان پیشنهادهای بازبینی اینجا می‌مانند تا هر وقت خواستید درباره‌شان تصمیم بگیرید.'"
+          :description="undecided.length ? 'عبارت جست‌وجو را عوض کنید.' : 'قطعه‌هایی که در بازبینی «بعداً» زده‌اید اینجا می‌مانند.'"
         />
       </GlassCard>
     </template>
     <template v-else>
       <LedgerTable v-if="shown.length" class="glass" data-reveal>
         <thead>
-          <tr><th>نام در فاکتور</th><th>کد</th><th>قطعهٔ لاندا</th><th>نحوه</th><th>شباهت</th><th>تاریخ</th><th></th></tr>
+          <tr><th>نام در فاکتور</th><th>قطعهٔ لاندا</th><th>نحوه</th><th>شباهت</th><th>تاریخ</th><th></th></tr>
         </thead>
         <tbody>
           <tr v-for="r in matchRows" :key="r.name_key">
-            <td class="font-medium text-paper">{{ r.name_seen }}</td>
-            <td><bdi dir="ltr" class="whitespace-nowrap">{{ r.code }}</bdi></td>
-            <td>{{ r.product_name ?? '—' }}</td>
+            <td class="w-1/2 max-w-0">
+              <p class="truncate font-medium text-paper" :title="r.name_seen">{{ r.name_seen }}</p>
+              <p class="truncate text-xs text-paper-mute"><bdi dir="ltr">{{ r.code }}</bdi></p>
+            </td>
+            <td class="w-1/2 max-w-0"><p class="truncate" :class="!r.product_name && 'text-paper-mute'" :title="r.product_name ?? undefined">{{ r.product_name ?? '—' }}</p></td>
             <td class="whitespace-nowrap"><StatusPill :tone="r.how === 'NONE' ? 'danger' : r.how === 'USER' ? 'ok' : 'info'" :label="howLabel[r.how] ?? r.how" /></td>
             <td><SimilarityBar v-if="r.similarity != null" :value="r.similarity" /><span v-else class="text-paper-mute">—</span></td>
-            <td class="whitespace-nowrap">{{ isoToLocal(r.decided_at) }}</td>
+            <td class="whitespace-nowrap">{{ isoToDate(r.decided_at) }}</td>
             <td class="text-end"><button type="button" class="btn-ghost btn-sm" @click="openEdit(r)">تغییر</button></td>
           </tr>
         </tbody>
+        <template #footer><Pager v-model:page="matchPage" :total="shown.length" :items-per-page="PAGE" label="تطبیق" /></template>
       </LedgerTable>
-      <Pager v-if="shown.length > PAGE" v-model:page="matchPage" :total="shown.length" :items-per-page="PAGE" class="mt-4 flex justify-center" />
       <GlassCard v-if="!shown.length" :pad="false" data-reveal>
         <EmptyState
           :title="rows.length ? 'تطبیقی با این فیلتر نیست' : 'هنوز تطبیقی ثبت نشده'"
-          :description="rows.length ? 'فیلتر یا عبارت جست‌وجو را عوض کنید.' : 'با اولین وارد کردن فاکتورها، تطبیق‌های خودکار و تصمیم‌های شما اینجا جمع می‌شود. برای اقلامی که «در لاندا نیست» علامت خورده‌اند، تیکتی برای پشتیبانی لاندا ثبت کنید و بعد تصمیم را همین‌جا تغییر دهید.'"
+          :description="rows.length ? 'فیلتر یا عبارت جست‌وجو را عوض کنید.' : 'با اولین وارد کردن فاکتورها پر می‌شود.'"
         >
           <template v-if="!rows.length" #action><NuxtLink to="/import" class="btn-ghost"><UIcon name="i-lucide-file-input" class="size-4" />وارد کردن فاکتورها</NuxtLink></template>
         </EmptyState>

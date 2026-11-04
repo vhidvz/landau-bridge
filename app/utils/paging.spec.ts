@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clampPage, pageCount, pageOfIndex, pageSlice } from './paging';
+import { clampPage, pageCount, pageOfIndex, pageRange, pageSlice } from './paging';
 
 const list = Array.from({ length: 120 }, (_, i) => i);
 
@@ -23,5 +23,12 @@ describe('paging long lists', () => {
     expect(pageOfIndex(0, 50)).toBe(1);
     expect(pageOfIndex(49, 50)).toBe(1);
     expect(pageOfIndex(50, 50)).toBe(2);
+  });
+
+  it('names the rows a page shows, clamped like the page itself', () => {
+    expect(pageRange(1, 412, 15)).toEqual({ from: 1, to: 15 });
+    expect(pageRange(28, 412, 15)).toEqual({ from: 406, to: 412 });
+    expect(pageRange(99, 30, 20)).toEqual({ from: 21, to: 30 });
+    expect(pageRange(1, 0, 20)).toEqual({ from: 0, to: 0 });
   });
 });
