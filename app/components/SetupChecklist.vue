@@ -14,7 +14,7 @@ const steps = computed(() => [
     <BrandLogo :size="96" tone="brand" class="shrink-0" />
     <div class="min-w-0 flex-1">
       <h2 class="display text-2xl text-paper">سه قدم تا اولین عبور</h2>
-      <p class="mt-1 max-w-[58ch] text-paper-dim">پل وقتی باز می‌شود که هر دو کرانه وصل باشند.</p>
+      <p class="mt-1 max-w-[58ch] text-paper-dim">برای شروع، لاندا و بارزپخش را وصل کنید.</p>
       <ol class="mt-5 space-y-3">
         <li v-for="(s, i) in steps" :key="s.label" class="flex items-start gap-3">
           <span class="check mt-0.5" :class="s.done && 'is-done'">

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   faNumber, rials, latinDigits, normalizeJalali, todayJalali, jalaliYearStart, verdictLabel, kindLabel, availabilityLabel,
   faPercent, faDuration, faVersion, jobKindLabel, statusTone, summaryTiles, summaryLabel, reportEventText,
-  kindFamily, isoToJalali, nextSinceDate, priceDelta, priceDeltaLabel,
+  kindFamily, isoToJalali, nextSinceDate, priceDelta, priceDeltaLabel, faDigits, errorText, isoToDate, keyTiles,
 } from './fa';
 
 describe('fa', () => {
@@ -29,6 +29,9 @@ describe('fa', () => {
     expect(verdictLabel('SKIPPED:MANUAL')).toContain('دستی');
     expect(verdictLabel(null)).toBe('—');
     expect(verdictLabel('MISSING')).toContain('قفسه');
+    // the table already shows the new shelf price beside the verdict, so it can leave the figure out
+    expect(verdictLabel('REPRICED:173000', { short: true })).toBe('قیمت‌گذاری شد');
+    expect(verdictLabel('SKIPPED:MANUAL', { short: true })).toContain('دستی');
     expect(availabilityLabel(true)).toBe('موجود');
     expect(availabilityLabel(false)).toBe('ناموجود');
     expect(availabilityLabel(null)).toBe('');
@@ -53,6 +56,7 @@ describe('fa — jobs and durations', () => {
 
   it('formats versions and percentages', () => {
     expect(faVersion('0.1.0')).toBe('۰.۱.۰');
+    expect(faDigits('1405/01/01')).toBe('۱۴۰۵/۰۱/۰۱');
     expect(faPercent(6.66)).toBe('۶٫۷٪');
     expect(faPercent(12)).toBe('۱۲٪');
   });
@@ -74,7 +78,11 @@ describe('fa — jobs and durations', () => {
     expect(summaryTiles(imp).map((t) => t.label)).toEqual(['اقلام', 'انجام‌شده', 'افزوده', 'به‌روز', 'ردشده', 'ناموفق']);
     expect(summaryLabel(imp)).toBe('۸۹ اقلام · ۸۱ انجام‌شده · ۳۴ افزوده · ۴۷ به‌روز · ۳ ناموفق');
     const ref = { kind: 'REFRESH' as const, summary: { rows: 412, changed: 96, skipped_manual: 12 } };
-    expect(summaryTiles(ref)).toEqual([{ label: 'ردیف‌ها', value: 412 }, { label: 'تغییر قیمت', value: 96 }, { label: 'قیمت دستی حفظ‌شده', value: 12 }]);
+    expect(summaryTiles(ref)).toEqual([{ label: 'ردیف‌ها', value: 412 }, { label: 'تغییر قیمت', value: 96 }, { label: 'قیمت دستی', value: 12 }]);
+    // the dashboard puts the two last runs side by side: three headline tiles each, never six against three
+    expect(keyTiles(imp).map((t) => t.label)).toEqual(['اقلام', 'انجام‌شده', 'ناموفق']);
+    expect(keyTiles(ref).map((t) => t.label)).toEqual(['ردیف‌ها', 'تغییر قیمت', 'قیمت دستی']);
+    expect(keyTiles({ kind: 'IMPORT', summary: null })).toEqual([]);
     expect(summaryTiles({ kind: 'IMPORT', summary: null })).toEqual([]);
     expect(summaryLabel({ kind: 'IMPORT', summary: null })).toBe('');
     expect(summaryTiles({ kind: 'IMPORT', summary: { items: 'x' } })).toEqual([]);
@@ -82,7 +90,7 @@ describe('fa — jobs and durations', () => {
 
   it('renders the REPORT event in Persian and leaves other events alone', () => {
     const json = JSON.stringify({ rows: 412, changed: 96, skipped_manual: 12 });
-    expect(reportEventText({ phase: 'REPORT', message: json }, 'REFRESH')).toBe('گزارش نهایی: ۴۱۲ ردیف‌ها · ۹۶ تغییر قیمت · ۱۲ قیمت دستی حفظ‌شده');
+    expect(reportEventText({ phase: 'REPORT', message: json }, 'REFRESH')).toBe('گزارش نهایی: ۴۱۲ ردیف‌ها · ۹۶ تغییر قیمت · ۱۲ قیمت دستی');
     expect(reportEventText({ phase: 'REPORT', message: 'not json' }, 'REFRESH')).toBe('not json');
     expect(reportEventText({ phase: 'FETCH', message: json }, 'IMPORT')).toBe(json);
   });
@@ -113,5 +121,25 @@ describe('fa — jobs and durations', () => {
     expect(priceDeltaLabel(priceDelta({ price_before: 2_000_000, price_after: 1_900_000 }))).toBe('▼ ۵٪');
     expect(priceDeltaLabel(priceDelta({ price_before: 100, price_after: 100 }))).toBe('—');
     expect(priceDeltaLabel(null)).toBe('—');
+  });
+});
+
+describe('fa — error text', () => {
+  it('prefixes the kind only when the message does not already say it', () => {
+    expect(errorText('NoneDecision', 'در فهرست لاندا نیست')).toBe('در فهرست لاندا نیست');
+    expect(errorText('NoCurrentPrice', 'بارزپخش برای این کد قیمت روز ندارد')).toBe('بدون قیمت روز: بارزپخش برای این کد قیمت روز ندارد');
+    expect(errorText(null, 'خطا')).toBe('خطا');
+    expect(errorText('NoCurrentPrice', null)).toBe('بدون قیمت روز');
+    expect(errorText(null, null)).toBe('');
+  });
+});
+
+describe('fa — dates', () => {
+  it('shows a day alone, in the Jalali calendar with Persian digits', () => {
+    const d = isoToDate('2026-11-04T08:00:00.000Z');
+    expect(d).toContain('آبان');
+    expect(d).toContain('۱۴۰۵');
+    expect(d).not.toMatch(/[0-9]|:/);
+    expect(isoToDate(null)).toBe('—');
   });
 });

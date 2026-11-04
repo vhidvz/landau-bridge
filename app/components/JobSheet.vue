@@ -19,7 +19,7 @@ const facts = computed(() => {
   const j = props.job;
   const out: { label: string; value: string; ltr?: boolean }[] = [];
   if (j.kind === 'IMPORT') out.push({ label: 'حالت', value: j.mode === 'ZERO' ? 'با تعداد صفر، برای بازبینی' : 'با تعداد، از تاریخ' });
-  if (j.since_date) out.push({ label: 'از تاریخ', value: j.since_date, ltr: true });
+  if (j.since_date) out.push({ label: 'از تاریخ', value: faDigits(j.since_date), ltr: true });
   out.push({ label: 'فروشگاه', value: props.storeName ?? j.store });
   if (j.kind === 'REFRESH') out.push({ label: 'بازنویسی قیمت دستی', value: j.overwrite ? 'بله' : 'خیر' });
   const invoices = j.summary?.invoice_ids;

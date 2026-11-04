@@ -132,7 +132,7 @@ const authItems = [{ label: 'اصلی', value: 'ORIGINAL' }, { label: 'غیرا�
 
 <template>
   <div v-reveal class="mx-auto max-w-3xl">
-    <PageHeader kicker="تنظیمات · ۰۷" title="دو کرانه را وصل کنید." lede="کلید لاندا و ورود بارزپخش، و چند قاعدهٔ وارد کردن. هر چیز دیگری پیش‌فرض خوبی دارد.">
+    <PageHeader title="تنظیمات" lede="اتصال به لاندا و بارزپخش.">
       <template #actions>
         <UButton :loading="busy === 'save'" icon="i-lucide-save" @click="save">ذخیرهٔ تنظیمات</UButton>
       </template>

@@ -203,10 +203,15 @@
   .ticket-check { position: absolute; top: 1.5rem; inset-inline-end: 1.5rem; color: var(--color-crimson-400); }
 
   /* ledger tables */
-  .ledger { overflow-x: auto; }
+  /* A table, its footer included, is never taller than twice the window: the frame clips the
+     glass corners, the box scrolls past the cap, and the header stays pinned while it does. */
+  .ledger-frame { overflow: hidden; }
+  .ledger { overflow: auto; max-block-size: calc(200vh - 3.5rem); }
   .ledger table { width: 100%; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
-  .ledger thead th { background: var(--color-ink-800); color: var(--color-paper-mute); font-weight: 500; font-size: 0.8rem; text-align: start; padding: 0.625rem 0.875rem; white-space: nowrap; }
-  .ledger tbody td { padding: 0.75rem 0.875rem; border-top: 1px solid rgb(255 255 255 / 0.06); vertical-align: top; text-align: start; position: relative; color: var(--color-paper-dim); }
+  .ledger thead th { position: sticky; top: 0; z-index: 1; background: var(--color-ink-800); color: var(--color-paper-mute); font-weight: 500; font-size: 0.8rem; text-align: start; padding: 0.625rem 0.875rem; white-space: nowrap; }
+  .ledger tbody tr[tabindex]:focus-visible { outline: 2px solid rgb(224 110 110 / 0.7); outline-offset: -2px; }
+  .ledger-foot { border-top: 1px solid rgb(255 255 255 / 0.06); padding: 0.625rem 0.875rem; }
+  .ledger tbody td { padding: 0.75rem 0.875rem; border-top: 1px solid rgb(255 255 255 / 0.06); vertical-align: middle; text-align: start; position: relative; color: var(--color-paper-dim); }
   .ledger tbody tr:hover { background: rgb(23 27 36 / 0.55); }
   .ledger tbody tr[data-selected="true"] { background: var(--color-ink-700); }
   .ledger tbody tr[data-selected="true"] > td:first-child::before { content: ''; position: absolute; inset-block: 0; inset-inline-start: 0; width: 3px; background: var(--color-crimson-500); }

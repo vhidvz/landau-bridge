@@ -42,9 +42,6 @@ const live = computed(() => (dash.value?.running ? { phase: job.phase.value, pro
 const runningTo = computed(() => (dash.value?.running ? (dash.value.running.kind === 'IMPORT' ? `/import?job=${dash.value.running.id}` : '/refresh') : '/'));
 const inReview = computed(() => dash.value?.running?.status === 'REVIEW');
 const supplierReady = computed(() => !!dash.value?.supplier_user);
-const lede = computed(() => dash.value?.store_name
-  ? `فاکتورهای بارزپخش خوانده می‌شود، هر قلم به قطعهٔ لاندا وصل می‌شود و با قواعد خودتان روی قفسهٔ «${dash.value.store_name}» می‌نشیند.`
-  : 'فاکتورهای بارزپخش خوانده می‌شود، هر قلم به قطعهٔ لاندا وصل می‌شود و با قواعد خودتان روی قفسهٔ لاندا می‌نشیند.');
 
 const lastRuns = computed(() => [
   { key: 'import', label: 'آخرین وارد کردن', job: dash.value?.last_import ?? null, to: '/import', action: 'وارد کردن فاکتورها' },
@@ -78,7 +75,7 @@ const dismissAppImage = async () => {
 
 <template>
   <div v-reveal>
-    <PageHeader kicker="داشبورد · ۰۱" title="دو کرانه، یک قفسه." :lede="lede">
+    <PageHeader title="داشبورد">
       <template v-if="dash?.settings_complete" #actions>
         <NuxtLink v-if="dash.running" :to="runningTo" class="btn-ghost">رفتن به عملیات جاری</NuxtLink>
         <template v-else>
@@ -139,7 +136,6 @@ const dismissAppImage = async () => {
             <div class="display tabular text-[1.75rem] leading-none text-paper">{{ faNumber(dash.pending_review) }}</div>
             <div class="mt-1.5 text-xs text-paper-mute">قلم منتظر تصمیم</div>
             <NuxtLink v-if="inReview" :to="runningTo" class="mt-auto pt-3 text-xs text-crimson-400 hover:text-crimson-300">ادامهٔ بازبینی ←</NuxtLink>
-            <div v-else class="mt-auto pt-3 text-xs text-paper-mute">تصمیم‌ها در مرحلهٔ بازبینی پرسیده می‌شود</div>
           </GlassCard>
 
           <GlassCard class="hover-glow flex flex-col" data-reveal>
@@ -175,8 +171,8 @@ const dismissAppImage = async () => {
                   <span class="tabular">{{ isoToLocal(r.job.started_at) }}</span>
                   <span class="tabular">· {{ faDuration(r.job.started_at, r.job.finished_at) }}</span>
                 </div>
-                <div v-if="summaryTiles(r.job).length" class="grid grid-cols-3 gap-2">
-                  <StatTile v-for="t in summaryTiles(r.job)" :key="t.label" :label="t.label" :value="t.value" :tone="t.label === 'ناموفق' && t.value > 0 ? 'danger' : undefined" />
+                <div v-if="keyTiles(r.job).length" class="grid grid-cols-3 gap-2">
+                  <StatTile v-for="t in keyTiles(r.job)" :key="t.label" :label="t.label" :value="t.value" :tone="t.label === 'ناموفق' && t.value > 0 ? 'danger' : undefined" />
                 </div>
                 <NuxtLink :to="`/jobs/${r.job.id}`" class="mt-auto pt-3 text-xs text-crimson-400 hover:text-crimson-300">برگهٔ عملیات ←</NuxtLink>
               </template>
@@ -200,7 +196,7 @@ const dismissAppImage = async () => {
               <NuxtLink :to="`/jobs/${j.id}`" class="flex items-center gap-4 px-6 py-3 hover:bg-white/3">
                 <span class="size-2 shrink-0 rounded-full" :class="dotOf(j)" aria-hidden="true" />
                 <div class="min-w-0 flex-1">
-                  <div class="text-[0.8125rem] text-paper">{{ jobKindLabel(j) }} <span v-if="j.since_date" class="text-xs text-paper-mute">از <bdi dir="ltr">{{ j.since_date }}</bdi></span></div>
+                  <div class="text-[0.8125rem] text-paper">{{ jobKindLabel(j) }} <span v-if="j.since_date" class="text-xs text-paper-mute">از {{ faDigits(j.since_date) }}</span></div>
                   <div class="truncate text-xs text-paper-mute">{{ summaryLabel(j) || (statusLabel[j.status] ?? j.status) }}</div>
                 </div>
                 <div class="shrink-0 text-end text-xs text-paper-mute tabular">

@@ -43,7 +43,7 @@ const finished = computed(() => job.status.value && ['DONE', 'FAILED', 'CANCELLE
 
 <template>
   <div v-reveal>
-    <PageHeader kicker="به‌روزرسانی قیمت‌ها · ۰۳" title="قیمت‌ها، به روز." lede="قیمت خرید هر ردیف از قیمت روز بارزپخش تازه می‌شود و قواعد قیمت‌گذاری لاندا دوباره اجرا می‌شود.">
+    <PageHeader title="به‌روزرسانی قیمت‌ها" lede="قیمت خرید ردیف‌های قفسه با قیمت روز بارزپخش تازه می‌شود.">
       <template v-if="active" #actions>
         <button type="button" class="btn-danger" @click="cancel"><UIcon name="i-lucide-square" class="size-4" />توقف</button>
       </template>

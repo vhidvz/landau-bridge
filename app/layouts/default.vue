@@ -52,7 +52,7 @@ watch(savedTick, loadSettings);
         <div v-else class="glass-inset flex items-center gap-2.5 px-3.5 py-3">
           <span class="dot" :class="complete ? 'bg-ok text-ok' : 'bg-warn text-warn'" aria-hidden="true" />
           <div class="min-w-0 leading-tight">
-            <div class="text-xs font-medium text-paper-dim">{{ complete ? 'هر دو کرانه وصل است' : 'تنظیمات ناقص' }}</div>
+            <div class="text-xs font-medium text-paper-dim">{{ complete ? 'لاندا و بارزپخش وصل‌اند' : 'تنظیمات ناقص' }}</div>
             <div class="truncate text-[0.6875rem] text-paper-mute">
               <template v-if="complete">{{ settings?.store_name ?? settings?.store }}</template>
               <NuxtLink v-else to="/settings" class="hover:text-crimson-300">رفتن به تنظیمات ←</NuxtLink>

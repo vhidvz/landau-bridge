@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Every table pages its rows and stays within twice the window's height, its header pinned. @vhidvz
+- The report table fits each row on one line: quantity and price changes beside the value. @vhidvz
+- Page headers show the page's name and one short sentence; long explanations are shortened. @vhidvz
+- Review shows three items a page, each with its top three suggestions and the rest on demand. @vhidvz
+- Review buttons read «در لاندا نیست» and «انتخاب», as on the matches page. @vhidvz
+- The dashboard shows three headline tiles for each last run, side by side. @vhidvz
+
+### Fixed
+
+- The pager's arrows point the right way in RTL, its buttons are Persian-labelled and even. @vhidvz
+- Search ignores Arabic ي/ك, digit script and ZWNJ differences. @vhidvz
+- Start dates show Persian digits, and an item's error no longer repeats its own kind. @vhidvz
+- The filter control moves with the arrow keys; jobs and errors no longer flash "empty" on load. @vhidvz
+
 ## [1.0.0] - 2026-10-31
 
 ### Added
