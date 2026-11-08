@@ -6,6 +6,7 @@ pub mod db;
 pub mod decisions;
 pub mod domain;
 pub mod errors;
+pub mod instance;
 pub mod jobs;
 pub mod landau;
 pub mod matching;
@@ -87,6 +88,25 @@ pub fn run() {
                 .init();
             tracing::info!("landau-bridge starting; data dir {}", data_dir.display());
 
+            // One app per data folder, decided before the database is touched: a second copy would
+            // otherwise mark this one's running job INTERRUPTED below (plan 130 R-m).
+            let instance = match instance::acquire_waiting(&data_dir, instance::START_WAIT) {
+                Ok(lock) => lock,
+                Err(e) => {
+                    tracing::error!("instance lock: {e}");
+                    if let Some(w) = app.get_webview_window("main") {
+                        let _ = w.hide();
+                    }
+                    let handle = app.handle().clone();
+                    app.dialog()
+                        .message(e.message_fa())
+                        .title("پل لاندا")
+                        .kind(MessageDialogKind::Info)
+                        .show(move |_| handle.exit(0));
+                    return Ok(());
+                }
+            };
+
             let db = match db::Db::open(&data_dir.join("bridge.sqlite")) {
                 Ok(db) => db,
                 Err(e) => {
@@ -126,6 +146,7 @@ pub fn run() {
                 data_dir,
                 updater,
                 _log_guard: guard,
+                _instance: instance,
             });
             commands::refresh_appimage_entry(app.handle());
 

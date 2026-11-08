@@ -79,6 +79,9 @@ describe('fa — jobs and durations', () => {
     expect(summaryLabel(imp)).toBe('۸۹ اقلام · ۸۱ انجام‌شده · ۳۴ افزوده · ۴۷ به‌روز · ۳ ناموفق');
     const ref = { kind: 'REFRESH' as const, summary: { rows: 412, changed: 96, skipped_manual: 12 } };
     expect(summaryTiles(ref)).toEqual([{ label: 'ردیف‌ها', value: 412 }, { label: 'تغییر قیمت', value: 96 }, { label: 'قیمت دستی', value: 12 }]);
+    // plan 130 R-h: rows held for the seller are counted apart from transfer failures
+    expect(summaryLabel({ kind: 'IMPORT', summary: { items: 5, done: 3, held: 2, failed: 0 } })).toBe('۵ اقلام · ۳ انجام‌شده · ۲ نگه‌داشته');
+    expect(summaryLabel({ kind: 'REFRESH', summary: { rows: 7, held: 1 } })).toBe('۷ ردیف‌ها · ۱ نگه‌داشته');
     // the dashboard puts the two last runs side by side: three headline tiles each, never six against three
     expect(keyTiles(imp).map((t) => t.label)).toEqual(['اقلام', 'انجام‌شده', 'ناموفق']);
     expect(keyTiles(ref).map((t) => t.label)).toEqual(['ردیف‌ها', 'تغییر قیمت', 'قیمت دستی']);
@@ -99,6 +102,18 @@ describe('fa — jobs and durations', () => {
     for (const k of ['SupplierUnreachable', 'SupplierParse', 'SupplierFaulted', 'NoCurrentPrice', 'InvoiceUnpaid', 'LineNonPositiveQty', 'VatRateMismatch']) expect(kindFamily(k), k).toBe('supplier');
     for (const k of ['LandauUnauthorized', 'LandauRejected', 'BusinessNotApproved', 'NoStore', 'ProductNotApproved', 'DuplicateRow', 'MirrorTimeout', 'NoPricingRule', 'RepriceSkipped']) expect(kindFamily(k), k).toBe('landau');
     for (const k of ['JobCancelled', 'SettingsIncomplete', 'KeyringUnavailable', 'Db', 'Other', 'Unmatched', 'NoneDecision', 'Whatever']) expect(kindFamily(k), k).toBe('app');
+  });
+
+  // Plan 130 R-h: a held link is the bridge's own refusal (whom to call: nobody — the seller decides);
+  // a registry Landau could not serve whole is Landau's side.
+  it('names every link-identity kind in Persian and places it', () => {
+    const identity = ['StaleLink', 'NeedsReview', 'EvidenceConflict', 'Conflict', 'LinkChanged', 'RowChanged', 'AlreadyRunning'];
+    for (const k of [...identity, 'RegistryIncomplete']) {
+      expect(kindLabel(k), k).not.toBe(k);
+      expect(/[A-Za-z]/.test(kindLabel(k)), k).toBe(false);
+    }
+    for (const k of identity) expect(kindFamily(k), k).toBe('app');
+    expect(kindFamily('RegistryIncomplete')).toBe('landau');
   });
 
   it('suggests the next import start date from the last finished quantity import', () => {

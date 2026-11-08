@@ -32,6 +32,8 @@ pub struct AppState {
     pub data_dir: PathBuf,
     pub updater: Arc<Updater<PluginSource>>,
     pub _log_guard: tracing_appender::non_blocking::WorkerGuard,
+    /// The data folder's single-instance lock, held for the life of the app (plan 130 R-m).
+    pub _instance: crate::instance::InstanceLock,
 }
 
 fn settings(state: &AppState) -> Result<Settings> {
@@ -459,8 +461,7 @@ pub async fn review_decide(state: State<'_, AppState>, decision: ReviewDecision)
             "این قلم دیگر در انتظار تصمیم نیست.".into(),
         ));
     }
-    let s = settings(&state)?;
-    let matcher = Matcher::new(state.db.clone(), SUPPLIER_ID, s.threshold);
+    let matcher = Matcher::new(state.db.clone(), SUPPLIER_ID);
     if decision.later {
         return Ok(()); // stays REVIEW; commit() skips it and the next run asks again
     }
@@ -475,12 +476,14 @@ pub async fn review_decide(state: State<'_, AppState>, decision: ReviewDecision)
             ),
             Some(serde_json::json!({"code": item.code})),
         )?;
+        // «not in Landau» resolves the item: its old link no longer holds a row (plan 130 R-e)
         return state.db.update_job_item(
             item.id,
             &[
                 ("status", jobs::t("SKIPPED")),
                 ("error_kind", jobs::t(kinds::NONE_DECISION)),
                 ("error_msg", jobs::t("این قطعه در لاندا نیست.")),
+                ("link_product", rusqlite::types::Value::Null),
             ],
         );
     }
@@ -488,22 +491,14 @@ pub async fn review_decide(state: State<'_, AppState>, decision: ReviewDecision)
         .product_id
         .ok_or_else(|| BridgeError::Other("no product picked".into()))?;
     let product_name = decision.product_name.unwrap_or_default();
-    matcher.record_user_pick(
-        &item.name,
-        &item.code,
+    jobs::import::pick(
+        &state.db,
+        &item,
         &product_id,
         &product_name,
         decision.similarity,
-    )?;
-    let mut patch = vec![
-        ("product_id", jobs::t(&product_id)),
-        ("product_name", jobs::t(&product_name)),
-        ("status", jobs::t("PLANNED")),
-    ];
-    if let Some(a) = decision.authenticity {
-        patch.push(("authenticity", jobs::t(a.as_str())));
-    }
-    state.db.update_job_item(item.id, &patch)
+        decision.authenticity,
+    )
 }
 
 /// The seller's free-text re-search. The typed text goes through the same normalisation as the

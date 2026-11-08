@@ -3,6 +3,7 @@
 pub mod import;
 pub mod planner;
 pub mod pricing;
+pub mod proof;
 pub mod refresh;
 
 use std::collections::HashMap;
@@ -18,6 +19,7 @@ use crate::db::Db;
 use crate::domain::cost_of;
 use crate::errors::{kinds, BridgeError, Result};
 use crate::landau::{LandauClient, RepricedRow};
+use crate::matching::registry::{self, Registry};
 use crate::settings::{Settings, SUPPLIER_ID};
 use crate::supplier::Supplier;
 
@@ -267,6 +269,72 @@ pub async fn preflight(ctx: &JobCtx, svc: &Services, store: &str) -> Result<()> 
     Ok(())
 }
 
+/// VALIDATE's source (plan 130 R-b): Landau's registry read whole through the seller's picker,
+/// or the job stops with nothing written — no link is judged on a partial vocabulary.
+pub async fn read_registry(ctx: &JobCtx, svc: &Services, phase: &str) -> Result<Registry> {
+    ctx.progress(phase, 0, 0, "خواندن فهرست کامل قطعه‌های لاندا");
+    let landau = &svc.landau;
+    let page = |skip: usize| async move {
+        landau
+            .registry_search("", crate::matching::PAGE, skip)
+            .await
+    };
+    let registry = registry::read_whole(&page).await?;
+    registry_guard(&ctx.db, registry.len())?;
+    ctx.info(
+        phase,
+        &format!("registry read whole: {} definition(s)", registry.len()),
+        None,
+    );
+    Ok(registry)
+}
+
+/// A registry suddenly much smaller than the last one a job accepted is a catalogue mid-change —
+/// the re-import that started plan 130 — and is refused until a later job reads the same total
+/// again (a lasting shrink then goes through). Below 90 % of the last accepted total counts.
+pub fn registry_guard(db: &crate::db::Db, total: usize) -> Result<()> {
+    let read =
+        |key: &str| -> Result<Option<usize>> { Ok(db.setting(key)?.and_then(|v| v.parse().ok())) };
+    if let Some(last) = read(REGISTRY_TOTAL)? {
+        if (total as f64) < last as f64 * 0.9 && read(REGISTRY_PENDING)? != Some(total) {
+            db.set_setting(REGISTRY_PENDING, &total.to_string())?;
+            return Err(BridgeError::RegistryIncomplete {
+                read: total,
+                total: last,
+            });
+        }
+    }
+    db.set_setting(REGISTRY_TOTAL, &total.to_string())?;
+    db.set_setting(REGISTRY_PENDING, "")?;
+    Ok(())
+}
+
+const REGISTRY_TOTAL: &str = "registry_total";
+const REGISTRY_PENDING: &str = "registry_total_pending";
+
+/// Items a refused write or an unproven link stops: an identity failure holds them for the seller
+/// (`SKIPPED`), anything else failed in transfer (`FAILED`) — counted apart (plan 130 R-h).
+pub fn held(ctx: &JobCtx, items: &[i64], e: &BridgeError) -> Result<()> {
+    let phase = ctx
+        .db
+        .job(ctx.job_id)?
+        .map(|j| j.phase)
+        .unwrap_or_else(|| "WRITE".into());
+    ctx.error(&phase, e, Some(json!({"item_ids": items})));
+    let status = if e.is_identity() { "SKIPPED" } else { "FAILED" };
+    for id in items {
+        ctx.item(
+            *id,
+            &[
+                ("status", t(status)),
+                ("error_kind", t(e.kind())),
+                ("error_msg", t(&e.message_fa())),
+            ],
+        )?;
+    }
+    Ok(())
+}
+
 /// The codes whose site VAT rate differed from the setting during one PRICE loop. Reported as a
 /// single `VatRateMismatch` warning per run (a site-wide rate change would otherwise repeat the
 /// same warning once per item).
@@ -387,7 +455,13 @@ pub async fn reprice_items(ctx: &JobCtx, svc: &Services, items: &[(i64, String)]
         .db
         .job(ctx.job_id)?
         .ok_or(BridgeError::JobNotFound(ctx.job_id))?;
-    let ids: Vec<String> = items.iter().map(|(_, s)| s.clone()).collect();
+    // several items written as one (plan 130 R-e) share a row: ask for it once
+    let mut ids: Vec<String> = Vec::new();
+    for (_, s) in items {
+        if !ids.contains(s) {
+            ids.push(s.clone());
+        }
+    }
     let rows = svc.landau.reprice_stocks(&ids, job.overwrite).await?;
     ctx.info(
         "REPRICE",
@@ -611,6 +685,25 @@ mod tests {
         assert!(events
             .iter()
             .any(|e| e.level == "WARN" && e.message.contains("زیر حداقل سود")));
+    }
+
+    /// Slice 2's review: a registry that shrinks sharply between jobs is refused once, and a
+    /// shrink that lasts goes through on the next job that reads the same total.
+    #[test]
+    fn a_registry_that_suddenly_shrinks_is_refused_until_it_holds() {
+        let db = Db::in_memory().unwrap();
+        registry_guard(&db, 52_899).unwrap();
+        registry_guard(&db, 50_000).unwrap(); // a small change is a catalogue at work
+        assert_eq!(
+            registry_guard(&db, 30_000),
+            Err(BridgeError::RegistryIncomplete {
+                read: 30_000,
+                total: 50_000
+            })
+        );
+        assert!(registry_guard(&db, 31_000).is_err(), "still moving");
+        registry_guard(&db, 31_000).unwrap(); // the same total twice: it holds
+        registry_guard(&db, 31_000).unwrap();
     }
 
     #[test]

@@ -60,6 +60,31 @@ pub enum BridgeError {
     DbNewer { found: i64, supported: i64 },
     #[error("keyring unavailable: {0}")]
     KeyringUnavailable(String),
+    /// Another copy of the app holds this data folder (plan 130 R-m).
+    #[error("another instance holds the data folder")]
+    AlreadyRunning,
+    /// The registry could not be read whole, so no link may be judged (plan 130 R-b).
+    #[error("registry read incomplete: {read} of {total}")]
+    RegistryIncomplete { read: usize, total: usize },
+    // Identity failures (plan 130 R-h): the row is held for the seller, nothing is written.
+    /// The link's product is no longer in Landau's registry.
+    #[error("stale link: product {product} is gone")]
+    StaleLink { product: String },
+    /// The write table did not let the link write; `reasons` is its JSON.
+    #[error("link needs review: {reasons}")]
+    NeedsReview { reasons: String },
+    /// The evidence contradicts the link (a number, an opposite word, the brand).
+    #[error("evidence conflicts with the link: {reasons}")]
+    EvidenceConflict { reasons: String },
+    /// Several links with different costs point at one shelf row (Q-3).
+    #[error("{links} links with different costs on one row")]
+    LinkConflict { links: usize },
+    /// The link was changed after this job proved it.
+    #[error("link changed since it was proven")]
+    LinkChanged,
+    /// The shelf row is not what this job planned against (or is gone).
+    #[error("shelf row changed: {0}")]
+    RowChanged(String),
     #[error("{0}")]
     Other(String),
 }
@@ -109,6 +134,14 @@ impl BridgeError {
             Db(_) => "Db",
             DbNewer { .. } => "DbNewer",
             KeyringUnavailable(_) => "KeyringUnavailable",
+            AlreadyRunning => "AlreadyRunning",
+            RegistryIncomplete { .. } => "RegistryIncomplete",
+            StaleLink { .. } => "StaleLink",
+            NeedsReview { .. } => "NeedsReview",
+            EvidenceConflict { .. } => "EvidenceConflict",
+            LinkConflict { .. } => "Conflict",
+            LinkChanged => "LinkChanged",
+            RowChanged(_) => "RowChanged",
             Other(_) => "Other",
         }
     }
@@ -141,10 +174,45 @@ impl BridgeError {
             Db(_) => "خطای پایگاه داده برنامه. جزئیات در گزارش خطاها ثبت شد.".into(),
             DbNewer { found, supported } => format!("این داده‌ها را نسخهٔ جدیدتری از برنامه ساخته است (نسخهٔ داده {found}، این برنامه تا {supported}). نسخهٔ جدیدتر را نصب کنید؛ پشتیبان پیش از ارتقا کنار پایگاه داده است."),
             KeyringUnavailable(_) => "ذخیره‌ساز امن سیستم در دسترس نیست؛ رمزها در پرونده برنامه نگه داشته می‌شوند.".into(),
+            AlreadyRunning => "پل لاندا همین حالا باز است. همان پنجره را به کار ببرید؛ دو نسخهٔ هم‌زمان روی یک قفسه می‌نویسند.".into(),
+            RegistryIncomplete { read, total } => format!("فهرست قطعه‌های لاندا کامل خوانده نشد ({read} از {total})؛ بدون فهرست کامل هیچ پیوندی سنجیده نمی‌شود و چیزی نوشته نشد. دوباره اجرا کنید."),
+            StaleLink { .. } => "قطعهٔ لاندای این پیوند دیگر در فهرست لاندا نیست؛ پیوند را در «تطبیق‌ها» دوباره انتخاب کنید.".into(),
+            NeedsReview { .. } => "شواهد این پیوند برای نوشتن خودکار کافی نیست؛ پیوند را بررسی و تأیید کنید.".into(),
+            EvidenceConflict { .. } => "نام بارزپخش با قطعهٔ لاندای این پیوند جور نیست (عدد، جهت یا برند)؛ پیوند را بررسی کنید.".into(),
+            LinkConflict { links } => format!("{links} نام بارزپخش با قیمت‌های متفاوت به یک ردیف قفسه وصل‌اند؛ تا یکی را انتخاب نکنید این ردیف نوشته نمی‌شود."),
+            LinkChanged => "این پیوند در میانهٔ عملیات تغییر کرد؛ این ردیف در اجرای بعدی با پیوند تازه نوشته می‌شود.".into(),
+            RowChanged(_) => "ردیف قفسه پس از خواندن تغییر کرد یا دیگر نیست؛ چیزی روی آن نوشته نشد.".into(),
             Other(d) => d.clone(),
         }
     }
 }
+
+impl BridgeError {
+    /// Identity failures hold a row for the seller; everything else that fails one item is a
+    /// transfer failure. The report counts them apart (plan 130 R-h).
+    pub fn is_identity(&self) -> bool {
+        use BridgeError::*;
+        matches!(
+            self,
+            StaleLink { .. }
+                | NeedsReview { .. }
+                | EvidenceConflict { .. }
+                | LinkConflict { .. }
+                | LinkChanged
+                | RowChanged(_)
+        )
+    }
+}
+
+/// The identity kinds, for counting stored items (plan 130 R-h).
+pub const IDENTITY_KINDS: &[&str] = &[
+    "StaleLink",
+    "NeedsReview",
+    "EvidenceConflict",
+    "Conflict",
+    "LinkChanged",
+    "RowChanged",
+];
 
 impl Serialize for BridgeError {
     fn serialize<S: Serializer>(&self, s: S) -> std::result::Result<S::Ok, S::Error> {
@@ -207,6 +275,23 @@ mod tests {
             BridgeError::JobCancelled,
             BridgeError::Db("no such table: invoices".into()),
             BridgeError::KeyringUnavailable("Platform secure storage failure".into()),
+            BridgeError::AlreadyRunning,
+            BridgeError::RegistryIncomplete {
+                read: 52_800,
+                total: 52_899,
+            },
+            BridgeError::StaleLink {
+                product: "6ac52427".into(),
+            },
+            BridgeError::NeedsReview {
+                reasons: "[{\"kind\":\"TIED\"}]".into(),
+            },
+            BridgeError::EvidenceConflict {
+                reasons: "[{\"kind\":\"NUMBER_CONFLICT\"}]".into(),
+            },
+            BridgeError::LinkConflict { links: 2 },
+            BridgeError::LinkChanged,
+            BridgeError::RowChanged("404".into()),
         ];
         for e in cases {
             let m = e.message_fa();
@@ -226,6 +311,39 @@ mod tests {
                 "{} keeps the raw detail in `detail`",
                 e.kind()
             );
+        }
+    }
+
+    #[test]
+    fn identity_failures_are_told_apart_from_transfer_failures() {
+        let identity = [
+            BridgeError::StaleLink {
+                product: "p".into(),
+            },
+            BridgeError::NeedsReview {
+                reasons: "[]".into(),
+            },
+            BridgeError::EvidenceConflict {
+                reasons: "[]".into(),
+            },
+            BridgeError::LinkConflict { links: 2 },
+            BridgeError::LinkChanged,
+            BridgeError::RowChanged("gone".into()),
+        ];
+        for e in &identity {
+            assert!(e.is_identity(), "{}", e.kind());
+            assert!(IDENTITY_KINDS.contains(&e.kind()), "{}", e.kind());
+        }
+        for e in [
+            BridgeError::LandauRejected {
+                status: 500,
+                body: String::new(),
+            },
+            BridgeError::LandauUnreachable("x".into()),
+            BridgeError::NoCurrentPrice { code: "1".into() },
+        ] {
+            assert!(!e.is_identity(), "{}", e.kind());
+            assert!(!IDENTITY_KINDS.contains(&e.kind()));
         }
     }
 }

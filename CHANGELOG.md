@@ -9,11 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Evidence (numbers, words, brand) and a write table to judge each supplier link; no job uses them yet. @vhidvz
+- Evidence (numbers, words, brand) and a write table that judge every supplier link before it may write. @vhidvz
+- Every job reads Landau's whole parts list and proves each supplier link against it before writing. @vhidvz
+- One shelf writer is the only way to write a cost or quantity, and refuses a link changed mid-job. @vhidvz
+- One app per data folder, and one job at a time even across two processes on one database. @vhidvz
+- A held link is labelled in Persian and counted apart from skipped and failed rows. @vhidvz
 
 ### Changed
 
 - A release cut now writes the changelog's compare links, and its notes no longer run into them. @vhidvz
+- A link to a product Landau re-imported moves to it only on an exact name, brand and alias. @vhidvz
+- Links move to a versioned table, each unverified until a job proves it; old builds find none. @vhidvz
+- Two supplier codes with different costs on one shelf row hold it instead of the last write winning. @vhidvz
+
+### Fixed
+
+- A product Landau no longer lists turns its link stale instead of failing every run with a 404. @vhidvz
 
 ## [1.1.1] - 2026-11-04
 

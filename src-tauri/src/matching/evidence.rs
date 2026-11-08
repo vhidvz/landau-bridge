@@ -1009,7 +1009,7 @@ pub(crate) mod tests {
             Some("آراد پارت"),
         )
     }
-    fn clamp_57a5() -> Candidate {
+    pub(crate) fn clamp_57a5() -> Candidate {
         cand(
             "6aec9869d00e9931421a57a5",
             "بست کمری نایلونی 37 سانتی عرض 7.6 میلی متر",
@@ -1017,7 +1017,7 @@ pub(crate) mod tests {
             Some("آراد پارت"),
         )
     }
-    fn clamp_57ac() -> Candidate {
+    pub(crate) fn clamp_57ac() -> Candidate {
         cand(
             "6aec986ad00e9931421a57ac",
             "بست کمری نایلونی 37 سانتی عرض 7.6 میلی متر CW",
@@ -1025,7 +1025,7 @@ pub(crate) mod tests {
             Some("آراد پارت"),
         )
     }
-    fn clamp_57eb() -> Candidate {
+    pub(crate) fn clamp_57eb() -> Candidate {
         cand(
             "6aec986ad00e9931421a57eb",
             "بست کمری نایلونی مشکی 38 سانتی عرض 4.8 میلی متر",
@@ -1052,8 +1052,9 @@ pub(crate) mod tests {
         "33102018",
         "بلبرينگ بزرگ چرخ عقب پرايد جدبد (بلبرينگ بزرگ چرخ جلو پيکان) 44649 PSN عظام (96) 3154028",
     );
-    const CLAMP_11: (&str, &str) = ("AR1330-11", "بست کمري CW3.6*370 آراد پارت (100)");
-    const CLAMP_4: (&str, &str) = ("AR1330-4", "بست کمري CW4.8*370 تايوان آراد پارت (100)");
+    pub(crate) const CLAMP_11: (&str, &str) = ("AR1330-11", "بست کمري CW3.6*370 آراد پارت (100)");
+    pub(crate) const CLAMP_4: (&str, &str) =
+        ("AR1330-4", "بست کمري CW4.8*370 تايوان آراد پارت (100)");
     const CLAMP_5: (&str, &str) = ("AR1330-5", "بست کمري 370 7/6 تايوان آراد پارت (100)");
     const CLAMP_8: (&str, &str) = ("AR1330-8", "بست کمري CW7.6*37 آراد پارت");
     const CLAMP_GSR: (&str, &str) = ("8800094", "بست کمري 380*4/8 GSR مشکي");

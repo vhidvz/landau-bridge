@@ -6,16 +6,19 @@ use std::collections::HashSet;
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use serde_json::json;
 
-use super::planner::{aggregate, find_row, floored, plan_write, shortfall, WriteAction};
-use super::pricing;
+use super::planner::aggregate;
+use super::proof::{plan_import, ImportCandidate, Judgement, Planned, Prover};
 use super::{
-    fatal, i, opt_i, preflight, quote_for, report, reprice_items, t, JobCtx, Services,
-    VatMismatches,
+    fatal, held, i, opt_i, preflight, quote_for, read_registry, report, reprice_items, t, JobCtx,
+    Services, VatMismatches,
 };
+use crate::db::jobs::JobItemRow;
+use crate::db::matches::{actor, state, LinkProduct, LinkPut};
+use crate::db::Db;
 use crate::domain::{Authenticity, ImportMode};
-use crate::errors::{kinds, BridgeError, Result};
-use crate::landau::{AttachBody, PatchBody, ShelfRow};
-use crate::matching::{Decision, Matcher};
+use crate::errors::{kinds, BridgeError, Result, IDENTITY_KINDS};
+use crate::landau::writer::ShelfWriter;
+use crate::matching::gate::{verdict, Judged, Origin, Verdict};
 use crate::settings::SUPPLIER_ID;
 use crate::supplier::Progress;
 
@@ -266,46 +269,42 @@ fn aggregate_phase(ctx: &JobCtx, params: &ImportParams) -> Result<()> {
     Ok(())
 }
 
-/// Returns how many items need review.
+/// MATCH with VALIDATE (plan 130 R-b): the registry read whole, then every item's stored link
+/// judged against it — a dead product rebuilt only on its exact definition — or a fresh automatic
+/// match through the gate. Returns how many items need review.
 async fn match_phase(ctx: &JobCtx, svc: &Services) -> Result<usize> {
     ctx.phase("MATCH")?;
-    let matcher = Matcher::new(ctx.db.clone(), SUPPLIER_ID, svc.settings.threshold);
-    let landau = &svc.landau;
-    let search = |q: String, limit: usize, skip: usize| async move {
-        landau.registry_search(&q, limit, skip).await
+    let registry = read_registry(ctx, svc, "MATCH").await?;
+    let prover = Prover {
+        db: &ctx.db,
+        registry: &registry,
+        supplier: SUPPLIER_ID,
+        job: ctx.job_id,
+        threshold: svc.settings.threshold,
     };
     let items = ctx.db.job_items(ctx.job_id)?;
     let total = items.len() as u32;
     let mut pending = 0usize;
     for (n, item) in items.iter().enumerate() {
         ctx.check_cancel()?;
-        // One failed search (a rejected query, a parse slip) must not take the whole job down:
-        // the item goes to review with no candidates and the seller re-searches by hand.
-        // Session/transport failures still stop the job.
-        let decision = match matcher.decide(&search, &item.code, &item.name).await {
-            Ok(d) => d,
-            Err(e) if fatal(&e) => return Err(e),
-            Err(e) => {
-                ctx.error("MATCH", &e, Some(json!({"item_id": item.id})));
-                Decision::Review(Vec::new())
-            }
-        };
-        match decision {
-            Decision::Matched {
-                product_id,
-                product_name,
-                ..
+        match prover.item(&item.name, &item.code).await? {
+            Judgement::Proven {
+                key,
+                version,
+                product,
             } => {
                 ctx.item(
                     item.id,
                     &[
-                        ("product_id", t(&product_id)),
-                        ("product_name", t(&product_name)),
+                        ("product_id", t(&product.id)),
+                        ("product_name", t(&product.name)),
+                        ("link_key", t(&key)),
+                        ("link_version", i(version)),
                         ("status", t("PLANNED")),
                     ],
                 )?;
             }
-            Decision::None => {
+            Judgement::NotInLandau => {
                 ctx.item(
                     item.id,
                     &[
@@ -315,15 +314,30 @@ async fn match_phase(ctx: &JobCtx, svc: &Services) -> Result<usize> {
                     ],
                 )?;
             }
-            Decision::Review(scored) => {
+            Judgement::Held {
+                reasons,
+                error,
+                candidates,
+                link_key,
+                link_product,
+            } => {
                 pending += 1;
-                ctx.item(
-                    item.id,
-                    &[
-                        ("status", t("REVIEW")),
-                        ("candidates_json", t(&serde_json::to_string(&scored)?)),
-                    ],
-                )?;
+                let mut patch = vec![
+                    ("status", t("REVIEW")),
+                    ("candidates_json", t(&serde_json::to_string(&candidates)?)),
+                    ("reasons_json", t(&serde_json::to_string(&reasons)?)),
+                ];
+                if let Some(k) = &link_key {
+                    patch.push(("link_key", t(k)));
+                }
+                if let Some(p) = &link_product {
+                    patch.push(("link_product", t(p)));
+                }
+                if let Some(e) = &error {
+                    patch.push(("error_kind", t(e.kind())));
+                    patch.push(("error_msg", t(&e.message_fa())));
+                }
+                ctx.item(item.id, &patch)?;
             }
         }
         ctx.progress("MATCH", n as u32 + 1, total, "تطبیق با فهرست لاندا");
@@ -337,6 +351,79 @@ async fn match_phase(ctx: &JobCtx, svc: &Services) -> Result<usize> {
         );
     }
     Ok(pending)
+}
+
+/// The seller's pick in review (spec §7.1; plan 130 R-a, R-b): a `USER` link to the product, proven
+/// for this job — its product was among the candidates this job gathered, or the seller found it
+/// by searching just now — with the definition the review list recorded when it has one. The item
+/// is planned from that link at its new version. R-d's second confirm for a pick against a conflict
+/// lands with its screen (slice 2's ruling); until then a pick writes as it always has.
+pub fn pick(
+    db: &Db,
+    item: &JobItemRow,
+    product_id: &str,
+    product_name: &str,
+    similarity: Option<i64>,
+    authenticity: Option<Authenticity>,
+) -> Result<()> {
+    let shown = item
+        .candidates
+        .as_ref()
+        .and_then(|c| c.as_array())
+        .and_then(|a| a.iter().find(|s| s["candidate"]["id"] == product_id))
+        .map(|s| s["candidate"].clone());
+    let field = |k: &str| {
+        shown
+            .as_ref()
+            .map(|c| c[k].as_str().unwrap_or("").to_string())
+    };
+    let (brand, alias) = (field("brand"), field("alias"));
+    let version = db.put_link(
+        SUPPLIER_ID,
+        &LinkPut {
+            name_seen: &item.name,
+            code: &item.code,
+            product: Some(LinkProduct {
+                id: product_id,
+                name: product_name,
+                brand: brand.as_deref(),
+                alias: alias.as_deref(),
+            }),
+            how: "USER",
+            similarity,
+            state: state::VALID,
+            state_reason: None,
+            validated_job: Some(item.job_id),
+            actor: actor::SELLER,
+            evidence: Some("shown"),
+            job_id: Some(item.job_id),
+            decided_at: None,
+            priced_at: None,
+        },
+    )?;
+    let mut patch = vec![
+        ("product_id", t(product_id)),
+        ("product_name", t(product_name)),
+        (
+            "link_key",
+            t(&crate::matching::normalize::name_key(&item.name)),
+        ),
+        ("link_version", i(version)),
+        ("link_product", rusqlite::types::Value::Null),
+        ("error_kind", rusqlite::types::Value::Null),
+        ("error_msg", rusqlite::types::Value::Null),
+        ("status", t("PLANNED")),
+    ];
+    if let Some(a) = authenticity {
+        patch.push(("authenticity", t(a.as_str())));
+    }
+    db.update_job_item(item.id, &patch)
+}
+
+/// What the write table says of a pick, for the screens: `Write`, or the conflicts a second
+/// confirm would show (R-d). Pure; nothing is stored.
+pub fn pick_verdict(judged: &Judged, threshold: u8) -> Verdict {
+    verdict(Origin::NewPick, judged, threshold)
 }
 
 /// Price → write → reprice → report over every item that is PLANNED with a product.
@@ -354,24 +441,33 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
         .unwrap_or(ImportMode::Zero);
     ctx.db.set_job_status(ctx.job_id, "RUNNING", "PRICE")?;
 
-    // deferred review items are left out of this run
+    // deferred review items are left out of this run; a refused stored link keeps its own kind,
+    // so the report counts it as held (plan 130 R-h)
     for item in ctx
         .db
         .job_items(ctx.job_id)?
         .iter()
         .filter(|i| i.status == "REVIEW")
     {
-        ctx.item(
-            item.id,
-            &[
-                ("status", t("SKIPPED")),
-                ("error_kind", t(kinds::UNMATCHED)),
-                (
-                    "error_msg",
-                    t("بدون تصمیم؛ در اجرای بعدی دوباره پرسیده می‌شود."),
-                ),
-            ],
-        )?;
+        let identity = item
+            .error_kind
+            .as_deref()
+            .is_some_and(|k| IDENTITY_KINDS.contains(&k));
+        if identity {
+            ctx.item(item.id, &[("status", t("SKIPPED"))])?;
+        } else {
+            ctx.item(
+                item.id,
+                &[
+                    ("status", t("SKIPPED")),
+                    ("error_kind", t(kinds::UNMATCHED)),
+                    (
+                        "error_msg",
+                        t("بدون تصمیم؛ در اجرای بعدی دوباره پرسیده می‌شود."),
+                    ),
+                ],
+            )?;
+        }
     }
 
     ctx.phase("PRICE")?;
@@ -442,250 +538,145 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
 
     ctx.phase("WRITE")?;
     let mut shelf = svc.landau.shelf(&store).await?;
-    let items: Vec<_> = ctx
-        .db
-        .job_items(ctx.job_id)?
-        .into_iter()
+    let all = ctx.db.job_items(ctx.job_id)?;
+    // Products a link of this job still waits on — under review, unpriced, failed at its quote, or
+    // planned without a link — so no other link writes there in its place (R-e; slice 2's review).
+    let mut unresolved: HashSet<String> = HashSet::new();
+    for item in all
+        .iter()
+        .filter(|i| !(i.status == "PLANNED" && i.cost.is_some()))
+    {
+        unresolved.extend(item.link_product.iter().cloned());
+        unresolved.extend(item.product_id.iter().cloned());
+    }
+    let mut candidates = Vec::new();
+    for item in all
+        .iter()
         .filter(|i| i.status == "PLANNED" && i.cost.is_some())
-        .collect();
-    let total = items.len() as u32;
-    let mut written: Vec<(i64, String)> = Vec::new();
-    for (n, item) in items.iter().enumerate() {
-        ctx.check_cancel()?;
-        let product = item.product_id.clone().unwrap_or_default();
-        let authenticity = item
-            .authenticity
-            .as_deref()
-            .and_then(Authenticity::parse)
-            .unwrap_or(svc.settings.default_authenticity);
-        let existing = find_row(&shelf, &product, authenticity.as_str());
-        // §14 d: an unavailable quote never lowers a row's cost.
-        let (cost, held) = pricing::effective_cost(
-            item.cost.unwrap_or(0),
-            item.available.unwrap_or(true),
-            existing.and_then(|r| r.cost),
-        );
-        if held {
-            ctx.db
-                .add_item_note(item.id, "ناموجود؛ قیمت پایین‌تر نادیده گرفته شد")?;
-            ctx.item(item.id, &[("cost", i(cost))])?;
-        }
-        let action = plan_write(existing, item.qty, mode);
-        let result: Result<Written> = match &action {
-            WriteAction::Attach { inventory } => {
-                match svc
-                    .landau
-                    .attach(&AttachBody {
-                        product: product.clone(),
-                        store: store.clone(),
-                        inventory: *inventory,
-                        cost,
-                        price: pricing::floor_price(cost, svc.settings.min_margin_percent),
-                        authenticity,
-                    })
-                    .await
-                {
-                    Ok(row) => {
-                        shelf.push(row.clone());
-                        Ok(Written {
-                            stock_id: row.id,
-                            qty_before: None,
-                            qty_after: Some(*inventory),
-                            price_before: None,
-                            price_after: row.price,
-                            verb: "ATTACH",
-                            shortfall: shortfall(0, item.qty),
-                        })
-                    }
-                    Err(BridgeError::DuplicateRow) => {
-                        // The mirror lagged behind a row that exists: re-read the live shelf and
-                        // patch that row instead. Only the row found is merged into the local
-                        // shelf — replacing the whole mirror would drop the figures this run has
-                        // already written to sibling rows the lagging read does not show yet.
-                        let fresh = svc.landau.shelf(&store).await?;
-                        match find_row(&fresh, &product, authenticity.as_str()).cloned() {
-                            Some(row) => {
-                                merge_row(&mut shelf, row.clone());
-                                let inv = (mode == ImportMode::Quantity)
-                                    .then_some(floored(row.inventory, item.qty));
-                                svc.landau
-                                    .patch(
-                                        &row.id,
-                                        &PatchBody {
-                                            inventory: inv,
-                                            cost: Some(cost),
-                                        },
-                                    )
-                                    .await
-                                    .map(|reply| Written {
-                                        stock_id: row.id.clone(),
-                                        qty_before: Some(row.inventory),
-                                        qty_after: inv.or(Some(row.inventory)),
-                                        price_before: row.price,
-                                        price_after: reply.price,
-                                        verb: "PATCH",
-                                        shortfall: shortfall(row.inventory, item.qty),
-                                    })
-                            }
-                            // Not live either: a seller who removed this exact part earlier and is
-                            // now importing it again. Landau's uniqueness index on (product, store,
-                            // …) still holds the soft-deleted row, so a fresh attach 409s forever —
-                            // the row must be restored before it can be patched (spec §2.1
-                            // amendment, discovered live: "a removed stock row in this store still
-                            // holds this part; restore it instead of attaching a second one").
-                            // A restored row is a fresh attach: whatever it held when it was removed
-                            // is gone from the seller's point of view, so its inventory is set to
-                            // this run's quantity (zero in zero mode), not added to.
-                            None => {
-                                let trash = svc.landau.shelf_deleted(&store).await?;
-                                match find_row(&trash, &product, authenticity.as_str()).cloned() {
-                                    Some(removed) => {
-                                        svc.landau.restore(&removed.id).await?;
-                                        let inv = if mode == ImportMode::Quantity {
-                                            floored(0, item.qty)
-                                        } else {
-                                            0
-                                        };
-                                        let outcome = svc
-                                            .landau
-                                            .patch(
-                                                &removed.id,
-                                                &PatchBody {
-                                                    inventory: Some(inv),
-                                                    cost: Some(cost),
-                                                },
-                                            )
-                                            .await
-                                            .map(|reply| Written {
-                                                stock_id: removed.id.clone(),
-                                                qty_before: Some(removed.inventory),
-                                                qty_after: Some(inv),
-                                                price_before: removed.price,
-                                                price_after: reply.price,
-                                                verb: "PATCH",
-                                                shortfall: shortfall(0, item.qty),
-                                            });
-                                        if outcome.is_ok() {
-                                            ctx.info(
-                                                "WRITE",
-                                                "ردیف حذف‌شده بازیابی شد.",
-                                                Some(
-                                                    json!({"item_id": item.id, "stock_id": removed.id}),
-                                                ),
-                                            );
-                                            let mut restored = removed;
-                                            restored.inventory = inv;
-                                            restored.cost = Some(cost);
-                                            merge_row(&mut shelf, restored);
-                                        }
-                                        outcome
-                                    }
-                                    None => Err(BridgeError::DuplicateRow),
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => Err(e),
-                }
-            }
-            WriteAction::Patch {
-                stock_id,
-                inventory,
-                qty_before,
-            } => {
-                let price_before = existing.and_then(|r| r.price);
-                svc.landau
-                    .patch(
-                        stock_id,
-                        &PatchBody {
-                            inventory: *inventory,
-                            cost: Some(cost),
-                        },
-                    )
-                    .await
-                    .map(|reply| Written {
-                        stock_id: stock_id.clone(),
-                        qty_before: Some(*qty_before),
-                        qty_after: inventory.or(Some(*qty_before)),
-                        price_before,
-                        price_after: reply.price,
-                        verb: "PATCH",
-                        shortfall: shortfall(*qty_before, item.qty),
-                    })
-            }
+    {
+        let (Some(product), Some(key), Some(version)) =
+            (&item.product_id, &item.link_key, item.link_version)
+        else {
+            held(ctx, &[item.id], &BridgeError::LinkChanged)?;
+            unresolved.extend(item.product_id.iter().cloned());
+            continue;
         };
-        match result {
-            Ok(Written {
-                stock_id,
-                qty_before: before,
-                qty_after: after,
-                price_before,
-                price_after,
-                verb,
-                shortfall: short,
-            }) => {
-                // keep the local mirror current: a second item mapped to the same
-                // (product, authenticity) tuple must see this write, not the stale figure.
-                if let Some(new_qty) = after {
-                    if let Some(pos) = shelf.iter().position(|r| r.id == stock_id) {
-                        shelf[pos].inventory = new_qty;
-                        shelf[pos].cost = Some(cost);
-                    }
+        candidates.push(ImportCandidate {
+            item_id: item.id,
+            product: product.clone(),
+            authenticity: item
+                .authenticity
+                .as_deref()
+                .and_then(Authenticity::parse)
+                .unwrap_or(svc.settings.default_authenticity),
+            cost: item.cost.unwrap_or(0),
+            qty: item.qty,
+            link_key: key.clone(),
+            link_version: version,
+        });
+    }
+    let plan = plan_import(&ctx.db, SUPPLIER_ID, ctx.job_id, &candidates, &unresolved)?;
+    let writer = ShelfWriter::new(&svc.landau, &ctx.db, SUPPLIER_ID);
+    let total = plan.len() as u32;
+    let mut written: Vec<(i64, String)> = Vec::new();
+    for (n, planned) in plan.iter().enumerate() {
+        ctx.check_cancel()?;
+        let w = match planned {
+            Planned::Held { items, error } => {
+                held(ctx, items, error)?;
+                continue;
+            }
+            Planned::Write(w) => w,
+        };
+        let group: Vec<&JobItemRow> = w
+            .items()
+            .iter()
+            .filter_map(|id| all.iter().find(|i| i.id == *id))
+            .collect();
+        let available = group.iter().all(|i| i.available.unwrap_or(true));
+        let authenticity = match w.target() {
+            super::proof::Target::Row { authenticity, .. } => *authenticity,
+            super::proof::Target::Stock { .. } => svc.settings.default_authenticity,
+        };
+        match writer
+            .import(
+                w,
+                &store,
+                mode,
+                available,
+                svc.settings.min_margin_percent,
+                &mut shelf,
+            )
+            .await
+        {
+            Ok(done) => {
+                let qty: i64 = group.iter().map(|i| i.qty).sum();
+                if done.held {
+                    ctx.db
+                        .add_item_note(w.lead(), "ناموجود؛ قیمت پایین‌تر نادیده گرفته شد")?;
                 }
-                if mode == ImportMode::Quantity && short > 0 {
+                if done.restored {
+                    ctx.info(
+                        "WRITE",
+                        "ردیف حذف‌شده بازیابی شد.",
+                        Some(json!({"item_id": w.lead(), "stock_id": done.stock_id})),
+                    );
+                }
+                if mode == ImportMode::Quantity && done.shortfall > 0 {
+                    let short = done.shortfall;
                     ctx.warn(
                         "WRITE",
                         kinds::NEGATIVE_QUANTITY,
                         &format!(
                             "«{}»: مرجوعی‌ها {short} عدد بیشتر از موجودی قفسه بود؛ موجودی صفر شد.",
-                            item.name
+                            group[0].name
                         ),
-                        Some(json!({"item_id": item.id, "stock_id": stock_id, "shortfall": short, "qty": item.qty, "qty_before": before})),
+                        Some(json!({"item_id": w.lead(), "stock_id": done.stock_id, "shortfall": short, "qty": qty, "qty_before": done.qty_before})),
                     );
                 }
-                // the transfer guard is written first, before the item is stamped WRITTEN: if
-                // the process dies between the two SQLite writes, the guard alone is enough to
-                // stop a re-aggregation from double-adding this (invoice, code) pair next run —
-                // an orphaned guard only loses this item's report status, never inventory.
-                if mode == ImportMode::Quantity {
-                    let lines: Vec<(i64, String)> = item
-                        .invoice_ids
-                        .iter()
-                        .map(|invoice_id| (*invoice_id, item.code.clone()))
-                        .collect();
-                    ctx.db.mark_lines_imported(&lines, ctx.job_id)?;
-                }
-                ctx.item(
-                    item.id,
-                    &[
-                        ("stock_id", t(&stock_id)),
-                        ("action", t(verb)),
-                        ("qty_before", opt_i(before)),
-                        ("qty_after", opt_i(after)),
-                        ("price_before", opt_i(price_before)),
-                        ("price_after", opt_i(price_after)),
+                for item in &group {
+                    // the transfer guard is written first, before the item is stamped WRITTEN: if
+                    // the process dies between the two SQLite writes, the guard alone is enough to
+                    // stop a re-aggregation from double-adding this (invoice, code) pair next run —
+                    // an orphaned guard only loses this item's report status, never inventory.
+                    if mode == ImportMode::Quantity {
+                        let lines: Vec<(i64, String)> = item
+                            .invoice_ids
+                            .iter()
+                            .map(|invoice_id| (*invoice_id, item.code.clone()))
+                            .collect();
+                        ctx.db.mark_lines_imported(&lines, ctx.job_id)?;
+                    }
+                    let lead = item.id == w.lead();
+                    let mut patch = vec![
+                        ("stock_id", t(&done.stock_id)),
+                        ("cost", i(done.cost)),
                         ("authenticity", t(authenticity.as_str())),
                         ("status", t("WRITTEN")),
-                    ],
-                )?;
-                written.push((item.id, stock_id));
+                    ];
+                    if lead {
+                        patch.extend([
+                            ("action", t(done.verb)),
+                            ("qty_before", opt_i(done.qty_before)),
+                            ("qty_after", opt_i(done.qty_after)),
+                            ("price_before", opt_i(done.price_before)),
+                            ("price_after", opt_i(done.price_after)),
+                        ]);
+                    } else {
+                        ctx.db.add_item_note(
+                            item.id,
+                            &format!(
+                                "با «{}» یکجا روی همان ردیف نوشته شد (همان قیمت خرید).",
+                                group[0].name
+                            ),
+                        )?;
+                    }
+                    ctx.item(item.id, &patch)?;
+                    written.push((item.id, done.stock_id.clone()));
+                }
             }
             Err(e) if fatal(&e) => return Err(e),
-            Err(e) => {
-                ctx.error(
-                    "WRITE",
-                    &e,
-                    Some(json!({"item_id": item.id, "product": product})),
-                );
-                ctx.item(
-                    item.id,
-                    &[
-                        ("status", t("FAILED")),
-                        ("error_kind", t(e.kind())),
-                        ("error_msg", t(&e.message_fa())),
-                    ],
-                )?;
-            }
+            Err(e) => held(ctx, w.items(), &e)?,
         }
         ctx.progress("WRITE", n as u32 + 1, total, "نوشتن روی قفسه لاندا");
     }
@@ -700,7 +691,9 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
         "done": count("DONE"),
         "attached": all.iter().filter(|i| i.action.as_deref() == Some("ATTACH")).count(),
         "patched": all.iter().filter(|i| i.action.as_deref() == Some("PATCH")).count(),
-        "skipped": count("SKIPPED"),
+        // held rows are counted apart (plan 130 R-h), never twice
+        "skipped": all.iter().filter(|i| i.status == "SKIPPED" && !i.error_kind.as_deref().is_some_and(|k| IDENTITY_KINDS.contains(&k))).count(),
+        "held": all.iter().filter(|i| i.error_kind.as_deref().is_some_and(|k| IDENTITY_KINDS.contains(&k))).count(),
         "failed": count("FAILED"),
         "invoice_ids": job.summary.as_ref().and_then(|s| s.get("invoice_ids")).cloned().unwrap_or(json!([])),
     });
@@ -709,31 +702,11 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
     Ok(())
 }
 
-/// What one successful shelf write left behind, for the item's report columns.
-struct Written {
-    stock_id: String,
-    qty_before: Option<i64>,
-    qty_after: Option<i64>,
-    price_before: Option<i64>,
-    /// The price Landau answered on the write (plan 107); the REPRICE phase confirms it.
-    price_after: Option<i64>,
-    verb: &'static str,
-    /// Units of a negative transfer the shelf could not absorb (0 unless the floor bit).
-    shortfall: i64,
-}
-
-/// Put a freshly read row into the local shelf mirror: replace the entry with the same id, or
-/// add it. Never replaces the whole mirror (see the 409 branch of `commit`).
-fn merge_row(shelf: &mut Vec<ShelfRow>, row: ShelfRow) {
-    match shelf.iter().position(|r| r.id == row.id) {
-        Some(pos) => shelf[pos] = row,
-        None => shelf.push(row),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::landau::writer::merge_row;
+    use crate::landau::ShelfRow;
 
     fn row(id: &str, inventory: i64) -> ShelfRow {
         ShelfRow {
@@ -1088,5 +1061,67 @@ mod tests {
         assert_eq!(shelf[0].inventory, 1, "untouched sibling keeps its figure");
         assert_eq!(shelf[1].inventory, 7, "same id replaced in place");
         assert_eq!(shelf[2].id, "c");
+    }
+
+    /// Task 3, R-b: a registry Landau cannot serve whole stops MATCH; no link is judged, every
+    /// stored link stays `UNVERIFIED`, and no item is planned from one.
+    #[tokio::test]
+    async fn a_registry_out_of_reach_stops_matching_and_leaves_links_unverified() {
+        let ctx = job_ctx();
+        ctx.db
+            .set_match(SUPPLIER_ID, "قطعه", "C1", Some(("p1", "x")), "USER", None)
+            .unwrap();
+        ctx.db.add_job_item(ctx.job_id, "C1", "قطعه", 1).unwrap();
+        let e = match_phase(&ctx, &flaky_services()).await.unwrap_err();
+        assert!(matches!(e, BridgeError::LandauUnreachable(_)), "{e:?}");
+        assert!(fatal(&e), "the job stops");
+        let link = ctx.db.match_for_name(SUPPLIER_ID, "قطعه").unwrap().unwrap();
+        assert_eq!(link.state, "UNVERIFIED");
+        let item = &ctx.db.job_items(ctx.job_id).unwrap()[0];
+        assert_eq!(
+            (item.product_id.as_deref(), item.link_key.as_deref()),
+            (None, None)
+        );
+    }
+
+    /// The seller's pick in review is a proven link for this job, at the version it now holds,
+    /// carrying the definition the review list showed (R-a, R-b).
+    #[test]
+    fn a_review_pick_is_proven_for_its_job_with_the_definition_shown() {
+        let ctx = job_ctx();
+        let id = ctx.db.add_job_item(ctx.job_id, "C1", "قطعه", 1).unwrap();
+        ctx.db
+            .update_job_item(
+                id,
+                &[
+                    ("status", t("REVIEW")),
+                    (
+                        "candidates_json",
+                        t(r#"[{"candidate":{"id":"p1","name":"x","alias":"a | b","brand":"عظام","score":0.0},"similarity":70}]"#),
+                    ),
+                ],
+            )
+            .unwrap();
+        let item = ctx.db.job_item(id).unwrap().unwrap();
+        pick(&ctx.db, &item, "p1", "x", Some(70), None).unwrap();
+        let item = ctx.db.job_item(id).unwrap().unwrap();
+        assert_eq!(item.status, "PLANNED");
+        let link = ctx.db.match_for_name(SUPPLIER_ID, "قطعه").unwrap().unwrap();
+        assert!(link.writable_for(ctx.job_id, item.link_version.unwrap(), "p1"));
+        assert_eq!(item.link_key.as_deref(), Some(link.name_key.as_str()));
+        assert_eq!(
+            (link.product_brand.as_deref(), link.product_alias.as_deref()),
+            (Some("عظام"), Some("a | b"))
+        );
+        let last = ctx
+            .db
+            .match_events(SUPPLIER_ID, &link.name_key)
+            .unwrap()
+            .pop()
+            .unwrap();
+        assert_eq!(
+            (last.actor.as_str(), last.evidence.as_deref()),
+            ("SELLER", Some("shown"))
+        );
     }
 }

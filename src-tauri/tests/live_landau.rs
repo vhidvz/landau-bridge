@@ -3,7 +3,7 @@
 
 use landau_bridge_lib::domain::Authenticity;
 use landau_bridge_lib::errors::BridgeError;
-use landau_bridge_lib::landau::{AttachBody, LandauClient, PatchBody};
+use landau_bridge_lib::landau::{fixture, AttachBody, LandauClient, PatchBody};
 
 fn client() -> Option<(LandauClient, String)> {
     let url = std::env::var("LND_API_URL").ok()?;
@@ -70,16 +70,18 @@ async fn memberships_shelf_search_attach_patch_reprice_delete() {
         let product = candidates.next().expect(
             "every candidate in this search term was already attached-then-removed by a prior run",
         );
-        match landau
-            .attach(&AttachBody {
+        match fixture::attach(
+            &landau,
+            &AttachBody {
                 product: product.id.clone(),
                 store: store.clone(),
                 inventory: 1,
                 cost: 160_000,
                 price: 200_000,
                 authenticity: Authenticity::Fake,
-            })
-            .await
+            },
+        )
+        .await
         {
             Ok(row) => break (row, product),
             Err(BridgeError::DuplicateRow) => continue,
@@ -95,16 +97,16 @@ async fn memberships_shelf_search_attach_patch_reprice_delete() {
     );
     assert_eq!(row.price_source.as_deref(), Some("RULE"));
 
-    let patched = landau
-        .patch(
-            &row.id,
-            &PatchBody {
-                inventory: Some(4),
-                cost: Some(200_000),
-            },
-        )
-        .await
-        .expect("patch");
+    let patched = fixture::patch(
+        &landau,
+        &row.id,
+        &PatchBody {
+            inventory: Some(4),
+            cost: Some(200_000),
+        },
+    )
+    .await
+    .expect("patch");
     assert_eq!(
         patched.price,
         Some(230_000),
@@ -129,7 +131,7 @@ async fn memberships_shelf_search_attach_patch_reprice_delete() {
         .expect("a bogus id is simply absent")
         .is_empty());
 
-    landau.delete(&row.id).await.expect("delete");
+    fixture::delete(&landau, &row.id).await.expect("delete");
 }
 
 #[tokio::test]

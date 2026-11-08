@@ -7,8 +7,7 @@ use landau_bridge_lib::domain::ImportMode;
 use landau_bridge_lib::jobs::import::{self, ImportParams, Outcome};
 use landau_bridge_lib::jobs::pricing::floor_price;
 use landau_bridge_lib::jobs::{refresh, JobCtx, Services};
-use landau_bridge_lib::landau::{LandauClient, PatchBody};
-use landau_bridge_lib::matching::Matcher;
+use landau_bridge_lib::landau::{fixture, LandauClient, PatchBody};
 use landau_bridge_lib::secrets::SecretStore;
 use landau_bridge_lib::settings::{Settings, SettingsPatch, SUPPLIER_ID};
 use landau_bridge_lib::supplier;
@@ -20,8 +19,7 @@ fn env(k: &str) -> Option<String> {
 /// Resolve a paused review the way a seller in a hurry would: the top candidate of the first
 /// `picks` items is accepted (a USER decision, persisted), every other item is left in REVIEW so
 /// `commit` skips it and the next run asks again.
-fn accept_top_candidates(db: &Db, settings: &Settings, job_id: i64, picks: usize) {
-    let matcher = Matcher::new(db.clone(), SUPPLIER_ID, settings.threshold);
+fn accept_top_candidates(db: &Db, _settings: &Settings, job_id: i64, picks: usize) {
     let mut accepted = 0usize;
     for item in db
         .job_items(job_id)
@@ -43,24 +41,8 @@ fn accept_top_candidates(db: &Db, settings: &Settings, job_id: i64, picks: usize
         };
         let id = top["candidate"]["id"].as_str().unwrap().to_string();
         let name = top["candidate"]["name"].as_str().unwrap().to_string();
-        matcher
-            .record_user_pick(
-                &item.name,
-                &item.code,
-                &id,
-                &name,
-                top["similarity"].as_i64(),
-            )
-            .unwrap();
-        db.update_job_item(
-            item.id,
-            &[
-                ("product_id", landau_bridge_lib::jobs::t(&id)),
-                ("product_name", landau_bridge_lib::jobs::t(&name)),
-                ("status", landau_bridge_lib::jobs::t("PLANNED")),
-            ],
-        )
-        .unwrap();
+        // the review screen's own path (`review_decide`): a USER link proven for this job
+        import::pick(db, &item, &id, &name, top["similarity"].as_i64(), None).unwrap();
         accepted += 1;
     }
 }
@@ -131,6 +113,8 @@ async fn zero_import_then_refresh_round_trip() {
         accept_top_candidates(&db, &settings, job_id, 1);
         import::commit(&ctx, &svc).await.expect("import commit");
     }
+    // as the command layer's `spawn` does: one job at a time holds until the job is finished
+    ctx.finish(&Ok(()), "REPORT");
     let detail = db.job_detail(job_id).unwrap();
     let done: Vec<_> = detail.items.iter().filter(|i| i.status == "DONE").collect();
     for i in &done {
@@ -158,8 +142,9 @@ async fn zero_import_then_refresh_round_trip() {
     );
     assert!(detail.events.iter().any(|e| e.phase == "REPRICE"));
     // Plan 107 / spec §14 e–f: every write is priced by the fixture's 15 % SHELF rule (rounding
-    // 1 000), which is exactly the bridge's provisional floor at the default 15 % margin — so a
-    // fresh row's final price equals `floor_price(cost, 15)` and no row is below the margin.
+    // 1 000). The rule rounds to the *nearest* 1 000 while the bridge's provisional floor rounds
+    // up, so a fresh row's final price is the rule's — within half a step of cost × 1.15 — and not
+    // necessarily `floor_price(cost, 15)` (plan 130 PI-14: 909 700 → 1 046 000, the floor 1 047 000).
     for i in &done {
         let cost = i.cost.expect("costed");
         let price = i
@@ -167,10 +152,10 @@ async fn zero_import_then_refresh_round_trip() {
             .expect("the write reply and the reprice both carry a price");
         assert!(i.available.is_some(), "availability is recorded");
         if i.action.as_deref() == Some("ATTACH") {
-            assert_eq!(
-                price,
-                floor_price(cost, 15.0),
-                "code={} cost={cost}: Landau's rule priced the attach",
+            let by_rule = cost as f64 * 1.15;
+            assert!(
+                (price as f64 - by_rule).abs() <= 500.0 && price <= floor_price(cost, 15.0),
+                "code={} cost={cost} price={price}: Landau's rule priced the attach, not the provisional floor",
                 i.code
             );
         }
@@ -205,6 +190,7 @@ async fn zero_import_then_refresh_round_trip() {
     };
     let svc = services();
     refresh::run(&ctx, &svc).await.expect("refresh");
+    ctx.finish(&Ok(()), "REPORT");
     let detail = db.job_detail(job_id).unwrap();
     let refreshed: Vec<_> = detail
         .items
@@ -233,7 +219,7 @@ async fn zero_import_then_refresh_round_trip() {
         .filter(|i| i.action.as_deref() == Some("ATTACH"))
     {
         if let Some(id) = &item.stock_id {
-            let _ = landau.delete(id).await;
+            let _ = fixture::delete(&landau, id).await;
         }
     }
 }
@@ -309,6 +295,7 @@ async fn quantity_import_is_idempotent_across_runs() {
                 accept_top_candidates(&db, &settings, job_id, picks);
                 import::commit(&ctx, &svc).await.expect("import commit");
             }
+            ctx.finish(&Ok(()), "REPORT");
             job_id
         }
     };
@@ -434,21 +421,21 @@ async fn quantity_import_is_idempotent_across_runs() {
             let Some(id) = &item.stock_id else { continue };
             match (item.action.as_deref(), item.qty_before) {
                 (Some("ATTACH"), _) => {
-                    let _ = landau.delete(id).await;
+                    let _ = fixture::delete(&landau, id).await;
                 }
                 (Some("PATCH"), _) if restored.contains(&item.id) => {
-                    let _ = landau.delete(id).await;
+                    let _ = fixture::delete(&landau, id).await;
                 }
                 (Some("PATCH"), Some(before)) if item.qty_after != Some(before) => {
-                    let _ = landau
-                        .patch(
-                            id,
-                            &PatchBody {
-                                inventory: Some(before),
-                                cost: None,
-                            },
-                        )
-                        .await;
+                    let _ = fixture::patch(
+                        &landau,
+                        id,
+                        &PatchBody {
+                            inventory: Some(before),
+                            cost: None,
+                        },
+                    )
+                    .await;
                 }
                 _ => {}
             }

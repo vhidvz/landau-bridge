@@ -322,6 +322,7 @@ mod tests {
             name_seen: name.into(),
             priced_at: product.map(|_| "2026-10-02T00:00:00Z".to_string()),
             decided_at: "2026-10-01T00:00:00Z".into(),
+            ..Default::default()
         }
     }
 

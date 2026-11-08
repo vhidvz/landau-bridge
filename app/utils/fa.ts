@@ -116,6 +116,15 @@ export const kindLabel = (kind: string): string =>
     Other: 'خطای پیش‌بینی‌نشده',
     JobNotFound: 'عملیات پیدا نشد',
     JobBusy: 'عملیات دیگری در جریان است',
+    // plan 130: a link held for the seller, never written on a guess
+    StaleLink: 'قطعهٔ پیوند در لاندا نیست',
+    NeedsReview: 'پیوند نیازمند بررسی',
+    EvidenceConflict: 'ناسازگاری نام با قطعه',
+    Conflict: 'چند پیوند با قیمت متفاوت',
+    LinkChanged: 'پیوند در میانهٔ کار تغییر کرد',
+    RowChanged: 'ردیف قفسه تغییر کرد',
+    AlreadyRunning: 'برنامه از قبل باز است',
+    RegistryIncomplete: 'فهرست لاندا کامل خوانده نشد',
   })[kind] ?? kind;
 
 // ---- job presentation (spec §6) -----------------------------------------------------------------
@@ -149,8 +158,8 @@ export const statusTone = (status: string | null | undefined): Tone =>
 
 export interface SummaryTile { label: string; value: number }
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
-const IMPORT_TILES: readonly [string, string][] = [['items', 'اقلام'], ['done', 'انجام‌شده'], ['attached', 'افزوده'], ['patched', 'به‌روز'], ['skipped', 'ردشده'], ['failed', 'ناموفق']];
-const REFRESH_TILES: readonly [string, string][] = [['rows', 'ردیف‌ها'], ['changed', 'تغییر قیمت'], ['skipped_manual', 'قیمت دستی']];
+const IMPORT_TILES: readonly [string, string][] = [['items', 'اقلام'], ['done', 'انجام‌شده'], ['attached', 'افزوده'], ['patched', 'به‌روز'], ['skipped', 'ردشده'], ['held', 'نگه‌داشته'], ['failed', 'ناموفق']];
+const REFRESH_TILES: readonly [string, string][] = [['rows', 'ردیف‌ها'], ['changed', 'تغییر قیمت'], ['skipped_manual', 'قیمت دستی'], ['held', 'نگه‌داشته']];
 
 /** The numeric parts of a job summary, in display order; keys that are missing or not numbers are skipped. */
 export const summaryTiles = (job: Pick<JobRow, 'kind' | 'summary'>): SummaryTile[] => {
@@ -188,7 +197,7 @@ export type KindFamily = 'supplier' | 'landau' | 'app';
 /** Which side an error kind belongs to — the split that tells the seller whom to call. */
 export const kindFamily = (kind: string): KindFamily => {
   if (/^Supplier|^Invoice|^(NoCurrentPrice|LineNonPositiveQty|VatRateMismatch)$/.test(kind)) return 'supplier';
-  if (/^Landau|^(BusinessNotApproved|NoStore|ProductNotApproved|DuplicateRow|MirrorTimeout|NoPricingRule|BelowMinMargin|RepriceSkipped)$/.test(kind)) return 'landau';
+  if (/^Landau|^(BusinessNotApproved|NoStore|ProductNotApproved|DuplicateRow|MirrorTimeout|NoPricingRule|BelowMinMargin|RepriceSkipped|RegistryIncomplete)$/.test(kind)) return 'landau';
   return 'app';
 };
 

@@ -18,6 +18,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0001_init.sql"),
     include_str!("migrations/0002_names.sql"),
     include_str!("migrations/0003_drop_name_map.sql"),
+    include_str!("migrations/0004_supplier_links.sql"),
 ];
 
 /// The schema this build writes: one version per migration.
@@ -35,6 +36,9 @@ impl Db {
         }
         let existed = path.is_file();
         let conn = Connection::open(path)?;
+        // A second writer (another process on this file) waits for the first instead of failing:
+        // the job start takes SQLite's write lock up front (R-m).
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
         let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
         // Refuse a newer schema before anything (even the journal mode) is written to it.
         newer_guard(current)?;
@@ -94,8 +98,9 @@ impl Db {
         self.backfill_name_keys()
     }
 
-    /// Migration 0002 renamed the code-keyed `matches` to `matches_old`; move its rows back under
-    /// their name key (spec §14 a). Idempotent: nothing to do once the old table is gone.
+    /// Migration 0002 renamed the code-keyed `matches` to `matches_old`; move its rows under their
+    /// name key (spec §14 a) into `supplier_links`, `UNVERIFIED` like every link migration 0004
+    /// moved (plan 130). Idempotent: nothing to do once the old table is gone.
     pub fn backfill_name_keys(&self) -> Result<()> {
         use crate::matching::normalize::name_key;
         self.with(|c| {
@@ -139,8 +144,8 @@ impl Db {
                     .collect::<rusqlite::Result<_>>()?;
                 for (supplier, code, pid, pname, how, sim, name_seen, decided_at) in rows {
                     tx.execute(
-                        "INSERT OR REPLACE INTO matches(supplier, name_key, code, product_id, product_name, how, similarity, name_seen, decided_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                        "INSERT OR REPLACE INTO supplier_links(supplier, name_key, code, product_id, product_name, how, similarity, name_seen, decided_at, state)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'UNVERIFIED')",
                         rusqlite::params![
                             supplier,
                             name_key(&name_seen),
@@ -258,13 +263,13 @@ mod tests {
         assert_eq!(db.setting("threshold").unwrap().as_deref(), Some("80"));
         // migrating again is a no-op
         db.migrate().unwrap();
-        assert_eq!(db.user_version().unwrap(), 3);
+        assert_eq!(db.user_version().unwrap(), SCHEMA_VERSION);
     }
 
     #[test]
     fn migrates_to_version_2_and_moves_old_links_under_their_name_key() {
         let db = Db::in_memory().unwrap();
-        assert_eq!(db.user_version().unwrap(), 3);
+        assert_eq!(db.user_version().unwrap(), SCHEMA_VERSION);
         // simulate a row left behind by a v1 database
         db.with(|c| {
             c.execute_batch(
@@ -678,6 +683,10 @@ mod tests {
         there.apply_decisions(sup, &file.decisions).unwrap();
         let mut a = here.list_matches(sup).unwrap();
         let mut b = there.list_matches(sup).unwrap();
+        // the state's own stamp is when each copy wrote it; both arrive UNVERIFIED (plan 130)
+        for m in a.iter_mut().chain(b.iter_mut()) {
+            m.state_at = None;
+        }
         a.sort_by(|x, y| x.name_key.cmp(&y.name_key));
         b.sort_by(|x, y| x.name_key.cmp(&y.name_key));
         assert_eq!(a, b);
@@ -694,7 +703,7 @@ mod tests {
         fresh
             .with(|c| {
                 c.execute_batch(
-                    "CREATE TRIGGER no_blank BEFORE INSERT ON matches WHEN NEW.name_seen = ''
+                    "CREATE TRIGGER no_blank BEFORE INSERT ON supplier_links WHEN NEW.name_seen = ''
                  BEGIN SELECT RAISE(ABORT, 'blank'); END;",
                 )
             })
@@ -847,7 +856,7 @@ mod tests {
         let path = dir.path().join("bridge.sqlite");
         version_2_file(&path);
         let before = Db::open(&path).unwrap();
-        assert_eq!(before.user_version().unwrap(), 3);
+        assert_eq!(before.user_version().unwrap(), SCHEMA_VERSION);
 
         let tables: i64 = before
             .with(|c| {
@@ -878,5 +887,137 @@ mod tests {
         assert_eq!(how("u"), "USER");
         assert_eq!(how("a"), "AUTO");
         assert_eq!(how("n"), "NONE");
+    }
+
+    /// A database at version 3, as v1.1.1 leaves it: a seller's pick, an automatic link, a «none»,
+    /// and a job whose review saved the pick's product among its candidates (brand and alias).
+    fn version_3_file(path: &Path) {
+        let c = Connection::open(path).unwrap();
+        for sql in &MIGRATIONS[..3] {
+            c.execute_batch(sql).unwrap();
+        }
+        c.pragma_update(None, "user_version", 3).unwrap();
+        c.execute_batch(
+            r#"DROP TABLE IF EXISTS matches_old;
+             INSERT INTO matches(supplier, name_key, code, product_id, product_name, how, similarity, name_seen, priced_at, decided_at) VALUES
+               ('barezpakhsh', 'u', '33102018', 'p_user', 'بلبرینگ بزرگ چرخ عقب پراید', 'USER', 56, 'u', NULL, '2026-10-07T16:30:00Z'),
+               ('barezpakhsh', 'a', 'A1', 'p_auto', 'auto part', 'AUTO', 91, 'a', '2026-10-08T00:00:00Z', '2026-10-07T16:30:00Z'),
+               ('barezpakhsh', 'n', 'N1', NULL, NULL, 'NONE', NULL, 'n', NULL, '2026-10-07T16:30:00Z');
+             INSERT INTO jobs(id, kind, mode, store, status, phase, started_at) VALUES (2, 'IMPORT', 'ZERO', 's', 'DONE', 'REPORT', '2026-10-07T03:38:00Z');
+             INSERT INTO job_items(job_id, code, name, qty, status, candidates_json) VALUES
+               (2, '33102018', 'u', 0, 'DONE', '[{"candidate":{"id":"p_user","name":"بلبرینگ بزرگ چرخ عقب پراید","alias":"بلبرینگ 44649","brand":"PSN عظام","score":0.0},"similarity":56},{"candidate":{"id":"p_x","name":"x","alias":null,"brand":null,"score":0.0},"similarity":40}]'),
+               (2, 'A9', 'other', 0, 'DONE', 'not json');"#,
+        )
+        .unwrap();
+    }
+
+    fn table_exists(db: &Db, name: &str) -> bool {
+        db.with(|c| {
+            c.query_row(
+                "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                [name],
+                |r| r.get::<_, i64>(0),
+            )
+        })
+        .unwrap()
+            > 0
+    }
+
+    /// Plan 130 task 2 (R-a, R-n): every decision survives the move, every link is `UNVERIFIED`,
+    /// identity comes from what review recorded, and `matches` is gone — so a pre-guard build
+    /// finds no link to write from.
+    #[test]
+    fn migration_4_keeps_every_decision_unverified_and_backfills_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.sqlite");
+        version_3_file(&path);
+        let db = Db::open(&path).unwrap();
+        assert_eq!(db.user_version().unwrap(), SCHEMA_VERSION);
+        assert!(!table_exists(&db, "matches"), "old binaries find no links");
+        assert!(!table_exists(&db, "link_identity_backfill"));
+        let all = db.list_matches("barezpakhsh").unwrap();
+        assert_eq!(all.len(), 3, "every decision kept");
+        assert!(all.iter().all(|m| m.state == "UNVERIFIED"));
+        assert!(all.iter().all(|m| m.validated_job.is_none()));
+        let u = db.match_for_name("barezpakhsh", "u").unwrap().unwrap();
+        assert_eq!(u.how, "USER");
+        assert_eq!(u.similarity, Some(56));
+        assert_eq!(u.product_brand.as_deref(), Some("PSN عظام"));
+        assert_eq!(u.product_alias.as_deref(), Some("بلبرینگ 44649"));
+        let a = db.match_for_name("barezpakhsh", "a").unwrap().unwrap();
+        assert_eq!(a.product_brand, None, "never recorded stays NULL");
+        assert_eq!(a.priced_at.as_deref(), Some("2026-10-08T00:00:00Z"));
+        let n = db.match_for_name("barezpakhsh", "n").unwrap().unwrap();
+        assert_eq!((n.how.as_str(), n.product_id), ("NONE", None));
+        assert!(all.iter().all(|m| !m.writable_for(
+            2,
+            m.link_version,
+            m.product_id.as_deref().unwrap_or("")
+        )));
+    }
+
+    /// Plan 130 task 2: a migration cut halfway leaves version 3 whole; the next launch finishes it.
+    #[test]
+    fn an_interrupted_migration_4_leaves_version_3_whole_and_completes_next_launch() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.sqlite");
+        version_3_file(&path);
+        // the migration's last table already exists: 0004 fails at its end, after the copy and drop
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch("CREATE TABLE match_events (x INTEGER);")
+            .unwrap();
+        assert!(Db::open(&path).is_err());
+        let c = Connection::open(&path).unwrap();
+        let v: i64 = c
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, 3, "rolled back whole");
+        let links: i64 = c
+            .query_row("SELECT count(*) FROM matches", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(links, 3, "matches untouched");
+        c.execute_batch("DROP TABLE match_events;").unwrap();
+        drop(c);
+        let db = Db::open(&path).unwrap();
+        assert_eq!(db.user_version().unwrap(), SCHEMA_VERSION);
+        assert_eq!(db.list_matches("barezpakhsh").unwrap().len(), 3);
+    }
+
+    /// Plan 130 task 2 (R-n): a pre-upgrade backup put back re-migrates, every link `UNVERIFIED`
+    /// again — whatever the upgraded copy had proven since.
+    #[test]
+    fn a_restored_pre_upgrade_backup_re_migrates_with_every_link_unverified() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.sqlite");
+        version_3_file(&path);
+        let db = Db::open(&path).unwrap();
+        db.validate_link(
+            "barezpakhsh",
+            "a",
+            1,
+            matches::LinkProduct {
+                id: "p_auto",
+                name: "auto part",
+                brand: Some(""),
+                alias: Some(""),
+            },
+            matches::state::VALID,
+            None,
+            9,
+        )
+        .unwrap()
+        .expect("still the migrated link");
+        drop(db);
+        let backup = dir.path().join("bridge.sqlite.v3.bak");
+        assert!(backup.is_file());
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(dir.path().join(format!("bridge.sqlite{suffix}")));
+        }
+        std::fs::copy(&backup, &path).unwrap();
+        let db = Db::open(&path).unwrap();
+        let all = db.list_matches("barezpakhsh").unwrap();
+        assert_eq!(all.len(), 3);
+        assert!(all.iter().all(|m| m.state == "UNVERIFIED"));
     }
 }

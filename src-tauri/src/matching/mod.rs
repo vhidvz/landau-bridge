@@ -5,6 +5,7 @@
 pub mod evidence;
 pub mod gate;
 pub mod normalize;
+pub mod registry;
 pub mod similarity;
 
 use std::collections::HashSet;
@@ -12,7 +13,6 @@ use std::future::Future;
 
 use serde::Serialize;
 
-use crate::db::matches::MatchRow;
 use crate::db::Db;
 use crate::errors::Result;
 use crate::landau::{Candidate, RegistryPage};
@@ -35,20 +35,6 @@ pub struct Scored {
     pub candidate: Candidate,
     /// 0–100 (spec §6), the figure the threshold is compared with.
     pub similarity: u8,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Decision {
-    Matched {
-        product_id: String,
-        product_name: String,
-        similarity: Option<i64>,
-        how: String,
-    },
-    /// A stored «هیچ‌کدام»: the part is not in Landau; a support ticket is the way forward.
-    None,
-    /// Needs the seller. Candidates best first; may be empty.
-    Review(Vec<Scored>),
 }
 
 /// Best token-set Jaccard of the term against the name, the name with its brand, and each alias
@@ -164,109 +150,25 @@ where
     Ok(out)
 }
 
+/// The seller's link decisions outside a job's proof — «not in Landau» and a cleared link — and the
+/// search term rule the review screen shares with the automatic pass. Judging a link is
+/// [`crate::jobs::proof::Prover`]'s.
 pub struct Matcher {
     db: Db,
     supplier: String,
-    threshold: u8,
 }
 
 impl Matcher {
-    pub fn new(db: Db, supplier: &str, threshold: u8) -> Matcher {
+    pub fn new(db: Db, supplier: &str) -> Matcher {
         Matcher {
             db,
             supplier: supplier.into(),
-            threshold,
         }
-    }
-
-    /// The stored decision for this name, else for this code (§14 a). A name hit with a new code
-    /// refreshes the code on that link. A code hit under another spelling is reused as it is —
-    /// never copied under the new name, so the seller's later edit on either spelling still
-    /// governs the code.
-    pub fn stored(&self, name: &str, code: &str) -> Result<Option<MatchRow>> {
-        if let Some(row) = self.db.match_for_name(&self.supplier, name)? {
-            if !code.is_empty() && row.code != code {
-                let product = row.product_id.as_deref().zip(row.product_name.as_deref());
-                self.db.set_match(
-                    &self.supplier,
-                    name,
-                    code,
-                    product,
-                    &row.how,
-                    row.similarity,
-                )?;
-            }
-            return Ok(Some(row));
-        }
-        self.db.match_for_code(&self.supplier, code)
     }
 
     /// The search term for a name — exposed so the review screen's re-search uses the same rule.
     pub fn term(name: &str, code: &str) -> String {
         search_term(name, code)
-    }
-
-    pub async fn decide<F, Fut>(&self, search: &F, code: &str, name: &str) -> Result<Decision>
-    where
-        F: Fn(String, usize, usize) -> Fut,
-        Fut: Future<Output = Result<RegistryPage>>,
-    {
-        if let Some(row) = self.stored(name, code)? {
-            return Ok(match row.product_id {
-                Some(product_id) => Decision::Matched {
-                    product_id,
-                    product_name: row.product_name.unwrap_or_default(),
-                    similarity: row.similarity,
-                    how: row.how,
-                },
-                None => Decision::None,
-            });
-        }
-        let term = search_term(name, code);
-        let hits = candidates(search, &term).await?;
-        let scored = score(&term, &hits);
-        let tied = scored.len() >= 2
-            && scored[1].similarity == scored[0].similarity
-            && scored[1].candidate.id != scored[0].candidate.id;
-        if let Some(top) = scored.first() {
-            if top.similarity >= self.threshold && !tied {
-                self.db.set_match(
-                    &self.supplier,
-                    name,
-                    code,
-                    Some((&top.candidate.id, &top.candidate.name)),
-                    "AUTO",
-                    Some(top.similarity as i64),
-                )?;
-                return Ok(Decision::Matched {
-                    product_id: top.candidate.id.clone(),
-                    product_name: top.candidate.name.clone(),
-                    similarity: Some(top.similarity as i64),
-                    how: "AUTO".into(),
-                });
-            }
-        }
-        Ok(Decision::Review(
-            scored.into_iter().take(CANDIDATES).collect(),
-        ))
-    }
-
-    pub fn record_user_pick(
-        &self,
-        name_seen: &str,
-        code: &str,
-        product_id: &str,
-        product_name: &str,
-        similarity: Option<i64>,
-    ) -> Result<()> {
-        self.db.set_match(
-            &self.supplier,
-            name_seen,
-            code,
-            Some((product_id, product_name)),
-            "USER",
-            similarity,
-        )
     }
 
     pub fn record_none(&self, name_seen: &str, code: &str) -> Result<()> {
@@ -282,7 +184,6 @@ impl Matcher {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::Db;
     use crate::landau::{Candidate, RegistryPage};
     use std::collections::HashMap;
 
@@ -442,173 +343,5 @@ mod tests {
         );
         let none = candidates(&picker(HashMap::new()), "چیزی").await.unwrap();
         assert!(none.is_empty());
-    }
-
-    #[tokio::test]
-    async fn auto_accepts_at_threshold_and_persists_the_decision() {
-        let db = Db::in_memory().unwrap();
-        let m = Matcher::new(db.clone(), "barezpakhsh", 90);
-        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-        let c = calls.clone();
-        let search = move |q: String, _limit: usize, _skip: usize| {
-            c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            let items = if q == "لنت جلو پراید" {
-                vec![
-                    cand("p1", "لنت جلو پراید", None, 0.0),
-                    cand("p2", "شمع", None, 0.0),
-                ]
-            } else {
-                Vec::new()
-            };
-            let total = items.len();
-            std::future::ready(Ok(RegistryPage { total, items }))
-        };
-        let d = m
-            .decide(&search, "111", "لنت جلو پرايد (4 عددي)")
-            .await
-            .unwrap();
-        assert!(
-            matches!(d, Decision::Matched { ref product_id, similarity: Some(100), ref how, .. } if product_id == "p1" && how == "AUTO")
-        );
-        let first = calls.load(std::sync::atomic::Ordering::SeqCst);
-        assert!(first >= 1);
-        // second call answers from the table, no search
-        let d2 = m.decide(&search, "111", "anything").await.unwrap();
-        assert!(matches!(d2, Decision::Matched { .. }));
-        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), first);
-    }
-
-    #[tokio::test]
-    async fn a_tie_between_two_candidates_goes_to_review() {
-        // Same name under two brands; the invoice names no brand, so nothing breaks the tie.
-        let db = Db::in_memory().unwrap();
-        let m = Matcher::new(db, "barezpakhsh", 90);
-        let search = |q: String, _: usize, _: usize| {
-            let items = if q == "لنت جلو پراید" {
-                vec![
-                    Candidate {
-                        id: "p1".into(),
-                        name: "لنت جلو پراید".into(),
-                        alias: None,
-                        brand: Some("برند الف".into()),
-                        score: 0.0,
-                    },
-                    Candidate {
-                        id: "p2".into(),
-                        name: "لنت جلو پراید".into(),
-                        alias: None,
-                        brand: Some("برند ب".into()),
-                        score: 0.0,
-                    },
-                ]
-            } else {
-                Vec::new()
-            };
-            let total = items.len();
-            std::future::ready(Ok(RegistryPage { total, items }))
-        };
-        let d = m.decide(&search, "444", "لنت جلو پراید").await.unwrap();
-        let Decision::Review(scored) = d else {
-            panic!("expected review, both candidates tie at 100")
-        };
-        assert_eq!(scored[0].similarity, 100);
-        assert_eq!(scored[1].similarity, 100);
-    }
-
-    #[tokio::test]
-    async fn below_threshold_goes_to_review_and_none_sticks() {
-        let db = Db::in_memory().unwrap();
-        let m = Matcher::new(db.clone(), "barezpakhsh", 95);
-        let search = |_: String, _: usize, _: usize| {
-            std::future::ready(Ok(RegistryPage {
-                total: 1,
-                items: vec![cand("p1", "لنت جلو پژو 405", None, 0.0)],
-            }))
-        };
-        let d = m.decide(&search, "222", "لنت جلو پراید").await.unwrap();
-        let Decision::Review(scored) = d else {
-            panic!("expected review")
-        };
-        assert_eq!(scored[0].candidate.id, "p1");
-        assert!(scored[0].similarity < 95);
-
-        m.record_none("لنت جلو پراید", "222").unwrap();
-        assert!(matches!(
-            m.decide(&search, "222", "x").await.unwrap(),
-            Decision::None
-        ));
-
-        m.record_user_pick("لنت جلو پراید", "222", "p9", "picked", Some(70))
-            .unwrap();
-        assert!(
-            matches!(m.decide(&search, "222", "x").await.unwrap(), Decision::Matched { ref how, .. } if how == "USER")
-        );
-
-        m.clear("لنت جلو پراید").unwrap();
-        assert!(matches!(
-            m.decide(&search, "222", "لنت جلو پراید").await.unwrap(),
-            Decision::Review(_)
-        ));
-    }
-
-    #[tokio::test]
-    async fn no_hits_is_a_review_with_no_candidates() {
-        let db = Db::in_memory().unwrap();
-        let m = Matcher::new(db, "barezpakhsh", 80);
-        let search = |_: String, _: usize, _: usize| {
-            std::future::ready(Ok(RegistryPage {
-                total: 0,
-                items: Vec::new(),
-            }))
-        };
-        assert!(
-            matches!(m.decide(&search, "3", "چیزی").await.unwrap(), Decision::Review(ref v) if v.is_empty())
-        );
-    }
-
-    /// Spec §14 a: a decision is found by name first, then by code. A name hit refreshes the code;
-    /// a code hit is reused without a copy under the new spelling (a copy would go stale the
-    /// moment the seller edits the original).
-    #[tokio::test]
-    async fn a_stored_decision_is_found_by_name_then_by_code_and_re_keyed_under_the_new_name() {
-        let db = Db::in_memory().unwrap();
-        let m = Matcher::new(db.clone(), "s", 80);
-        db.set_match(
-            "s",
-            "لنت جلو پژو 405 عظام* (16)",
-            "3137006",
-            Some(("p1", "لنت جلو پژو 405")),
-            "USER",
-            None,
-        )
-        .unwrap();
-        let never =
-            |_q: String, _l: usize, _s: usize| async { panic!("no search for a stored decision") };
-        // same name, new code → found by name; the code is refreshed
-        let d = m
-            .decide(&never, "NEW-1", "لنت جلو پژو ۴۰۵ عظام* (16)")
-            .await
-            .unwrap();
-        assert!(matches!(d, Decision::Matched { ref product_id, .. } if product_id == "p1"));
-        assert_eq!(
-            db.match_for_name("s", "لنت جلو پژو 405 عظام* (16)")
-                .unwrap()
-                .unwrap()
-                .code,
-            "NEW-1"
-        );
-        // same code, new name → found by code; nothing is stored under the new spelling
-        let d = m
-            .decide(&never, "NEW-1", "لنت جلو 405 عظام (16 عددی)")
-            .await
-            .unwrap();
-        assert!(
-            matches!(d, Decision::Matched { ref product_id, ref how, .. } if product_id == "p1" && how == "USER")
-        );
-        assert!(db
-            .match_for_name("s", "لنت جلو 405 عظام (16 عددی)")
-            .unwrap()
-            .is_none());
-        assert_eq!(db.list_matches("s").unwrap().len(), 1);
     }
 }

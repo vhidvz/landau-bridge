@@ -10,6 +10,8 @@ use serde_json::{json, Value};
 use crate::domain::Authenticity;
 use crate::errors::{BridgeError, Result};
 
+pub mod writer;
+
 const SHELF_PAGE: usize = 100;
 
 /// Up to 3 attempts total, sleeping 1s then 3s between them; see [`retryable`] for what qualifies.
@@ -381,7 +383,7 @@ impl LandauClient {
     /// `PUT /career/stocks/:id/restore` — puts a soft-deleted row back on the shelf. The reply
     /// (the restored row) is ignored: the caller already has the row's fields from the trash read
     /// that found it, and a following `patch` sets what changed.
-    pub async fn restore(&self, id: &str) -> Result<()> {
+    pub(in crate::landau) async fn restore(&self, id: &str) -> Result<()> {
         self.call(
             Method::PUT,
             &format!("/career/stocks/{id}/restore"),
@@ -430,8 +432,9 @@ impl LandauClient {
         })
     }
 
-    /// `POST /career/stocks` — reply is the row, flat or enveloped.
-    pub async fn attach(&self, body: &AttachBody) -> Result<ShelfRow> {
+    /// `POST /career/stocks` — reply is the row, flat or enveloped. Only [`writer`] calls it
+    /// (plan 130 R-l).
+    pub(in crate::landau) async fn attach(&self, body: &AttachBody) -> Result<ShelfRow> {
         let v = self
             .call(Method::POST, "/career/stocks", Some(&body.to_json()))
             .await?;
@@ -443,8 +446,9 @@ impl LandauClient {
     }
 
     /// `PATCH /career/stocks/:id` — the reply is the row, priced by Landau's rule when the body
-    /// carried `cost` (plan 107); never send `price` here (it would stamp the row MANUAL).
-    pub async fn patch(&self, id: &str, body: &PatchBody) -> Result<ShelfRow> {
+    /// carried `cost` (plan 107); never send `price` here (it would stamp the row MANUAL). Only
+    /// [`writer`] calls it (plan 130 R-l).
+    pub(in crate::landau) async fn patch(&self, id: &str, body: &PatchBody) -> Result<ShelfRow> {
         let v = self
             .call(
                 Method::PATCH,
@@ -456,12 +460,6 @@ impl LandauClient {
             status: 200,
             body: "reply without id".into(),
         })
-    }
-
-    pub async fn delete(&self, id: &str) -> Result<()> {
-        self.call(Method::DELETE, &format!("/career/stocks/{id}"), None)
-            .await
-            .map(|_| ())
     }
 
     pub async fn pricing_rules(&self) -> Result<Vec<PricingRule>> {
@@ -528,6 +526,28 @@ impl LandauClient {
             }));
         }
         Ok(rows)
+    }
+}
+
+/// Raw shelf writes for the live suites' fixtures and clean-up, compiled only with the `live`
+/// feature — never in a build a seller runs, where [`writer`] is the only way to a shelf.
+#[cfg(feature = "live")]
+pub mod fixture {
+    use super::*;
+
+    pub async fn attach(client: &LandauClient, body: &AttachBody) -> Result<ShelfRow> {
+        client.attach(body).await
+    }
+
+    pub async fn patch(client: &LandauClient, id: &str, body: &PatchBody) -> Result<ShelfRow> {
+        client.patch(id, body).await
+    }
+
+    pub async fn delete(client: &LandauClient, id: &str) -> Result<()> {
+        client
+            .call(Method::DELETE, &format!("/career/stocks/{id}"), None)
+            .await
+            .map(|_| ())
     }
 }
 

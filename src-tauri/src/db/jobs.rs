@@ -1,8 +1,8 @@
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, OptionalExtension, TransactionBehavior};
 use serde::Serialize;
 
 use super::{now, Db};
-use crate::errors::Result;
+use crate::errors::{BridgeError, Result};
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct JobRow {
@@ -47,6 +47,13 @@ pub struct JobItemRow {
     pub available: Option<bool>,
     /// «؛»-joined remarks for the report (spec §14 g).
     pub note: Option<String>,
+    /// The link this item is planned from and the version it was proven at (plan 130 R-b).
+    pub link_key: Option<String>,
+    pub link_version: Option<i64>,
+    /// The product a stored link under review still points at (R-e).
+    pub link_product: Option<String>,
+    /// Why the write table held the link, typed for the screens (`Reason[]`, R-k).
+    pub reasons: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -90,6 +97,10 @@ const ITEM_COLUMNS: &[&str] = &[
     "status",
     "qty",
     "name",
+    "link_key",
+    "link_version",
+    "link_product",
+    "reasons_json",
 ];
 
 const JOB_COLS: &str = "id, kind, mode, since_date, store, overwrite, status, phase, started_at, finished_at, summary_json";
@@ -111,7 +122,7 @@ fn job_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<JobRow> {
     })
 }
 
-const ITEM_COLS: &str = "id, job_id, code, name, qty, product_id, product_name, stock_id, authenticity, action, qty_before, qty_after, cost, price_before, price_after, reprice_verdict, error_kind, error_msg, candidates_json, invoice_ids_json, status, available, note";
+const ITEM_COLS: &str = "id, job_id, code, name, qty, product_id, product_name, stock_id, authenticity, action, qty_before, qty_after, cost, price_before, price_after, reprice_verdict, error_kind, error_msg, candidates_json, invoice_ids_json, status, available, note, link_key, link_version, link_product, reasons_json";
 
 fn item_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<JobItemRow> {
     Ok(JobItemRow {
@@ -143,6 +154,12 @@ fn item_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<JobItemRow> {
         status: r.get(20)?,
         available: r.get::<_, Option<i64>>(21)?.map(|v| v != 0),
         note: r.get(22)?,
+        link_key: r.get(23)?,
+        link_version: r.get(24)?,
+        link_product: r.get(25)?,
+        reasons: r
+            .get::<_, Option<String>>(26)?
+            .and_then(|s| serde_json::from_str(&s).ok()),
     })
 }
 
@@ -155,14 +172,30 @@ impl Db {
         store: &str,
         overwrite: bool,
     ) -> Result<i64> {
-        self.with(|c| {
-            c.execute(
+        // One job at a time, across processes too (plan 130 R-m): SQLite's write lock is taken
+        // before the check, so two starts on one database cannot both see "nothing running".
+        let started = self.with(|c| {
+            let tx = rusqlite::Transaction::new_unchecked(c, TransactionBehavior::Immediate)?;
+            let running: Option<i64> = tx
+                .query_row(
+                    "SELECT id FROM jobs WHERE status IN ('RUNNING', 'REVIEW') ORDER BY id DESC LIMIT 1",
+                    [],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if let Some(id) = running {
+                return Ok(Err(id)); // the transaction rolls back on drop
+            }
+            tx.execute(
                 "INSERT INTO jobs(kind, mode, since_date, store, overwrite, status, phase, started_at)
                  VALUES (?1, ?2, ?3, ?4, ?5, 'RUNNING', 'PREFLIGHT', ?6)",
                 params![kind, mode, since_date, store, overwrite as i64, now()],
             )?;
-            Ok(c.last_insert_rowid())
-        })
+            let id = tx.last_insert_rowid();
+            tx.commit()?;
+            Ok(Ok(id))
+        })?;
+        started.map_err(|id| BridgeError::JobBusy(format!("#{id}")))
     }
 
     pub fn set_job_status(&self, job_id: i64, status: &str, phase: &str) -> Result<()> {
@@ -377,5 +410,45 @@ mod tests {
             Some("ناموجود؛ قیمت پایین‌تر نادیده گرفته شد؛ زیر حداقل سود")
         );
         assert_eq!(row.available, Some(false));
+    }
+
+    /// Plan 130 R-m: two processes on one database cannot both start a job — each start takes
+    /// the write lock before it looks for a running one.
+    #[test]
+    fn two_processes_cannot_both_start_a_job() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.sqlite");
+        drop(Db::open(&path).unwrap());
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(6));
+        let starts: Vec<_> = (0..6)
+            .map(|_| {
+                let (path, barrier) = (path.clone(), barrier.clone());
+                std::thread::spawn(move || {
+                    let db = Db::open(&path).unwrap(); // its own connection, as a second app has
+                    barrier.wait();
+                    db.create_job("IMPORT", Some("ZERO"), None, "store", false)
+                })
+            })
+            .collect();
+        let outcomes: Vec<_> = starts.into_iter().map(|t| t.join().unwrap()).collect();
+        assert_eq!(
+            outcomes.iter().filter(|o| o.is_ok()).count(),
+            1,
+            "{outcomes:?}"
+        );
+        assert!(outcomes
+            .iter()
+            .filter_map(|o| o.as_ref().err())
+            .all(|e| matches!(e, BridgeError::JobBusy(_))));
+        let db = Db::open(&path).unwrap();
+        assert_eq!(db.list_jobs().unwrap().len(), 1);
+        // a job paused in review still holds the slot; a finished one frees it
+        let id = db.running_job().unwrap().unwrap().id;
+        db.set_job_status(id, "REVIEW", "REVIEW").unwrap();
+        assert!(db
+            .create_job("REFRESH", None, None, "store", false)
+            .is_err());
+        db.set_job_status(id, "DONE", "REPORT").unwrap();
+        assert!(db.create_job("REFRESH", None, None, "store", false).is_ok());
     }
 }

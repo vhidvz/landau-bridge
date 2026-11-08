@@ -6,6 +6,7 @@ use serde::Serialize;
 
 use super::evidence::{evidence, Evidence, State, SupplierBrand, Vocabulary};
 use super::Scored;
+use crate::landau::Candidate;
 
 /// The lowest similarity an automatic link may write at, whatever the setting says (Q-2, R-j).
 pub const SIMILARITY_FLOOR: u8 = 85;
@@ -248,13 +249,36 @@ pub fn judge_top(
     threshold: u8,
 ) -> Option<Judged> {
     let top = scored.first()?;
-    let tied = scored
-        .get(1)
-        .is_some_and(|s| s.similarity == top.similarity && s.candidate.id != top.candidate.id);
+    Some(judge_link(
+        name,
+        code,
+        &top.candidate,
+        top.similarity,
+        scored,
+        vocab,
+        threshold,
+    ))
+}
+
+/// One link's product judged among the candidates a fresh search gathers for its name (slice 1's
+/// review: a stored or rebuilt automatic link needs its tie and its other passing candidates
+/// computed by the caller). `similarity` is the link's score against today's term; `scored` may
+/// or may not hold the link itself. Tied: another candidate scores the same. Another passes: one
+/// at or above the floor passes the gate on its own.
+pub fn judge_link(
+    name: &str,
+    code: &str,
+    link: &Candidate,
+    similarity: u8,
+    scored: &[Scored],
+    vocab: &Vocabulary,
+    threshold: u8,
+) -> Judged {
+    let others = || scored.iter().filter(|s| s.candidate.id != link.id);
+    let tied = others().any(|s| s.similarity == similarity);
     let floor = effective_threshold(threshold);
-    let another_passes = scored[1..]
-        .iter()
-        .filter(|s| s.similarity >= floor && s.candidate.id != top.candidate.id)
+    let another_passes = others()
+        .filter(|s| s.similarity >= floor)
         .find(|s| {
             v4_reasons(
                 &evidence(name, code, &s.candidate, vocab),
@@ -264,12 +288,12 @@ pub fn judge_top(
             .is_empty()
         })
         .map(|s| s.candidate.id.clone());
-    Some(Judged {
-        similarity: top.similarity,
-        evidence: evidence(name, code, &top.candidate, vocab),
+    Judged {
+        similarity,
+        evidence: evidence(name, code, link, vocab),
         tied,
         another_passes,
-    })
+    }
 }
 
 #[cfg(test)]
@@ -611,5 +635,26 @@ mod tests {
         );
         let _ = State::Consistent;
         let _ = SupplierBrand::None;
+    }
+
+    #[test]
+    fn a_stored_link_is_judged_with_its_own_tie_and_the_other_passing_candidates() {
+        let v = vocab();
+        let item = MID_SHAFT;
+        let term = crate::matching::normalize::search_term(item.1, item.0);
+        let link = bearing_6c04();
+        let sim = crate::matching::similarity_of(&term, &link);
+        // alone, it writes
+        let j = judge_link(item.1, item.0, &link, sim, &[], &v, 85);
+        assert_eq!(verdict(Origin::Auto, &j, 85), Verdict::Write);
+        // a different product scoring the same is a tie, whether or not the link itself was gathered
+        let twin = cand("twin", &link.name, link.alias.as_deref(), Some("NTN"));
+        let scored = crate::matching::score(&term, std::slice::from_ref(&twin));
+        let j = judge_link(item.1, item.0, &link, scored[0].similarity, &scored, &v, 85);
+        assert!(j.tied);
+        // the link's own row among the candidates is never its own tie
+        let scored = crate::matching::score(&term, std::slice::from_ref(&link));
+        let j = judge_link(item.1, item.0, &link, sim, &scored, &v, 85);
+        assert!(!j.tied && j.another_passes.is_none());
     }
 }

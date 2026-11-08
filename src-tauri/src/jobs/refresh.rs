@@ -1,96 +1,240 @@
-//! Feature 2 (spec §7.2, §14): every shelf row gets today's cost by its stored link, and Landau's
-//! rule prices each write. A row with no link is reported, never searched for.
+//! Feature 2 (spec §7.2, §14; plan 130 tasks 3, 7, 8): every shelf row gets today's cost from the
+//! links on its product — each one validated by this job against the registry read whole, a dead
+//! product's link rebuilt only on its exact definition — and only when every link on the row is
+//! proven and they all agree on the cost (Q-3, R-e). A row with no link is reported, never searched
+//! for; a held row keeps its cost. Writes go through [`ShelfWriter`] alone.
 
 use std::collections::HashMap;
 
 use serde_json::json;
 
-use super::pricing;
+use super::proof::{prove_refresh, Judgement, Planned, ProvenWrite, Prover};
 use super::{
-    fatal, i, opt_i, preflight, quote_for, report, reprice_items, t, Costed, JobCtx, Services,
-    VatMismatches,
+    fatal, held, i, opt_i, preflight, quote_for, read_registry, report, reprice_items, t, JobCtx,
+    Services, VatMismatches,
 };
 use crate::db::matches::MatchRow;
-use crate::errors::{kinds, BridgeError, Result};
-use crate::landau::{PatchBody, ShelfRow};
+use crate::errors::{kinds, BridgeError, Result, IDENTITY_KINDS};
+use crate::landau::writer::{Refreshed, ShelfWriter};
+use crate::landau::ShelfRow;
+use crate::matching::registry::Registry;
 use crate::settings::SUPPLIER_ID;
 
-/// product_id → the link to price it by, and how many links the product had. Several links for
-/// one product: the most recently priced wins, then the most recently invoiced code (§14 c).
-pub fn choose_link(
-    rows: Vec<MatchRow>,
-    last_invoiced: &HashMap<String, String>,
-) -> HashMap<String, (MatchRow, usize)> {
-    let mut by_product: HashMap<String, Vec<MatchRow>> = HashMap::new();
-    for r in rows {
-        if let Some(p) = r.product_id.clone() {
-            by_product.entry(p).or_default().push(r);
+/// product id → its links, each with whether this job proved it.
+pub type LinksByProduct = HashMap<String, Vec<(MatchRow, bool)>>;
+
+/// VALIDATE over every stored link with a product (R-b): judged by the write table for its origin,
+/// rebuilt when its product is gone (Q-1). A link left pointing at nothing current is not listed.
+pub async fn validate_links(
+    ctx: &JobCtx,
+    registry: &Registry,
+    threshold: u8,
+) -> Result<LinksByProduct> {
+    let prover = Prover {
+        db: &ctx.db,
+        registry,
+        supplier: SUPPLIER_ID,
+        job: ctx.job_id,
+        threshold,
+    };
+    let links = ctx.db.linked_matches(SUPPLIER_ID)?;
+    let total = links.len() as u32;
+    let mut out: LinksByProduct = HashMap::new();
+    for (n, link) in links.iter().enumerate() {
+        ctx.check_cancel()?;
+        let judged = prover.stored(link, &link.name_seen, &link.code).await?;
+        if let Some(now) = ctx.db.link_by_key(SUPPLIER_ID, &link.name_key)? {
+            match judged {
+                Judgement::Proven { product, .. } => {
+                    out.entry(product.id).or_default().push((now, true))
+                }
+                Judgement::Held {
+                    link_product: Some(p),
+                    ..
+                } => out.entry(p).or_default().push((now, false)),
+                _ => {}
+            }
         }
+        ctx.progress("PRICE", n as u32 + 1, total, "سنجش پیوندها با فهرست لاندا");
     }
-    by_product
-        .into_iter()
-        .map(|(product, mut links)| {
-            let n = links.len();
-            links.sort_by(|a, b| {
-                b.priced_at
-                    .cmp(&a.priced_at)
-                    .then_with(|| last_invoiced.get(&b.code).cmp(&last_invoiced.get(&a.code)))
-            });
-            (product, (links.swap_remove(0), n))
-        })
-        .collect()
+    for links in out.values_mut() {
+        links.sort_by(|a, b| a.0.name_key.cmp(&b.0.name_key));
+    }
+    Ok(out)
 }
 
-fn links(ctx: &JobCtx) -> Result<HashMap<String, (MatchRow, usize)>> {
-    let rows = ctx.db.linked_matches(SUPPLIER_ID)?;
-    let lines = ctx.db.lines_with_invoices(SUPPLIER_ID)?;
-    let last_invoiced: HashMap<String, String> = lines
+/// The identity failure a stored refusal stands for, from the reasons it recorded.
+fn refusal(link: &MatchRow) -> BridgeError {
+    let reasons = link.state_reason.clone().unwrap_or_else(|| "[]".into());
+    let conflict = ["NUMBER_CONFLICT", "OPPOSITE_WORDS", "BRAND_MISMATCH"]
         .iter()
-        .map(|l| (l.code.clone(), l.date_jalali.clone()))
-        .collect(); // oldest first → last write wins
-    Ok(choose_link(rows, &last_invoiced))
+        .any(|k| reasons.contains(k));
+    if conflict {
+        BridgeError::EvidenceConflict { reasons }
+    } else {
+        BridgeError::NeedsReview { reasons }
+    }
 }
 
-/// How one shelf row reached (or failed to reach) a supplier quote.
-enum Resolved {
-    /// `(name, code, quote)`
-    Quoted(String, String, Costed),
-    /// The link answered no price: `(name, code)`.
-    NoPrice(String, String),
-    /// No stored link.
-    NoLink,
-}
-
-/// The stored link's quote. Transport/session failures stop the job; a per-item failure surfaces
-/// as the error.
-async fn resolve(
+/// One shelf row priced from its links: the proven write, or `None` once its item is recorded as
+/// skipped or held.
+pub async fn price_row(
     ctx: &JobCtx,
     svc: &Services,
     row: &ShelfRow,
-    name: &str,
-    links: &HashMap<String, (MatchRow, usize)>,
+    registry: &Registry,
+    links: &LinksByProduct,
     vat: &mut VatMismatches,
-) -> Result<Resolved> {
-    let Some((link, n)) = links.get(&row.product) else {
-        return Ok(Resolved::NoLink);
+) -> Result<Option<(i64, ProvenWrite, bool)>> {
+    let name = row
+        .product_name
+        .clone()
+        .unwrap_or_else(|| row.product.clone());
+    let links = links.get(&row.product).map(Vec::as_slice).unwrap_or(&[]);
+    let Some((lead, _)) = links.first() else {
+        let id = ctx.db.add_job_item(ctx.job_id, "", &name, row.inventory)?;
+        let gone = registry.get(&row.product).is_none();
+        let (kind, msg) = if gone {
+            (
+                "StaleLink",
+                "قطعهٔ این ردیف دیگر در فهرست لاندا نیست؛ قیمت آن به‌روز نمی‌شود.",
+            )
+        } else {
+            (
+                kinds::NO_SUPPLIER_LINK,
+                "این ردیف به هیچ نام بارزپخش وصل نیست؛ وقتی این قطعه در فاکتوری از بارزپخش وارد شود، وصل می‌شود.",
+            )
+        };
+        ctx.item(
+            id,
+            &[
+                ("stock_id", t(&row.id)),
+                ("product_id", t(&row.product)),
+                ("price_before", opt_i(row.price)),
+                ("qty_before", i(row.inventory)),
+                ("action", t("SKIP")),
+                ("status", t("SKIPPED")),
+                ("error_kind", t(kind)),
+                ("error_msg", t(msg)),
+            ],
+        )?;
+        return Ok(None);
     };
-    if *n > 1 {
-        ctx.warn(
-            "PRICE",
-            kinds::AMBIGUOUS_SUPPLIER_LINK,
+    let id = ctx
+        .db
+        .add_job_item(ctx.job_id, &lead.code, &lead.name_seen, row.inventory)?;
+    ctx.item(
+        id,
+        &[
+            ("stock_id", t(&row.id)),
+            ("product_id", t(&row.product)),
+            ("product_name", t(&name)),
+            ("price_before", opt_i(row.price)),
+            ("qty_before", i(row.inventory)),
+            ("link_key", t(&lead.name_key)),
+            ("link_version", i(lead.link_version)),
+        ],
+    )?;
+    if links.len() > 1 {
+        let names: Vec<&str> = links.iter().map(|(l, _)| l.name_seen.as_str()).collect();
+        ctx.db.add_item_note(
+            id,
             &format!(
-                "قطعه {name} به {n} نام بارزپخش وصل است؛ «{}» (آخرین قیمت) ملاک شد.",
-                link.name_seen
+                "این ردیف به {} نام بارزپخش وصل است: {}",
+                links.len(),
+                names.join(" | ")
             ),
-            Some(json!({"product": row.product, "chosen": link.name_seen})),
-        );
+        )?;
     }
-    Ok(
-        match quote_for(ctx, svc, &link.name_seen, &link.code, vat).await? {
-            Some(q) => Resolved::Quoted(link.name_seen.clone(), link.code.clone(), q),
-            None => Resolved::NoPrice(link.name_seen.clone(), link.code.clone()),
-        },
-    )
+    if let Some((unproven, _)) = links.iter().find(|(_, ok)| !ok) {
+        held(ctx, &[id], &refusal(unproven))?;
+        return Ok(None);
+    }
+    let mut priced: Vec<(MatchRow, Option<i64>)> = Vec::new();
+    let mut available = true;
+    for (link, _) in links {
+        // a failed quote fails this row's own item — never a second item beside it
+        let quoted = match quote_for(ctx, svc, &link.name_seen, &link.code, vat).await {
+            Ok(q) => q,
+            Err(e) if fatal(&e) => return Err(e),
+            Err(e) => {
+                ctx.error("PRICE", &e, Some(json!({"item_id": id})));
+                ctx.item(
+                    id,
+                    &[
+                        ("status", t("FAILED")),
+                        ("error_kind", t(e.kind())),
+                        ("error_msg", t(&e.message_fa())),
+                    ],
+                )?;
+                return Ok(None);
+            }
+        };
+        match quoted {
+            Some(c) => {
+                if c.renamed {
+                    ctx.db
+                        .add_item_note(id, &format!("نام در بارزپخش عوض شد: «{}»", c.name))?;
+                }
+                if !link.code.is_empty() && c.code != link.code {
+                    ctx.db.add_item_note(
+                        id,
+                        &format!("کد بارزپخش عوض شد: {} ← {}", link.code, c.code),
+                    )?;
+                }
+                available &= c.available;
+                priced.push((link.clone(), Some(c.cost)));
+            }
+            None => priced.push((link.clone(), None)),
+        }
+    }
+    if let [(link, None)] = priced.as_slice() {
+        let e = BridgeError::NoCurrentPrice {
+            code: if link.code.is_empty() {
+                link.name_seen.clone()
+            } else {
+                link.code.clone()
+            },
+        };
+        ctx.error("PRICE", &e, Some(json!({"item_id": id})));
+        ctx.item(
+            id,
+            &[
+                ("status", t("SKIPPED")),
+                ("error_kind", t(e.kind())),
+                ("error_msg", t(&e.message_fa())),
+            ],
+        )?;
+        return Ok(None);
+    }
+    match prove_refresh(
+        &ctx.db,
+        SUPPLIER_ID,
+        ctx.job_id,
+        id,
+        &row.id,
+        &row.product,
+        &priced,
+    )? {
+        Planned::Write(w) => {
+            ctx.item(id, &[("available", i(available as i64))])?;
+            Ok(Some((id, w, available)))
+        }
+        Planned::Held { items, error } => {
+            if matches!(error, BridgeError::LinkConflict { .. }) {
+                let each: Vec<String> = priced
+                    .iter()
+                    .map(|(l, c)| match c {
+                        Some(c) => format!("«{}» {c} ریال", l.name_seen),
+                        None => format!("«{}» بی‌قیمت", l.name_seen),
+                    })
+                    .collect();
+                ctx.db.add_item_note(id, &each.join(" | "))?;
+            }
+            held(ctx, &items, &error)?;
+            Ok(None)
+        }
+    }
 }
 
 pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
@@ -99,22 +243,23 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
     preflight(ctx, svc, &store).await?;
 
     ctx.phase("PRICE")?;
+    let registry = read_registry(ctx, svc, "PRICE").await?;
     let shelf = svc.landau.shelf(&store).await?;
-    let links = links(ctx)?;
+    let links = validate_links(ctx, &registry, svc.settings.threshold).await?;
     let total = shelf.len() as u32;
-    // item, stock, cost, unchanged, current price
-    let mut to_write: Vec<(i64, String, i64, bool, Option<i64>)> = Vec::new();
+    let mut to_write: Vec<(i64, ProvenWrite, bool, &ShelfRow)> = Vec::new();
     let mut vat = VatMismatches::default();
     for (n, row) in shelf.iter().enumerate() {
         ctx.check_cancel()?;
-        let name = row
-            .product_name
-            .clone()
-            .unwrap_or_else(|| row.product.clone());
-        let resolved = match resolve(ctx, svc, row, &name, &links, &mut vat).await {
-            Ok(r) => r,
+        match price_row(ctx, svc, row, &registry, &links, &mut vat).await {
+            Ok(Some((id, w, available))) => to_write.push((id, w, available, row)),
+            Ok(None) => {}
             Err(e) if fatal(&e) => return Err(e),
             Err(e) => {
+                let name = row
+                    .product_name
+                    .clone()
+                    .unwrap_or_else(|| row.product.clone());
                 let id = ctx.db.add_job_item(ctx.job_id, "", &name, row.inventory)?;
                 ctx.error("PRICE", &e, Some(json!({"item_id": id})));
                 ctx.item(
@@ -129,92 +274,6 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
                         ("error_msg", t(&e.message_fa())),
                     ],
                 )?;
-                ctx.progress("PRICE", n as u32 + 1, total, "قیمت روز بارزپخش");
-                continue;
-            }
-        };
-        let (link_name, link_code, quoted) = match resolved {
-            Resolved::Quoted(name, code, q) => (name, code, Some(q)),
-            Resolved::NoPrice(name, code) => (name, code, None),
-            Resolved::NoLink => {
-                let id = ctx.db.add_job_item(ctx.job_id, "", &name, row.inventory)?;
-                ctx.item(
-                    id,
-                    &[
-                        ("stock_id", t(&row.id)),
-                        ("product_id", t(&row.product)),
-                        ("price_before", opt_i(row.price)),
-                        ("qty_before", i(row.inventory)),
-                        ("action", t("SKIP")),
-                        ("status", t("SKIPPED")),
-                        ("error_kind", t(kinds::NO_SUPPLIER_LINK)),
-                        (
-                            "error_msg",
-                            t("این ردیف به هیچ نام بارزپخش وصل نیست؛ وقتی این قطعه در فاکتوری از بارزپخش وارد شود، وصل می‌شود."),
-                        ),
-                    ],
-                )?;
-                ctx.progress("PRICE", n as u32 + 1, total, "قیمت روز بارزپخش");
-                continue;
-            }
-        };
-        let id = ctx
-            .db
-            .add_job_item(ctx.job_id, &link_code, &link_name, row.inventory)?;
-        ctx.item(
-            id,
-            &[
-                ("stock_id", t(&row.id)),
-                ("product_id", t(&row.product)),
-                ("product_name", t(&name)),
-                ("price_before", opt_i(row.price)),
-                ("qty_before", i(row.inventory)),
-            ],
-        )?;
-        match quoted {
-            Some(c) => {
-                // §14 d: an unavailable quote never lowers a row's cost.
-                let (cost, held) = pricing::effective_cost(c.cost, c.available, row.cost);
-                if held {
-                    ctx.db
-                        .add_item_note(id, "ناموجود؛ قیمت پایین‌تر نادیده گرفته شد")?;
-                } else if !c.available {
-                    ctx.db.add_item_note(id, "ناموجود در بارزپخش")?;
-                }
-                if c.renamed {
-                    ctx.db
-                        .add_item_note(id, &format!("نام در بارزپخش عوض شد: «{}»", c.name))?;
-                }
-                if !link_code.is_empty() && c.code != link_code {
-                    ctx.db.add_item_note(
-                        id,
-                        &format!("کد بارزپخش عوض شد: {link_code} ← {}", c.code),
-                    )?;
-                }
-                ctx.item(
-                    id,
-                    &[("cost", i(cost)), ("available", i(c.available as i64))],
-                )?;
-                // still repriced below (a rule may have changed even when the cost has not).
-                to_write.push((id, row.id.clone(), cost, row.cost == Some(cost), row.price));
-            }
-            None => {
-                let e = BridgeError::NoCurrentPrice {
-                    code: if link_code.is_empty() {
-                        link_name.clone()
-                    } else {
-                        link_code.clone()
-                    },
-                };
-                ctx.error("PRICE", &e, Some(json!({"item_id": id})));
-                ctx.item(
-                    id,
-                    &[
-                        ("status", t("SKIPPED")),
-                        ("error_kind", t(e.kind())),
-                        ("error_msg", t(&e.message_fa())),
-                    ],
-                )?;
             }
         }
         ctx.progress("PRICE", n as u32 + 1, total, "قیمت روز بارزپخش");
@@ -222,60 +281,40 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
     vat.warn(ctx, "PRICE", svc.settings.vat_percent);
 
     ctx.phase("WRITE")?;
+    let writer = ShelfWriter::new(&svc.landau, &ctx.db, SUPPLIER_ID);
     let mut written: Vec<(i64, String)> = Vec::new();
     let total = to_write.len() as u32;
-    for (n, (item_id, stock_id, cost, unchanged, current_price)) in to_write.iter().enumerate() {
+    for (n, (item_id, w, available, row)) in to_write.iter().enumerate() {
         ctx.check_cancel()?;
-        let ok = if *unchanged {
-            ctx.item(
-                *item_id,
-                &[
-                    ("action", t("SKIP")),
-                    ("price_after", opt_i(*current_price)),
-                    ("status", t("WRITTEN")),
-                ],
-            )?;
-            true
-        } else {
-            match svc
-                .landau
-                .patch(
-                    stock_id,
-                    &PatchBody {
-                        inventory: None,
-                        cost: Some(*cost),
-                    },
-                )
-                .await
-            {
-                Ok(reply) => {
-                    ctx.item(
-                        *item_id,
-                        &[
-                            ("action", t("PATCH")),
-                            ("price_after", opt_i(reply.price)),
-                            ("status", t("WRITTEN")),
-                        ],
-                    )?;
-                    true
+        match writer.refresh(w, *available, row.cost).await {
+            Ok(outcome) => {
+                let (cost, was_held, action, price_after) = match outcome {
+                    Refreshed::Unchanged { cost, held } => (cost, held, "SKIP", row.price),
+                    Refreshed::Patched {
+                        cost,
+                        held,
+                        price_after,
+                    } => (cost, held, "PATCH", price_after),
+                };
+                if was_held {
+                    ctx.db
+                        .add_item_note(*item_id, "ناموجود؛ قیمت پایین‌تر نادیده گرفته شد")?;
+                } else if !available {
+                    ctx.db.add_item_note(*item_id, "ناموجود در بارزپخش")?;
                 }
-                Err(e) if fatal(&e) => return Err(e),
-                Err(e) => {
-                    ctx.error("WRITE", &e, Some(json!({"item_id": item_id})));
-                    ctx.item(
-                        *item_id,
-                        &[
-                            ("status", t("FAILED")),
-                            ("error_kind", t(e.kind())),
-                            ("error_msg", t(&e.message_fa())),
-                        ],
-                    )?;
-                    false
-                }
+                ctx.item(
+                    *item_id,
+                    &[
+                        ("cost", i(cost)),
+                        ("action", t(action)),
+                        ("price_after", opt_i(price_after)),
+                        ("status", t("WRITTEN")),
+                    ],
+                )?;
+                written.push((*item_id, row.id.clone()));
             }
-        };
-        if ok {
-            written.push((*item_id, stock_id.clone()));
+            Err(e) if fatal(&e) => return Err(e),
+            Err(e) => held(ctx, &[*item_id], &e)?,
         }
         ctx.progress(
             "WRITE",
@@ -295,7 +334,9 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
         "patched": all.iter().filter(|i| i.action.as_deref() == Some("PATCH")).count(),
         "unchanged": all.iter().filter(|i| i.action.as_deref() == Some("SKIP") && i.status == "DONE").count(),
         "repriced": all.iter().filter(|i| i.reprice_verdict.as_deref().map(|v| v.starts_with("REPRICED:")).unwrap_or(false)).count(),
-        "skipped": all.iter().filter(|i| i.status == "SKIPPED").count(),
+        // held rows are counted apart (plan 130 R-h), never twice
+        "skipped": all.iter().filter(|i| i.status == "SKIPPED" && !i.error_kind.as_deref().is_some_and(|k| IDENTITY_KINDS.contains(&k))).count(),
+        "held": all.iter().filter(|i| i.error_kind.as_deref().is_some_and(|k| IDENTITY_KINDS.contains(&k))).count(),
         "failed": all.iter().filter(|i| i.status == "FAILED").count(),
     });
     ctx.db.set_job_summary(ctx.job_id, &summary)?;
@@ -306,50 +347,16 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::matches::MatchRow;
+    use crate::db::matches::{state, LinkProduct};
+    use crate::matching::evidence::tests::cand;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
 
-    fn link(name: &str, code: &str, product: &str, priced_at: Option<&str>) -> MatchRow {
-        MatchRow {
-            supplier: "s".into(),
-            name_key: name.into(),
-            code: code.into(),
-            product_id: Some(product.into()),
-            product_name: Some("p".into()),
-            how: "AUTO".into(),
-            similarity: None,
-            name_seen: name.into(),
-            priced_at: priced_at.map(str::to_string),
-            decided_at: "2026-09-01T00:00:00Z".into(),
-        }
-    }
-
-    #[test]
-    fn the_most_recently_priced_link_wins_then_the_most_recently_invoiced() {
-        let rows = vec![
-            link("قدیمی", "1", "p1", Some("2026-09-01T00:00:00Z")),
-            link("تازه", "2", "p1", Some("2026-09-15T00:00:00Z")),
-            link("الف", "3", "p2", None),
-            link("ب", "4", "p2", None),
-        ];
-        let mut invoiced = HashMap::new();
-        invoiced.insert("3".to_string(), "1404/01/01".to_string());
-        invoiced.insert("4".to_string(), "1405/01/01".to_string());
-        let chosen = choose_link(rows, &invoiced);
-        assert_eq!(
-            (chosen["p1"].0.name_seen.as_str(), chosen["p1"].1),
-            ("تازه", 2)
-        );
-        assert_eq!(
-            (chosen["p2"].0.name_seen.as_str(), chosen["p2"].1),
-            ("ب", 2)
-        );
-    }
-
-    /// Counts every price lookup; a name search answers `quote` (none by default).
+    /// Counts every price lookup; a name search answers that name's quote from `quotes`.
     #[derive(Default)]
     struct CountingSupplier {
-        calls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
-        quote: Option<crate::domain::PriceQuote>,
+        calls: Arc<AtomicUsize>,
+        quotes: HashMap<String, i64>,
     }
 
     #[async_trait::async_trait]
@@ -371,12 +378,25 @@ mod tests {
             Ok(vec![])
         }
         async fn price_of(&self, _code: &str) -> Result<Option<crate::domain::PriceQuote>> {
-            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(None)
         }
-        async fn quotes_by_name(&self, _name: &str) -> Result<Vec<crate::domain::PriceQuote>> {
-            self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-            Ok(self.quote.clone().into_iter().collect())
+        async fn quotes_by_name(&self, name: &str) -> Result<Vec<crate::domain::PriceQuote>> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(self
+                .quotes
+                .get(name)
+                .map(|&list_price| crate::domain::PriceQuote {
+                    code: "C".into(),
+                    name: name.into(),
+                    list_price,
+                    vat_percent: Some(10.0),
+                    has_vat: true,
+                    available: true,
+                    unit: "عدد".into(),
+                })
+                .into_iter()
+                .collect())
         }
     }
 
@@ -423,74 +443,245 @@ mod tests {
             inventory: 2,
             price: None,
             cost: None,
-            condition: None,
-            authenticity: None,
+            condition: Some("NEW".into()),
+            authenticity: Some("ORIGINAL".into()),
             price_source: None,
         }
     }
 
+    /// A link on `product`, proven by this job when `proven`.
+    fn link(ctx: &JobCtx, name: &str, product: &str, proven: bool) -> (MatchRow, bool) {
+        ctx.db
+            .set_match(SUPPLIER_ID, name, "", Some((product, "x")), "USER", None)
+            .unwrap();
+        let p = LinkProduct {
+            id: product,
+            name: "x",
+            brand: Some(""),
+            alias: Some(""),
+        };
+        let st = if proven {
+            state::VALID
+        } else {
+            state::NEEDS_REVIEW
+        };
+        let reason =
+            (!proven).then(|| r#"[{"kind":"NUMBER_CONFLICT","lacking":["69349"]}]"#.to_string());
+        let key = crate::matching::normalize::name_key(name);
+        let version = ctx
+            .db
+            .link_by_key(SUPPLIER_ID, &key)
+            .unwrap()
+            .unwrap()
+            .link_version;
+        ctx.db
+            .validate_link(SUPPLIER_ID, &key, version, p, st, reason, ctx.job_id)
+            .unwrap()
+            .unwrap();
+        (
+            ctx.db.match_for_name(SUPPLIER_ID, name).unwrap().unwrap(),
+            proven,
+        )
+    }
+
+    fn registry(product: &str) -> Registry {
+        Registry::from_products(vec![cand(
+            product,
+            "آرمیچر استارت پراید",
+            None,
+            Some("کروز"),
+        )])
+    }
+
     #[tokio::test]
-    async fn an_unlinked_row_is_skipped_without_searching() {
+    async fn an_unlinked_row_is_skipped_without_quoting() {
         let supplier = CountingSupplier::default();
         let calls = supplier.calls.clone();
         let (ctx, svc) = fixture(supplier);
-        let resolved = resolve(
+        let out = price_row(
             &ctx,
             &svc,
-            &shelf_row("p-unlinked"),
-            "آرمیچر استارت پراید",
+            &shelf_row("p"),
+            &registry("p"),
             &HashMap::new(),
             &mut VatMismatches::default(),
         )
         .await
         .unwrap();
-        assert!(matches!(resolved, Resolved::NoLink));
-        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+        assert!(out.is_none());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        let item = &ctx.db.job_items(ctx.job_id).unwrap()[0];
+        assert_eq!(item.error_kind.as_deref(), Some(kinds::NO_SUPPLIER_LINK));
+        // a row whose own product left the registry says so
+        price_row(
+            &ctx,
+            &svc,
+            &shelf_row("gone"),
+            &registry("p"),
+            &HashMap::new(),
+            &mut VatMismatches::default(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            ctx.db.job_items(ctx.job_id).unwrap()[1]
+                .error_kind
+                .as_deref(),
+            Some("StaleLink")
+        );
     }
 
-    /// Characterises the stored-link path the map removal had to keep: the chosen link's name
-    /// and code price the row, and a product with several links is warned about.
+    /// Q-3 in REFRESH: two links on one row with two costs hold it, naming each cost; the old
+    /// "most recently priced wins" is gone.
     #[tokio::test]
-    async fn a_linked_row_is_priced_by_its_stored_link() {
+    async fn a_row_whose_links_disagree_on_cost_is_held() {
         let supplier = CountingSupplier {
-            quote: Some(crate::domain::PriceQuote {
-                code: "C9".into(),
-                name: "لنت جلو پراید".into(),
-                list_price: 100_000,
-                vat_percent: Some(10.0),
-                has_vat: true,
-                available: true,
-                unit: "عدد".into(),
-            }),
+            quotes: [
+                ("بست CW3.6".to_string(), 83_000),
+                ("بست CW4.8".to_string(), 88_000),
+            ]
+            .into(),
             ..Default::default()
         };
         let (ctx, svc) = fixture(supplier);
-        let mut links = HashMap::new();
-        links.insert(
-            "p-linked".to_string(),
-            (link("لنت جلو پراید", "C9", "p-linked", None), 2),
-        );
-        let resolved = resolve(
+        let links: LinksByProduct = [(
+            "p".to_string(),
+            vec![
+                link(&ctx, "بست CW3.6", "p", true),
+                link(&ctx, "بست CW4.8", "p", true),
+            ],
+        )]
+        .into();
+        let out = price_row(
             &ctx,
             &svc,
-            &shelf_row("p-linked"),
-            "لنت جلو",
+            &shelf_row("p"),
+            &registry("p"),
             &links,
             &mut VatMismatches::default(),
         )
         .await
         .unwrap();
-        let Resolved::Quoted(name, code, costed) = resolved else {
-            panic!("expected a quote");
+        assert!(out.is_none());
+        let item = &ctx.db.job_items(ctx.job_id).unwrap()[0];
+        assert_eq!(
+            (item.status.as_str(), item.error_kind.as_deref()),
+            ("SKIPPED", Some("Conflict"))
+        );
+        let note = item.note.clone().unwrap();
+        assert!(note.contains("91300") && note.contains("96800"), "{note}");
+    }
+
+    /// Task 12's shape: one proven link and one awaiting review on the same row hold it.
+    #[tokio::test]
+    async fn an_unproven_link_on_the_row_holds_it_without_quoting() {
+        let supplier = CountingSupplier {
+            quotes: [("درست".to_string(), 5_631_000)].into(),
+            ..Default::default()
         };
-        assert_eq!((name.as_str(), code.as_str()), ("لنت جلو پراید", "C9"));
-        assert_eq!(costed.cost, 110_000);
-        let events = ctx.db.job_detail(ctx.job_id).unwrap().events;
-        assert!(
-            events
-                .iter()
-                .any(|e| e.level == "WARN" && e.message.contains("به 2 نام")),
-            "{events:?}"
+        let calls = supplier.calls.clone();
+        let (ctx, svc) = fixture(supplier);
+        let links: LinksByProduct = [(
+            "p".to_string(),
+            vec![
+                link(&ctx, "درست", "p", true),
+                link(&ctx, "شتابزده", "p", false),
+            ],
+        )]
+        .into();
+        let out = price_row(
+            &ctx,
+            &svc,
+            &shelf_row("p"),
+            &registry("p"),
+            &links,
+            &mut VatMismatches::default(),
+        )
+        .await
+        .unwrap();
+        assert!(out.is_none());
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        let item = &ctx.db.job_items(ctx.job_id).unwrap()[0];
+        assert_eq!(item.error_kind.as_deref(), Some("EvidenceConflict"));
+    }
+
+    #[tokio::test]
+    async fn links_that_agree_make_one_proven_write_at_the_supplier_cost() {
+        let supplier = CountingSupplier {
+            quotes: [("الف".to_string(), 100_000), ("ب".to_string(), 100_000)].into(),
+            ..Default::default()
+        };
+        let (ctx, svc) = fixture(supplier);
+        let links: LinksByProduct = [(
+            "p".to_string(),
+            vec![link(&ctx, "الف", "p", true), link(&ctx, "ب", "p", true)],
+        )]
+        .into();
+        let (_, w, available) = price_row(
+            &ctx,
+            &svc,
+            &shelf_row("p"),
+            &registry("p"),
+            &links,
+            &mut VatMismatches::default(),
+        )
+        .await
+        .unwrap()
+        .expect("a write");
+        assert_eq!((w.cost(), w.links().len(), available), (110_000, 2, true));
+    }
+
+    /// Slice 2's review: a quote that fails fails the row's own item, and only that one.
+    #[tokio::test]
+    async fn a_failed_quote_fails_the_rows_one_item() {
+        struct Failing;
+        #[async_trait::async_trait]
+        impl crate::supplier::Supplier for Failing {
+            fn id(&self) -> &'static str {
+                "failing"
+            }
+            async fn login(&self) -> Result<()> {
+                Ok(())
+            }
+            async fn ledger(
+                &self,
+                _from: Option<&str>,
+                _progress: crate::supplier::Progress,
+            ) -> Result<Vec<crate::domain::InvoiceHeader>> {
+                Ok(vec![])
+            }
+            async fn invoice_lines(&self, _url: &str) -> Result<Vec<crate::domain::InvoiceLine>> {
+                Ok(vec![])
+            }
+            async fn price_of(&self, _code: &str) -> Result<Option<crate::domain::PriceQuote>> {
+                Ok(None)
+            }
+            async fn quotes_by_name(&self, _name: &str) -> Result<Vec<crate::domain::PriceQuote>> {
+                Err(BridgeError::SupplierParse {
+                    page: "search".into(),
+                    field: "price".into(),
+                })
+            }
+        }
+        let (ctx, mut svc) = fixture(CountingSupplier::default());
+        svc.supplier = Box::new(Failing);
+        let links: LinksByProduct = [("p".to_string(), vec![link(&ctx, "الف", "p", true)])].into();
+        let out = price_row(
+            &ctx,
+            &svc,
+            &shelf_row("p"),
+            &registry("p"),
+            &links,
+            &mut VatMismatches::default(),
+        )
+        .await
+        .unwrap();
+        assert!(out.is_none());
+        let items = ctx.db.job_items(ctx.job_id).unwrap();
+        assert_eq!(items.len(), 1, "one item per row");
+        assert_eq!(
+            (items[0].status.as_str(), items[0].error_kind.as_deref()),
+            ("FAILED", Some("SupplierParse"))
         );
     }
 }
