@@ -1,0 +1,6 @@
+# Brand spellings that name one brand (plan 130, R-c) — explicit only, never fuzzy. One reviewed group per
+# line, tab-separated; the first spelling is the one reported. Landau's registry holds «دایکو» and «DAYCO» as
+# two brands (PI-13), so this table is what lets either match the other.
+الما۷	ELMA7
+آماتا	AMATA
+دایکو	DAYCO

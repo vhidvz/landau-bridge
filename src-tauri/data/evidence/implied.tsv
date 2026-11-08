@@ -1,0 +1,7 @@
+# Implied words (plan 130, R-c): when the left token appears in a name, the right word counts as present.
+# One reviewed entry per line, tab-separated: <trigger>	<implied word>. Re-measure on the validation and
+# hard-case sets before adding a line; a wrong entry lets more parts through the automatic gate.
+405	پژو
+206	پژو
+207	پژو
+لنت	ترمز

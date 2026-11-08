@@ -2,6 +2,8 @@
 //! picker (a substring search), scored by token-set similarity against the normalised invoice
 //! name, auto-accepted at the threshold, every decision persisted.
 
+pub mod evidence;
+pub mod gate;
 pub mod normalize;
 pub mod similarity;
 

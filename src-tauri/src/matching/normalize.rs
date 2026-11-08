@@ -10,11 +10,11 @@ static WS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\s+").unwrap());
 static PUNCT: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"[()\[\]{}\-_.,،;:؛"'«»/\\*+|!?؟#@&%^~`<>]+"#).unwrap());
 /// «(10)», «( 10 )», «(10 عددی)», «(10عددي)», «(10 عدد)», «(10 تایی)», «(2 pcs)»
-static PACK_PAREN: LazyLock<Regex> =
+pub(crate) static PACK_PAREN: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\(\s*(\d{1,4})\s*(?:عددی|عدد|تایی|تا|pcs?|PCS?)?\s*\)").unwrap());
-/// bare «10 عددی» / «10عددی» — the character before the digits is kept (`$1`)
-static PACK_BARE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(^|[^\d])\d{1,4}\s*عددی").unwrap());
+/// bare «10 عددی» / «10عددی» — the character before the digits is kept (`$1`), the digits are `$2`
+pub(crate) static PACK_BARE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(^|[^\d])(\d{1,4})\s*عددی").unwrap());
 
 /// Unify Arabic/Persian glyphs, digits, ZWNJ and whitespace. Keeps punctuation.
 pub fn normalize_text(s: &str) -> String {
@@ -65,15 +65,25 @@ pub fn search_words(name: &str) -> String {
         .join(" ")
 }
 
-/// The invoice name as a search term: normalised, pack markers and a trailing SKU removed.
-pub fn search_term(name: &str, code: &str) -> String {
-    let mut s = normalize_text(name);
+/// The invoice name normalised, without a trailing copy of the item's own code (four characters
+/// or more) — the supplier appends it to some names.
+pub fn without_own_code(name: &str, code: &str) -> String {
+    let s = normalize_text(name);
     let code = normalize_text(code);
     if code.len() >= 4 {
         if let Some(stripped) = s.strip_suffix(code.as_str()) {
-            s = stripped.trim_end_matches([' ', '-', '_', '/']).to_string();
+            // Only a whole token: «… 44649» does not end in a copy of the code «4649».
+            if !stripped.chars().last().is_some_and(char::is_alphanumeric) {
+                return stripped.trim_end_matches([' ', '-', '_', '/']).to_string();
+            }
         }
     }
+    s
+}
+
+/// The invoice name as a search term: normalised, pack markers and a trailing SKU removed.
+pub fn search_term(name: &str, code: &str) -> String {
+    let s = without_own_code(name, code);
     let s = PACK_PAREN.replace_all(&s, " ");
     let s = PACK_BARE.replace_all(&s, "$1 ");
     WS.replace_all(s.trim(), " ").to_string()
@@ -124,6 +134,18 @@ mod tests {
             search_term("لنت (چپ) پراید", "2"),
             "لنت (چپ) پراید",
             "a non-numeric group stays"
+        );
+    }
+
+    #[test]
+    fn the_own_code_is_stripped_only_as_a_whole_token() {
+        assert_eq!(
+            without_own_code("بلبرینگ چرخ عقب پراید 3154028", "3154028"),
+            "بلبرینگ چرخ عقب پراید"
+        );
+        assert_eq!(
+            without_own_code("بلبرینگ چرخ پراید عظام 44649", "4649"),
+            "بلبرینگ چرخ پراید عظام 44649"
         );
     }
 

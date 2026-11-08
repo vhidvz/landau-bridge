@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Evidence (numbers, words, brand) and a write table to judge each supplier link; no job uses them yet. @vhidvz
+
 ### Changed
 
 - A release cut now writes the changelog's compare links, and its notes no longer run into them. @vhidvz

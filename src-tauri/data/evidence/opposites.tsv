@@ -1,0 +1,9 @@
+# Opposite words (plan 130, R-c): one side of a pair in the supplier name and the other in the candidate's
+# name is a conflict. One reviewed pair per line, tab-separated. «خارجی» is deliberately absent: it also means
+# "imported", so داخلی/خارجی would read a foreign-made part as the wrong side.
+چپ	راست
+جلو	عقب
+بالا	پایین
+بزرگ	کوچک
+داخلی	بیرونی
+قدیم	جدید
