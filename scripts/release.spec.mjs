@@ -9,6 +9,7 @@ import { bump, check, compareVersions, cutChangelog, isNewer, notes, parseVersio
 const here = dirname(fileURLToPath(import.meta.url))
 const FAKE = `node ${join(here, 'fixtures/fake-cargo.mjs')}`
 
+const REPO = 'https://github.com/vhidvz/landau-bridge'
 const CHANGELOG = `# Changelog
 
 ## [Unreleased]
@@ -16,6 +17,8 @@ const CHANGELOG = `# Changelog
 ### Added
 
 - A thing. @vhidvz
+
+[unreleased]: ${REPO}/commits/main
 `
 
 function fixture({ pkg = '0.1.0', cargo = '0.1.0', lock = '0.1.0', tauriVersion, changelog = CHANGELOG } = {}) {
@@ -77,7 +80,7 @@ test('a failing cargo step restores all four files byte for byte', () => {
 
 test('a lower version and an empty Unreleased section are refused', () => {
   assert.throws(() => bump(fixture({ cargo: '1.2.0', pkg: '1.2.0', lock: '1.2.0' }), '1.1.0', opts), /lower/)
-  const empty = fixture({ changelog: '# Changelog\n\n## [Unreleased]\n' })
+  const empty = fixture({ changelog: `# Changelog\n\n## [Unreleased]\n\n[unreleased]: ${REPO}/commits/main\n` })
   assert.throws(() => bump(empty, '1.0.0', opts), /empty/)
   bump(empty, '1.0.0', { ...opts, allowEmpty: true })
 })
@@ -121,4 +124,43 @@ test('bump leaves a tauri.conf without a version byte for byte', () => {
   writeFileSync(join(root, 'src-tauri/tauri.conf.json'), compact)
   bump(root, '1.0.0', opts)
   assert.equal(read(root, 'src-tauri/tauri.conf.json'), compact)
+})
+
+// The footer (Keep a Changelog link references), added 2026-11-08: three releases had been cut with none, and the
+// workspace's check-changelog gate now refuses a new version heading without its link. CI tags v<version>.
+const RELEASED = `# Changelog
+
+## [Unreleased]
+
+### Fixed
+
+- B. @vhidvz
+
+## [1.0.0] - 2026-10-01
+
+### Added
+
+- A. @vhidvz
+
+[unreleased]: ${REPO}/compare/v1.0.0...HEAD
+[1.0.0]: ${REPO}/releases/tag/v1.0.0
+`
+
+test('a cut moves [unreleased] to the new tag and links the version from the one below', () => {
+  const text = cutChangelog(RELEASED, '1.1.0', '2026-11-08', {})
+  assert.match(text, new RegExp(`\\n\\[unreleased\\]: ${REPO}/compare/v1\\.1\\.0\\.\\.\\.HEAD\\n\\[1\\.1\\.0\\]: ${REPO}/compare/v1\\.0\\.0\\.\\.\\.v1\\.1\\.0\\n\\[1\\.0\\.0\\]: `))
+  assert.equal(cutChangelog(text, '1.1.0', '2026-11-08', {}), text, 'a re-run changes nothing')
+})
+
+test('the first release links to its tag', () => {
+  const text = cutChangelog(CHANGELOG, '1.0.0', '2026-10-13', {})
+  assert.match(text, new RegExp(`\\[unreleased\\]: ${REPO}/compare/v1\\.0\\.0\\.\\.\\.HEAD\\n\\[1\\.0\\.0\\]: ${REPO}/releases/tag/v1\\.0\\.0\\n`))
+})
+
+test('the notes of the oldest version stop before the footer', () => {
+  assert.equal(notes(RELEASED, '1.0.0'), '### Added\n\n- A. @vhidvz')
+})
+
+test('a changelog with no [unreleased] link is refused: the cut would have nothing to link from', () => {
+  assert.throws(() => cutChangelog('# Changelog\n\n## [Unreleased]\n\n- A. @vhidvz\n', '1.0.0', '2026-10-13', {}), /\[unreleased\] link/)
 })

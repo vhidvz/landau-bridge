@@ -71,14 +71,37 @@ export function lockVersion(lock) {
   return /name = "landau-bridge"\nversion = "([^"]+)"/.exec(lock)?.[1] ?? null
 }
 
-/** The body of `## [<version>] …` up to the next `## [`, or null when there is none. */
+/** Where the link references begin (`[x]: url` lines at the end), or the text's length when there are none. */
+function footerStart(text) {
+  const m = /\n\[[^\]\n]+\]:[ \t]*\S+[^\n]*(?:\n|$)/.exec(text)
+  return m ? m.index + 1 : text.length
+}
+
+/** The body of `## [<version>] …` up to the next `## [` or the link references, or null when there is none. */
 function section(text, version) {
   const head = `\n## [${version}]`
   const start = text.indexOf(head)
   if (start < 0) return null
   const bodyStart = text.indexOf('\n', start + 1) + 1
   const next = text.indexOf('\n## [', bodyStart - 1)
-  return text.slice(bodyStart, next < 0 ? undefined : next + 1)
+  const end = Math.min(next < 0 ? text.length : next + 1, footerStart(text))
+  return text.slice(bodyStart, Math.max(end, bodyStart))
+}
+
+const UNRELEASED_LINK = /^\[unreleased\]:[ \t]*(\S+)[^\n]*$/im
+
+/**
+ * Keep a Changelog's link references for a version just cut: `[unreleased]` now compares from its tag to HEAD,
+ * and the version compares from the one below it — or, the first release, points at its tag. CI tags `v<version>`.
+ * The repository URL is read from the existing `[unreleased]` link (workspace gate: check-changelog.mjs).
+ */
+function linkVersion(text, version) {
+  const m = UNRELEASED_LINK.exec(text)
+  if (!m) throw new Error('CHANGELOG.md has no [unreleased] link to take the repository URL from — add one first')
+  const base = m[1].replace(/\/(?:compare|commits|releases)\/.*$/, '')
+  const below = [...text.matchAll(/^## \[([^\]]+)\]/gm)].map((h) => h[1]).filter((v) => v !== 'Unreleased' && v !== version)[0]
+  const link = below ? `${base}/compare/v${below}...v${version}` : `${base}/releases/tag/v${version}`
+  return text.replace(UNRELEASED_LINK, `[unreleased]: ${base}/compare/v${version}...HEAD\n[${version}]: ${link}`)
 }
 
 export function cutChangelog(text, version, date, { allowEmpty = false } = {}) {
@@ -86,10 +109,11 @@ export function cutChangelog(text, version, date, { allowEmpty = false } = {}) {
   const marker = '## [Unreleased]'
   const at = text.indexOf(marker)
   if (at < 0) throw new Error('CHANGELOG.md has no ## [Unreleased] section')
+  if (!UNRELEASED_LINK.test(text)) throw new Error('CHANGELOG.md has no [unreleased] link to take the repository URL from — add one first')
   const body = section(text, 'Unreleased') ?? ''
   if (!body.trim() && !allowEmpty) throw new Error('the [Unreleased] section is empty — nothing to release')
   const after = text.slice(at + marker.length + 1 + body.length)
-  return `${text.slice(0, at)}${marker}\n\n## [${version}] - ${date}\n${body}${after}`
+  return linkVersion(`${text.slice(0, at)}${marker}\n\n## [${version}] - ${date}\n${body}${after}`, version)
 }
 
 export function notes(text, version) {

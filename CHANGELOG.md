@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- A release cut now writes the changelog's compare links, and its notes no longer run into them. @vhidvz
+
 ## [1.1.1] - 2026-11-04
 
 ### Fixed
@@ -66,3 +70,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Windows MSI package; the setup `.exe` installs per user and updates without administrator rights. @vhidvz
 - The landau-parts name map: its Settings card, its table and the `calibrate` tool. @vhidvz
 - `docs/` (specs, plans, runbook, calibration record, font note). @vhidvz
+
+[unreleased]: https://github.com/vhidvz/landau-bridge/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/vhidvz/landau-bridge/compare/v1.1.0...v1.1.1
+[1.1.0]: https://github.com/vhidvz/landau-bridge/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/vhidvz/landau-bridge/releases/tag/v1.0.0
