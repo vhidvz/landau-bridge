@@ -1,9 +1,9 @@
-//! Landau's registry, read whole once per job (plan 130 R-b, slice 2's ruling). The client gateway
-//! offers no lookup by id — `GET /-/career/products/:id` answers `{"data":{}}` for a real id and a
-//! made-up one alike (task 1, 2026-11-08) — while the seller's picker lists every approved
-//! definition on an empty term. So VALIDATE reads that list to its `total` and refuses to judge on
-//! anything less: existence, the rebuild key, the evidence vocabulary and every candidate set come
-//! from this one snapshot.
+//! Landau's registry, read whole once per job (plan 130 R-b, slice 2's ruling). The evidence needs
+//! the whole registry's vocabulary and a stored link's tie needs its candidate set, so a by-id read
+//! (`GET /-/career/products/:id?zone=client`; without `zone` it answers `{"data":{}}` for any id)
+//! would save nothing: the seller's picker lists every approved definition on an empty term, and
+//! VALIDATE reads that list to its `total` and refuses to judge on anything less. Existence, the
+//! rebuild key, the vocabulary and every candidate set come from this one snapshot.
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
