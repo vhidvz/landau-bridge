@@ -1,0 +1,42 @@
+# Cases the gate decides against their label, read by a person (plan 130 task 5). verdict: RIGHT (the candidate is the part
+# the supplier names), WRONG, DUPLICATE (a registry duplicate of the right part, PI-13) or UNSURE. The test lists any unread case.
+set	code	candidate_id	verdict	note
+seller-export-absent	590318	6aec9f89d00e9931421cd4cf	WRONG	Q-6 residual: a control-arm bushing written as the control arm; the registry lacks this maker's bushing (five others list it)
+validation-conflict	0050100222	6aec97e3d00e9931421a27fc	RIGHT	a number only the candidate states: «4 ذغاله» in an alias
+validation-conflict	108004RA	6aec9b0dd00e9931421b3fa1	UNSURE	RD is a Paykan model and سینا the maker; the registry files the part under the brand RD
+validation-conflict	13100100	6aec9982d00e9931421ab7a6	RIGHT	two makers named; the label is one of them (ویژن, KDK)
+validation-conflict	13100125	6aeca347d00e9931421e2593	RIGHT	a number only the candidate states: 405 in an alias
+validation-conflict	1501102	6aeca6dad00e9931421f5ac7	WRONG	label-level: the supplier names دیناپارت, the label is آماتا
+validation-conflict	1501131	6aeca791d00e9931421f98c4	WRONG	label-level: the supplier names دیناپارت, the label is الما۷
+validation-conflict	166063138	6aec9fb3d00e9931421ce2c8	RIGHT	a word read as the supplier brand («شرکتی»); a Latin/Persian brand pair the equivalence table lacks: DOOSTAN / دوستان
+validation-conflict	166063142	6aeca447d00e9931421e7e8d	RIGHT	a number written in words in the supplier name, in digits in an alias: هفت / 7; a Latin/Persian brand pair the equivalence table lacks: DOOSTAN / دوستان
+validation-conflict	201011TP	6aec9aacd00e9931421b1cb6	RIGHT	a number only the candidate states: 405; the alias names the پژو 2000 carburettor cover
+validation-conflict	2033001510	6aeca719d00e9931421f6ff1	RIGHT	a number written in words in the supplier name, in digits in an alias: سه / 3
+validation-conflict	22195	6aec9fe6d00e9931421cf48e	RIGHT	two makers named; the label is one of them (بی نی سی, سپهر مهرخودرو)
+validation-conflict	30120007	6aec98a4d00e9931421a6c3c	RIGHT	the bracketed 6006 of the candidate: the RSCO mid-shaft bearing is a 6006
+validation-conflict	373004000006	6aec98a4d00e9931421a6bf6	RIGHT	FKL6006/2 in both names, read differently
+validation-conflict	500301088	6aeca783d00e9931421f93d1	WRONG	label-level: the supplier names IBBC, the label is NE
+validation-conflict	501137MA	6aec9db0d00e9931421c2d38	RIGHT	a number written in words in the supplier name, in digits in an alias: ده / 10
+validation-conflict	501137MB	6aec9db0d00e9931421c2d3f	RIGHT	a number written in words in the supplier name, in digits in an alias: ده / 10
+validation-conflict	504033AA	6aeca4b0d00e9931421ea005	RIGHT	a number written in words in the supplier name, in digits in an alias: چهار / 4; the registry product names no maker
+validation-conflict	5201155013/11	6aec9df4d00e9931421c45bf	RIGHT	two makers named; the label is one of them; the supplier misspells سپهر مهرخودرو
+validation-conflict	5301155011-2	6aec9dfcd00e9931421c4897	RIGHT	two makers named; the label is one of them (بی نی سی, سپهر مهرخودرو)
+validation-conflict	82004338	6aec9ae2d00e9931421b305f	RIGHT	a number written in words in the supplier name, in digits in an alias: سه / 3
+validation-conflict	82004339	6aec9ae6d00e9931421b31a1	RIGHT	a number written in words in the supplier name, in digits in an alias: پنج / 5
+validation-conflict	82004342	6aec9af8d00e9931421b3807	RIGHT	a number only the candidate states: 2011 in an alias
+validation-conflict	9600052	6aec9f63d00e9931421cc7af	RIGHT	a Latin/Persian brand pair the equivalence table lacks: PERFLEX / پرفلکس
+validation-conflict	982008	6aec9c4ad00e9931421baf3f	RIGHT	two makers named; the label is one of them (سیپارت, سایپا یدک)
+validation-conflict	AM1107103	6aec98cdd00e9931421a7b07	UNSURE	the supplier says 68934, the label's alias 68933
+validation-conflict	BKR6E/6962/153	6aec9e88d00e9931421c7a8c	RIGHT	a number only the candidate states: 405; NGK 6962 is the BKR6E
+validation-conflict	CR40075401	6aeca1d3d00e9931421da299	RIGHT	a word read as the supplier brand: «طرح بیترون» is a design
+validation-conflict	DAC377233	6aec98b0d00e9931421a705d	RIGHT	a Latin/Persian brand pair the equivalence table lacks: HAMED / حامد
+validation-conflict	JHN100833	6aec98a1d00e9931421a6b0f	RIGHT	2RS in both names, read differently
+validation-conflict	JHN100896	6aec9e98d00e9931421c8043	RIGHT	a number only the candidate states: 405
+validation-conflict	JHN100897	6aec9e98d00e9931421c803c	RIGHT	a number only the candidate states: 405; the alias names the Sagem valve
+validation-conflict	LFR6AIX-11/6619/411	6aec9e8ad00e9931421c7b50	RIGHT	the part code LFR6AIX-11 is in the candidate only; 6619 is its NGK stock number
+validation-conflict	TP-PG206-STD	6aec9c84d00e9931421bc431	RIGHT	a word read as the supplier brand: «مکانیک» in «ضمانت اجرت مکانیک»
+validation-conflict	TP-PG405-3F-STD	6aec9c87d00e9931421bc534	RIGHT	a word read as the supplier brand: «مکانیک» in «ضمانت اجرت مکانیک»
+validation-removed	10604200030990040	6aec9ffbd00e9931421cfc2f	WRONG	Q-2 residual: the supplier-only «2» (Tiba 2) against the plain Tiba spring
+validation-removed	13700109MP	6aeca695d00e9931421f43c1	DUPLICATE	«1600/2000» and «1600 و 2000»: one shock absorber listed twice
+validation-removed	561229	6aec9a07d00e9931421ae201	WRONG	Q-2 residual: the supplier-only «132» against the generic grille
+validation-removed	un80021388	6aec9ca0d00e9931421bcda7	WRONG	Q-2 residual: the supplier-only «141» against the generic latch

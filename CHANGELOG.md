@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A shelf audit lists each row whose cost no proven link vouches for, what it should be, and why; CSV export. @vhidvz
 - A job's report shows each row's cost before and after the write. @vhidvz
 - The 2026-11-06 incident runs end to end offline as a regression test: no wrong cost, both rows held. @vhidvz
+- Committed evidence sets, a seeded script and a pinned test measure the link gate; an unread case fails it. @vhidvz
 
 ### Changed
 

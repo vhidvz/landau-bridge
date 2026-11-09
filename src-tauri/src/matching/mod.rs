@@ -150,6 +150,17 @@ where
     Ok(out)
 }
 
+/// The candidates a job gathers for `term` from its registry snapshot, scored best first: the one
+/// gathering VALIDATE and the evidence measurement share (plan 130 slice 6), so the measured gate is
+/// the job's gate.
+pub async fn gather(registry: &registry::Registry, term: &str) -> Result<Vec<Scored>> {
+    let search = |q: String, limit: usize, skip: usize| {
+        std::future::ready(Ok(registry.search(&q, limit, skip)))
+    };
+    let hits = candidates(&search, term).await?;
+    Ok(score(term, &hits))
+}
+
 /// The seller's link decisions outside a job's proof — «not in Landau» and a cleared link — and the
 /// search term rule the review screen shares with the automatic pass. Judging a link is
 /// [`crate::jobs::proof::Prover`]'s.

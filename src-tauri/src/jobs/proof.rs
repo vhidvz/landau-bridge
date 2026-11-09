@@ -17,7 +17,7 @@ use crate::matching::gate::{
 };
 use crate::matching::normalize::{name_key, search_term};
 use crate::matching::registry::{identity_of, Registry};
-use crate::matching::{candidates, score, similarity_of, Scored, CANDIDATES};
+use crate::matching::{similarity_of, Scored, CANDIDATES};
 
 /// What one supplier item's link came to in this job.
 #[derive(Debug, Clone, PartialEq)]
@@ -84,12 +84,7 @@ pub struct Prover<'a> {
 impl Prover<'_> {
     /// The candidates the picker would gather for `term`, from the snapshot, best first.
     async fn gather(&self, term: &str) -> Result<Vec<Scored>> {
-        let registry = self.registry;
-        let search = |q: String, limit: usize, skip: usize| {
-            std::future::ready(Ok(registry.search(&q, limit, skip)))
-        };
-        let hits = candidates(&search, term).await?;
-        Ok(score(term, &hits))
+        crate::matching::gather(self.registry, term).await
     }
 
     /// The stored link for this name, else for this code (spec §14 a). A name hit seen under a new
