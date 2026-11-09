@@ -125,6 +125,7 @@ export const kindLabel = (kind: string): string =>
     RowChanged: 'ردیف قفسه تغییر کرد',
     AlreadyRunning: 'برنامه از قبل باز است',
     RegistryIncomplete: 'فهرست لاندا کامل خوانده نشد',
+    WriteUnconfirmed: 'نتیجهٔ نوشتن هنوز روشن نیست',
   })[kind] ?? kind;
 
 // ---- job presentation (spec §6) -----------------------------------------------------------------
@@ -197,7 +198,7 @@ export type KindFamily = 'supplier' | 'landau' | 'app';
 /** Which side an error kind belongs to — the split that tells the seller whom to call. */
 export const kindFamily = (kind: string): KindFamily => {
   if (/^Supplier|^Invoice|^(NoCurrentPrice|LineNonPositiveQty|VatRateMismatch)$/.test(kind)) return 'supplier';
-  if (/^Landau|^(BusinessNotApproved|NoStore|ProductNotApproved|DuplicateRow|MirrorTimeout|NoPricingRule|BelowMinMargin|RepriceSkipped|RegistryIncomplete)$/.test(kind)) return 'landau';
+  if (/^Landau|^(BusinessNotApproved|NoStore|ProductNotApproved|DuplicateRow|MirrorTimeout|NoPricingRule|BelowMinMargin|RepriceSkipped|RegistryIncomplete|WriteUnconfirmed)$/.test(kind)) return 'landau';
   return 'app';
 };
 

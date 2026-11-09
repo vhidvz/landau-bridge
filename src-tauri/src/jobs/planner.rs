@@ -343,6 +343,7 @@ mod tests {
             condition: Some("NEW".into()),
             authenticity: auth.map(str::to_string),
             price_source: None,
+            updated_at: None,
         }
     }
 

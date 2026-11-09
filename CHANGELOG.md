@@ -14,6 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - One shelf writer is the only way to write a cost or quantity, and refuses a link changed mid-job. @vhidvz
 - One app per data folder, and one job at a time even across two processes on one database. @vhidvz
 - A held link is labelled in Persian and counted apart from skipped and failed rows. @vhidvz
+- Every shelf write is recorded before it is sent and closed only once its outcome is known. @vhidvz
+- Each job first settles an earlier write left unknown by reading its row: landed, never landed, or changed. @vhidvz
+- A row changed outside the bridge after an unsettled write is held, with both values, until the seller decides. @vhidvz
 
 ### Changed
 
@@ -21,10 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A link to a product Landau re-imported moves to it only on an exact name, brand and alias. @vhidvz
 - Links move to a versioned table, each unverified until a job proves it; old builds find none. @vhidvz
 - Two supplier codes with different costs on one shelf row hold it instead of the last write winning. @vhidvz
+- Each write reads its shelf row again just before and is planned from what the row holds now. @vhidvz
 
 ### Fixed
 
 - A product Landau no longer lists turns its link stale instead of failing every run with a 404. @vhidvz
+- A lost attach reply no longer adds the quantity a second time, nor does a crash before its lines are marked. @vhidvz
 
 ## [1.1.1] - 2026-11-04
 

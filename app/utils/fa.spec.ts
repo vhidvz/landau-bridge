@@ -100,7 +100,7 @@ describe('fa — jobs and durations', () => {
 
   it('groups error kinds into families', () => {
     for (const k of ['SupplierUnreachable', 'SupplierParse', 'SupplierFaulted', 'NoCurrentPrice', 'InvoiceUnpaid', 'LineNonPositiveQty', 'VatRateMismatch']) expect(kindFamily(k), k).toBe('supplier');
-    for (const k of ['LandauUnauthorized', 'LandauRejected', 'BusinessNotApproved', 'NoStore', 'ProductNotApproved', 'DuplicateRow', 'MirrorTimeout', 'NoPricingRule', 'RepriceSkipped']) expect(kindFamily(k), k).toBe('landau');
+    for (const k of ['LandauUnauthorized', 'LandauRejected', 'BusinessNotApproved', 'NoStore', 'ProductNotApproved', 'DuplicateRow', 'MirrorTimeout', 'NoPricingRule', 'RepriceSkipped', 'WriteUnconfirmed']) expect(kindFamily(k), k).toBe('landau');
     for (const k of ['JobCancelled', 'SettingsIncomplete', 'KeyringUnavailable', 'Db', 'Other', 'Unmatched', 'NoneDecision', 'Whatever']) expect(kindFamily(k), k).toBe('app');
   });
 
@@ -108,7 +108,7 @@ describe('fa — jobs and durations', () => {
   // a registry Landau could not serve whole is Landau's side.
   it('names every link-identity kind in Persian and places it', () => {
     const identity = ['StaleLink', 'NeedsReview', 'EvidenceConflict', 'Conflict', 'LinkChanged', 'RowChanged', 'AlreadyRunning'];
-    for (const k of [...identity, 'RegistryIncomplete']) {
+    for (const k of [...identity, 'RegistryIncomplete', 'WriteUnconfirmed']) {
       expect(kindLabel(k), k).not.toBe(k);
       expect(/[A-Za-z]/.test(kindLabel(k)), k).toBe(false);
     }

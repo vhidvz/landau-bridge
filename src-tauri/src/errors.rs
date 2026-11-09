@@ -66,6 +66,10 @@ pub enum BridgeError {
     /// The registry could not be read whole, so no link may be judged (plan 130 R-b).
     #[error("registry read incomplete: {read} of {total}")]
     RegistryIncomplete { read: usize, total: usize },
+    /// A write Landau may have applied without its reply arriving, and the row does not show it
+    /// yet: its intent stays open for the next job's reconciliation (plan 130 task 10).
+    #[error("write unconfirmed: {0}")]
+    WriteUnconfirmed(String),
     // Identity failures (plan 130 R-h): the row is held for the seller, nothing is written.
     /// The link's product is no longer in Landau's registry.
     #[error("stale link: product {product} is gone")]
@@ -136,6 +140,7 @@ impl BridgeError {
             KeyringUnavailable(_) => "KeyringUnavailable",
             AlreadyRunning => "AlreadyRunning",
             RegistryIncomplete { .. } => "RegistryIncomplete",
+            WriteUnconfirmed(_) => "WriteUnconfirmed",
             StaleLink { .. } => "StaleLink",
             NeedsReview { .. } => "NeedsReview",
             EvidenceConflict { .. } => "EvidenceConflict",
@@ -176,6 +181,7 @@ impl BridgeError {
             KeyringUnavailable(_) => "ذخیره‌ساز امن سیستم در دسترس نیست؛ رمزها در پرونده برنامه نگه داشته می‌شوند.".into(),
             AlreadyRunning => "پل لاندا همین حالا باز است. همان پنجره را به کار ببرید؛ دو نسخهٔ هم‌زمان روی یک قفسه می‌نویسند.".into(),
             RegistryIncomplete { read, total } => format!("فهرست قطعه‌های لاندا کامل خوانده نشد ({read} از {total})؛ بدون فهرست کامل هیچ پیوندی سنجیده نمی‌شود و چیزی نوشته نشد. دوباره اجرا کنید."),
+            WriteUnconfirmed(_) => "پاسخ لاندا به این نوشتن نرسید و ردیف هنوز دیده نمی‌شود؛ اجرای بعدی پیش از هر کاری ردیف را می‌خواند و نتیجه را روشن می‌کند. چیزی دوباره فرستاده نشد.".into(),
             StaleLink { .. } => "قطعهٔ لاندای این پیوند دیگر در فهرست لاندا نیست؛ پیوند را در «تطبیق‌ها» دوباره انتخاب کنید.".into(),
             NeedsReview { .. } => "شواهد این پیوند برای نوشتن خودکار کافی نیست؛ پیوند را بررسی و تأیید کنید.".into(),
             EvidenceConflict { .. } => "نام بارزپخش با قطعهٔ لاندای این پیوند جور نیست (عدد، جهت یا برند)؛ پیوند را بررسی کنید.".into(),
@@ -280,6 +286,7 @@ mod tests {
                 read: 52_800,
                 total: 52_899,
             },
+            BridgeError::WriteUnconfirmed("409 after a lost reply".into()),
             BridgeError::StaleLink {
                 product: "6ac52427".into(),
             },
@@ -341,6 +348,7 @@ mod tests {
             },
             BridgeError::LandauUnreachable("x".into()),
             BridgeError::NoCurrentPrice { code: "1".into() },
+            BridgeError::WriteUnconfirmed("x".into()),
         ] {
             assert!(!e.is_identity(), "{}", e.kind());
             assert!(!IDENTITY_KINDS.contains(&e.kind()));

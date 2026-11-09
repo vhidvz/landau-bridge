@@ -4,6 +4,7 @@ pub mod import;
 pub mod planner;
 pub mod pricing;
 pub mod proof;
+pub mod reconcile;
 pub mod refresh;
 
 use std::collections::HashMap;

@@ -17,7 +17,7 @@ use crate::db::matches::{actor, state, LinkProduct, LinkPut};
 use crate::db::Db;
 use crate::domain::{Authenticity, ImportMode};
 use crate::errors::{kinds, BridgeError, Result, IDENTITY_KINDS};
-use crate::landau::writer::ShelfWriter;
+use crate::landau::writer::{ImportWrite, ShelfWriter};
 use crate::matching::gate::{verdict, Judged, Origin, Verdict};
 use crate::settings::SUPPLIER_ID;
 use crate::supplier::Progress;
@@ -55,6 +55,9 @@ pub async fn start(ctx: &JobCtx, svc: &Services, params: &ImportParams) -> Resul
     let (_, _, store) = svc.settings.require_landau()?;
     let store = store.to_string();
     preflight(ctx, svc, &store).await?;
+    // R-o: an earlier write whose outcome is unknown is settled before anything is aggregated —
+    // a landed one marks its invoice lines, so they cannot be added to the shelf twice
+    super::reconcile::reconcile(ctx, &svc.landau, &store).await?;
     fetch(ctx, svc, params.ledger_from(), params.fetch_limit).await?;
     aggregate_phase(ctx, params)?;
     let pending = match_phase(ctx, svc).await?;
@@ -598,22 +601,45 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
             super::proof::Target::Row { authenticity, .. } => *authenticity,
             super::proof::Target::Stock { .. } => svc.settings.default_authenticity,
         };
-        match writer
-            .import(
-                w,
-                &store,
-                mode,
-                available,
-                svc.settings.min_margin_percent,
-                &mut shelf,
-            )
-            .await
-        {
+        // The invoice lines this write transfers: the writer marks them in the same SQLite
+        // transaction that closes the write's intent, and only once the write is known to have
+        // landed — a crash or a lost reply leaves both to the next job's reconciliation (PI-7).
+        let lines: Vec<(i64, String)> = if mode == ImportMode::Quantity {
+            group
+                .iter()
+                .flat_map(|item| {
+                    item.invoice_ids
+                        .iter()
+                        .map(|invoice_id| (*invoice_id, item.code.clone()))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let term = group
+            .iter()
+            .find_map(|i| i.product_name.as_deref())
+            .unwrap_or("");
+        let req = ImportWrite {
+            store: &store,
+            mode,
+            available,
+            min_margin_percent: svc.settings.min_margin_percent,
+            term,
+            lines: &lines,
+        };
+        match writer.import(w, &req, &mut shelf).await {
             Ok(done) => {
                 let qty: i64 = group.iter().map(|i| i.qty).sum();
                 if done.held {
                     ctx.db
                         .add_item_note(w.lead(), "ناموجود؛ قیمت پایین‌تر نادیده گرفته شد")?;
+                }
+                if done.replanned {
+                    ctx.db.add_item_note(
+                        w.lead(),
+                        "ردیف قفسه پس از خواندن تغییر کرده بود؛ با مقدار تازهٔ آن نوشته شد.",
+                    )?;
                 }
                 if done.restored {
                     ctx.info(
@@ -635,18 +661,9 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                     );
                 }
                 for item in &group {
-                    // the transfer guard is written first, before the item is stamped WRITTEN: if
-                    // the process dies between the two SQLite writes, the guard alone is enough to
-                    // stop a re-aggregation from double-adding this (invoice, code) pair next run —
-                    // an orphaned guard only loses this item's report status, never inventory.
-                    if mode == ImportMode::Quantity {
-                        let lines: Vec<(i64, String)> = item
-                            .invoice_ids
-                            .iter()
-                            .map(|invoice_id| (*invoice_id, item.code.clone()))
-                            .collect();
-                        ctx.db.mark_lines_imported(&lines, ctx.job_id)?;
-                    }
+                    // the transfer guard was written with the landing, before the item is stamped
+                    // WRITTEN: an orphaned guard only loses this item's report status, never
+                    // inventory
                     let lead = item.id == w.lead();
                     let mut patch = vec![
                         ("stock_id", t(&done.stock_id)),
@@ -721,6 +738,7 @@ mod tests {
             condition: Some("NEW".into()),
             authenticity: Some("ORIGINAL".into()),
             price_source: None,
+            updated_at: None,
         }
     }
 

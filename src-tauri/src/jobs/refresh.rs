@@ -241,6 +241,8 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
     let (_, _, store) = svc.settings.require_landau()?;
     let store = store.to_string();
     preflight(ctx, svc, &store).await?;
+    // R-o: settle every earlier write whose outcome is unknown before any row is planned
+    super::reconcile::reconcile(ctx, &svc.landau, &store).await?;
 
     ctx.phase("PRICE")?;
     let registry = read_registry(ctx, svc, "PRICE").await?;
@@ -286,7 +288,7 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
     let total = to_write.len() as u32;
     for (n, (item_id, w, available, row)) in to_write.iter().enumerate() {
         ctx.check_cancel()?;
-        match writer.refresh(w, *available, row.cost).await {
+        match writer.refresh(w, &store, *available, row).await {
             Ok(outcome) => {
                 let (cost, was_held, action, price_after) = match outcome {
                     Refreshed::Unchanged { cost, held } => (cost, held, "SKIP", row.price),
@@ -294,7 +296,16 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
                         cost,
                         held,
                         price_after,
-                    } => (cost, held, "PATCH", price_after),
+                        replanned,
+                    } => {
+                        if replanned {
+                            ctx.db.add_item_note(
+                                *item_id,
+                                "ردیف قفسه پس از خواندن تغییر کرده بود؛ با مقدار تازهٔ آن نوشته شد.",
+                            )?;
+                        }
+                        (cost, held, "PATCH", price_after)
+                    }
                 };
                 if was_held {
                     ctx.db
@@ -446,6 +457,7 @@ mod tests {
             condition: Some("NEW".into()),
             authenticity: Some("ORIGINAL".into()),
             price_source: None,
+            updated_at: None,
         }
     }
 

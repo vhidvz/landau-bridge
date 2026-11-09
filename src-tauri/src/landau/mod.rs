@@ -10,6 +10,8 @@ use serde_json::{json, Value};
 use crate::domain::Authenticity;
 use crate::errors::{BridgeError, Result};
 
+#[cfg(test)]
+pub mod stub;
 pub mod writer;
 
 const SHELF_PAGE: usize = 100;
@@ -27,6 +29,23 @@ pub(crate) fn retryable(status: Option<u16>) -> bool {
         Some(408) | Some(429) => true,
         Some(s) => (500..600).contains(&s),
     }
+}
+
+/// An attempt the server may have applied without the bridge learning it (plan 130 R-g): no
+/// answer at all, a 408 or a 5xx. A 429 is a refusal — the limiter answered before the service.
+pub(crate) fn may_have_applied(status: Option<u16>) -> bool {
+    match status {
+        None | Some(408) => true,
+        Some(s) => (500..600).contains(&s),
+    }
+}
+
+/// A write's answer, and whether any attempt of it may have been applied unseen — the
+/// difference between "refused" and "unknown" that decides whether its intent closes.
+#[derive(Debug)]
+pub(in crate::landau) struct Sent<T> {
+    pub result: Result<T>,
+    pub uncertain: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -62,6 +81,18 @@ pub struct ShelfRow {
     pub authenticity: Option<String>,
     /// `MANUAL` | `RULE` | absent — from `priced.source`.
     pub price_source: Option<String>,
+    /// The row's last change (`updated_at`, else `created_at`), compared by the fresh read
+    /// before a write (plan 130 R-p).
+    pub updated_at: Option<String>,
+}
+
+/// What narrows a shelf read: a product name (≤ 100 characters, see [`shelf_term`]) and, when
+/// known, the variant.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Narrow<'a> {
+    pub term: &'a str,
+    pub condition: Option<&'a str>,
+    pub authenticity: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -191,6 +222,7 @@ impl ShelfRow {
             condition: s(stock, "condition"),
             authenticity: s(stock, "authenticity"),
             price_source: stock.get("priced").and_then(|p| s(p, "source")),
+            updated_at: s(stock, "updated_at").or_else(|| s(stock, "created_at")),
         })
     }
 }
@@ -237,6 +269,7 @@ impl LandauClient {
         url: &Url,
         path: &str,
         body: Option<&Value>,
+        uncertain: &mut bool,
     ) -> Result<reqwest::Response> {
         let mut attempt: usize = 0;
         loop {
@@ -250,6 +283,9 @@ impl LandauClient {
             }
             let outcome = req.send().await;
             let status = outcome.as_ref().ok().map(|r| r.status().as_u16());
+            if may_have_applied(status) {
+                *uncertain = true;
+            }
             if attempt <= RETRY_DELAYS.len() && retryable(status) {
                 match &outcome {
                     Ok(res) => tracing::warn!(
@@ -270,13 +306,27 @@ impl LandauClient {
     }
 
     async fn call_url(&self, method: Method, url: Url, body: Option<&Value>) -> Result<Value> {
+        self.call_url_tracked(method, url, body, &mut false).await
+    }
+
+    /// [`Self::call_url`], recording in `uncertain` whether any attempt may have been applied
+    /// unseen — a body cut off after a success status counts, since the write landed.
+    async fn call_url_tracked(
+        &self,
+        method: Method,
+        url: Url,
+        body: Option<&Value>,
+        uncertain: &mut bool,
+    ) -> Result<Value> {
         let path = url.path().to_string();
-        let res = self.send_with_retry(&method, &url, &path, body).await?;
+        let res = self
+            .send_with_retry(&method, &url, &path, body, uncertain)
+            .await?;
         let status = res.status();
-        let text = res
-            .text()
-            .await
-            .map_err(|e| BridgeError::LandauUnreachable(e.to_string()))?;
+        let text = res.text().await.map_err(|e| {
+            *uncertain = true;
+            BridgeError::LandauUnreachable(e.to_string())
+        })?;
         tracing::debug!(%method, path, %status, "landau");
         let value: Value =
             serde_json::from_str(&text).unwrap_or(Value::String(text.chars().take(300).collect()));
@@ -293,6 +343,19 @@ impl LandauClient {
                 body: message.chars().take(300).collect(),
             },
         })
+    }
+
+    /// One write, sent with the usual retries, answering whether any attempt may have landed.
+    async fn write(&self, method: Method, path: &str, body: &Value) -> Sent<Value> {
+        let mut uncertain = false;
+        let result = match self.url(path) {
+            Ok(url) => {
+                self.call_url_tracked(method, url, Some(body), &mut uncertain)
+                    .await
+            }
+            Err(e) => Err(e),
+        };
+        Sent { result, uncertain }
     }
 
     /// `GET /career/staff/memberships` — what the key's owner acts for.
@@ -338,6 +401,17 @@ impl LandauClient {
     /// `GET /career/stocks/shelf?store=&limit=100&skip=` (`deleted=true` for the trash view),
     /// paged to `total`.
     async fn shelf_paged(&self, store: &str, deleted: bool) -> Result<Vec<ShelfRow>> {
+        self.shelf_query(store, deleted, None, &|_| false).await
+    }
+
+    /// The shelf paged to `total`, or until a page holds a row `until` accepts.
+    async fn shelf_query(
+        &self,
+        store: &str,
+        deleted: bool,
+        narrow: Option<&Narrow<'_>>,
+        until: &(dyn Fn(&ShelfRow) -> bool + Sync),
+    ) -> Result<Vec<ShelfRow>> {
         let mut rows = Vec::new();
         let mut skip = 0usize;
         loop {
@@ -350,6 +424,18 @@ impl LandauClient {
                 if deleted {
                     q.append_pair("deleted", "true");
                 }
+                if let Some(n) = narrow {
+                    let term = shelf_term(n.term);
+                    if !term.is_empty() {
+                        q.append_pair("term", &term);
+                    }
+                    if let Some(c) = n.condition {
+                        q.append_pair("condition", c);
+                    }
+                    if let Some(a) = n.authenticity {
+                        q.append_pair("authenticity", a);
+                    }
+                }
             }
             let v = self.call_url(Method::GET, url, None).await?;
             let page = peel(&v);
@@ -361,7 +447,7 @@ impl LandauClient {
             let total = page.get("total").and_then(|t| t.as_u64()).unwrap_or(0) as usize;
             rows.extend(items.iter().filter_map(ShelfRow::from_item));
             skip += SHELF_PAGE;
-            if items.is_empty() || skip >= total {
+            if items.is_empty() || skip >= total || rows.iter().any(until) {
                 break;
             }
         }
@@ -370,6 +456,20 @@ impl LandauClient {
 
     pub async fn shelf(&self, store: &str) -> Result<Vec<ShelfRow>> {
         self.shelf_paged(store, false).await
+    }
+
+    /// The live row of `store` that `pick` accepts, read narrowed by a product name and the
+    /// variant — the fresh read right before a write (plan 130 R-p). Landau matches `term` over
+    /// the product's name, alias and brand, so `pick` still decides the row by id or product.
+    /// Paging stops at the first page holding it.
+    pub async fn shelf_find(
+        &self,
+        store: &str,
+        narrow: &Narrow<'_>,
+        pick: &(dyn Fn(&ShelfRow) -> bool + Sync),
+    ) -> Result<Option<ShelfRow>> {
+        let rows = self.shelf_query(store, false, Some(narrow), pick).await?;
+        Ok(rows.into_iter().find(|r| pick(r)))
     }
 
     /// The seller's own trash — rows soft-deleted from this store (plan 26's "restore" side).
@@ -383,14 +483,18 @@ impl LandauClient {
     /// `PUT /career/stocks/:id/restore` — puts a soft-deleted row back on the shelf. The reply
     /// (the restored row) is ignored: the caller already has the row's fields from the trash read
     /// that found it, and a following `patch` sets what changed.
-    pub(in crate::landau) async fn restore(&self, id: &str) -> Result<()> {
-        self.call(
-            Method::PUT,
-            &format!("/career/stocks/{id}/restore"),
-            Some(&json!({})),
-        )
-        .await
-        .map(|_| ())
+    pub(in crate::landau) async fn restore(&self, id: &str) -> Sent<()> {
+        let sent = self
+            .write(
+                Method::PUT,
+                &format!("/career/stocks/{id}/restore"),
+                &json!({}),
+            )
+            .await;
+        Sent {
+            result: sent.result.map(|_| ()),
+            uncertain: sent.uncertain,
+        }
     }
 
     /// The seller's picker (spec §13): a case-insensitive substring match over `name`/`alias`/
@@ -434,32 +538,25 @@ impl LandauClient {
 
     /// `POST /career/stocks` — reply is the row, flat or enveloped. Only [`writer`] calls it
     /// (plan 130 R-l).
-    pub(in crate::landau) async fn attach(&self, body: &AttachBody) -> Result<ShelfRow> {
-        let v = self
-            .call(Method::POST, "/career/stocks", Some(&body.to_json()))
-            .await?;
-        let row = peel(&v);
-        ShelfRow::from_item(row).ok_or_else(|| BridgeError::LandauRejected {
-            status: 201,
-            body: "reply without id".into(),
-        })
+    pub(in crate::landau) async fn attach(&self, body: &AttachBody) -> Sent<ShelfRow> {
+        let sent = self
+            .write(Method::POST, "/career/stocks", &body.to_json())
+            .await;
+        row_reply(sent, 201)
     }
 
     /// `PATCH /career/stocks/:id` — the reply is the row, priced by Landau's rule when the body
     /// carried `cost` (plan 107); never send `price` here (it would stamp the row MANUAL). Only
     /// [`writer`] calls it (plan 130 R-l).
-    pub(in crate::landau) async fn patch(&self, id: &str, body: &PatchBody) -> Result<ShelfRow> {
-        let v = self
-            .call(
+    pub(in crate::landau) async fn patch(&self, id: &str, body: &PatchBody) -> Sent<ShelfRow> {
+        let sent = self
+            .write(
                 Method::PATCH,
                 &format!("/career/stocks/{id}"),
-                Some(&body.to_json()),
+                &body.to_json(),
             )
-            .await?;
-        ShelfRow::from_item(peel(&v)).ok_or_else(|| BridgeError::LandauRejected {
-            status: 200,
-            body: "reply without id".into(),
-        })
+            .await;
+        row_reply(sent, 200)
     }
 
     pub async fn pricing_rules(&self) -> Result<Vec<PricingRule>> {
@@ -529,6 +626,42 @@ impl LandauClient {
     }
 }
 
+/// A write's reply read as the row it wrote. A success without a readable row still landed, so
+/// it is reported as uncertain: the intent stays open for the row to be read.
+fn row_reply(sent: Sent<Value>, status: u16) -> Sent<ShelfRow> {
+    let Sent { result, uncertain } = sent;
+    match result {
+        Ok(v) => match ShelfRow::from_item(peel(&v)) {
+            Some(row) => Sent {
+                result: Ok(row),
+                uncertain,
+            },
+            None => Sent {
+                result: Err(BridgeError::LandauRejected {
+                    status,
+                    body: "reply without id".into(),
+                }),
+                uncertain: true,
+            },
+        },
+        Err(e) => Sent {
+            result: Err(e),
+            uncertain,
+        },
+    }
+}
+
+/// A shelf `term` within Landau's 100-character cap. A prefix of a name still matches that name
+/// (the match is a substring), so a long name is cut, never dropped.
+pub fn shelf_term(name: &str) -> String {
+    name.trim()
+        .chars()
+        .take(100)
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
 /// Raw shelf writes for the live suites' fixtures and clean-up, compiled only with the `live`
 /// feature — never in a build a seller runs, where [`writer`] is the only way to a shelf.
 #[cfg(feature = "live")]
@@ -536,11 +669,11 @@ pub mod fixture {
     use super::*;
 
     pub async fn attach(client: &LandauClient, body: &AttachBody) -> Result<ShelfRow> {
-        client.attach(body).await
+        client.attach(body).await.result
     }
 
     pub async fn patch(client: &LandauClient, id: &str, body: &PatchBody) -> Result<ShelfRow> {
-        client.patch(id, body).await
+        client.patch(id, body).await.result
     }
 
     pub async fn delete(client: &LandauClient, id: &str) -> Result<()> {

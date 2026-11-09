@@ -168,6 +168,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::settings_get,
+            commands::intents_held,
+            commands::intent_resolve,
             commands::settings_save,
             commands::landau_validate,
             commands::supplier_test_login,

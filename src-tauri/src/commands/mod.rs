@@ -652,6 +652,27 @@ pub async fn match_clear(state: State<'_, AppState>, name_seen: String) -> Resul
     state.db.clear_match(SUPPLIER_ID, &name_seen)
 }
 
+/// Writes held for the seller (plan 130 R-o): a shelf row changed outside the bridge after a write
+/// whose outcome was unknown. Every job holds the row and its invoice lines until one is settled.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn intents_held(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::db::intents::IntentRow>> {
+    state.db.unresolved_superseded()
+}
+
+/// The seller settles a held write: `ON_SHELF` (the quantity is on the shelf: its invoice lines
+/// count as transferred) or `TRANSFER_AGAIN` (the next import transfers them). Refused while a
+/// job runs.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn intent_resolve(
+    state: State<'_, AppState>,
+    id: i64,
+    resolution: String,
+) -> Result<bool> {
+    state.db.resolve_intent(id, &resolution)
+}
+
 /// The «بدون تصمیم» list: parts ended jobs left undecided, with the candidates review showed.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn matches_undecided(state: State<'_, AppState>) -> Result<Vec<UndecidedRow>> {
