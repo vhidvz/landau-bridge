@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { documentDir, homeDir, join } from '@tauri-apps/api/path';
 import { open, save } from '@tauri-apps/plugin-dialog';
-import type { BridgeError, DecisionImportReport, MatchRow, Scored, UndecidedRow } from '~/types/bridge';
+import type { BridgeError, CandidateView, DecisionImportReport, Inspection, MatchRow, Scored, UndecidedRow } from '~/types/bridge';
 
 const rows = ref<MatchRow[]>([]);
 const undecided = ref<UndecidedRow[]>([]);
 const error = ref<BridgeError | null>(null);
-const filter = ref<'ALL' | 'AUTO' | 'USER' | 'NONE' | 'UNDECIDED'>('ALL');
+const route = useRoute();
+const filter = ref<'ALL' | 'AUTO' | 'USER' | 'NONE' | 'REVIEW' | 'UNDECIDED'>(route.query.filter === 'REVIEW' ? 'REVIEW' : 'ALL');
 const query = ref('');
 const editing = ref<MatchRow | null>(null);
 const deciding = ref<UndecidedRow | null>(null);
@@ -20,7 +21,9 @@ const load = async () => {
 };
 onMounted(load);
 
-const shown = computed(() => rows.value.filter((r) => (filter.value === 'ALL' || r.how === filter.value) && matchesQuery(query.value, [r.name_seen, r.code, r.product_name])));
+const inFilter = (r: MatchRow) => filter.value === 'ALL' || (filter.value === 'REVIEW' ? needsReview(r.state) : r.how === filter.value);
+const shown = computed(() => rows.value.filter((r) => inFilter(r) && matchesQuery(query.value, [r.name_seen, r.code, r.product_name])));
+const toReview = computed(() => rows.value.filter((r) => needsReview(r.state)).length);
 const shownUndecided = computed(() => undecided.value.filter((u) => matchesQuery(query.value, [u.name_seen, u.code, ...u.candidates.map((c) => c.candidate.name)])));
 const PAGE = PAGE_SIZE.table;
 const { page: matchPage, rows: matchRows } = usePaged(shown, PAGE, [filter, query]);
@@ -28,15 +31,38 @@ const { page: undecidedPage, rows: undecidedRows, showIndex: showUndecided } = u
 const howLabel: Record<string, string> = { AUTO: 'خودکار', USER: 'انتخاب شما', NONE: 'در لاندا نیست' };
 const filters = computed(() => [
   { value: 'ALL', label: 'همه' }, { value: 'AUTO', label: 'خودکار' }, { value: 'USER', label: 'انتخاب شما' }, { value: 'NONE', label: 'در لاندا نیست' },
+  { value: 'REVIEW', label: toReview.value ? `نیازمند بررسی · ${faNumber(toReview.value)}` : 'نیازمند بررسی' },
   { value: 'UNDECIDED', label: undecided.value.length ? `بدون تصمیم · ${faNumber(undecided.value.length)}` : 'بدون تصمیم' },
 ] as const);
 
-const openEdit = (r: MatchRow) => { editing.value = r; term.value = r.name_seen; candidates.value = []; };
+// ---- what each pick would be (plan 130 R-k), read for the dialog's candidates
+const inspection = ref<Inspection | null>(null);
+const inspecting = ref(false);
+const inspectFailed = ref<string | null>(null);
+let inspectSeq = 0;
+const inspect = async () => {
+  const target = deciding.value ?? editing.value;
+  const ids = candidates.value.map((c) => c.candidate.id);
+  inspection.value = null;
+  inspectFailed.value = null;
+  const seq = ++inspectSeq;
+  if (!target || !ids.length) return;
+  inspecting.value = true;
+  try {
+    const got = await bridge.reviewInspect(target.name_seen, target.code, ids);
+    if (seq === inspectSeq) inspection.value = got;
+  } catch (e) { if (seq === inspectSeq) inspectFailed.value = (e as BridgeError).message; } finally { if (seq === inspectSeq) inspecting.value = false; }
+};
+const viewOf = (id: string): CandidateView | undefined => inspection.value?.candidates.find((c) => c.product.id === id);
+const opened = reactive<Record<string, boolean>>({});
+const { pending, busy: picking, pick: confirmPick, respond } = usePick();
+
+const openEdit = (r: MatchRow) => { editing.value = r; term.value = r.name_seen; candidates.value = []; void inspect(); };
 // An undecided part opens on the candidates review showed — no new search; one is there if wanted.
-const openDecide = (u: UndecidedRow | null) => { deciding.value = u; term.value = u?.name_seen ?? ''; candidates.value = u?.candidates ?? []; };
+const openDecide = (u: UndecidedRow | null) => { deciding.value = u; term.value = u?.name_seen ?? ''; candidates.value = u?.candidates ?? []; void inspect(); };
 const search = async () => {
   searching.value = true;
-  try { candidates.value = await bridge.reviewSearch(term.value); } catch (e) { error.value = e as BridgeError; } finally { searching.value = false; }
+  try { candidates.value = await bridge.reviewSearch(term.value); void inspect(); } catch (e) { error.value = e as BridgeError; } finally { searching.value = false; }
 };
 const decided = async (u: UndecidedRow) => {
   const next = nextAfterDecision(shownUndecided.value, u.name_key);
@@ -45,12 +71,18 @@ const decided = async (u: UndecidedRow) => {
   rows.value = await bridge.matchesList();
 };
 const pick = async (c: Scored) => {
-  const target = deciding.value ?? editing.value;
+  // the part being decided, captured: the seller may move on («بعداً») while the pick is in flight
+  const wasDeciding = deciding.value;
+  const target = wasDeciding ?? editing.value;
   if (!target) return;
   error.value = null;
   try {
-    await bridge.matchSet(target.name_seen, target.code, c.candidate.id, c.candidate.name, c.similarity);
-    if (deciding.value) await decided(deciding.value); else { editing.value = null; await load(); }
+    const done = await confirmPick(
+      (confirmed) => bridge.matchSet(target.name_seen, target.code, c.candidate.id, confirmed),
+      { supplierName: target.name_seen, product: { name: c.candidate.name, brand: c.candidate.brand }, candidate: viewOf(c.candidate.id) ?? null, inspection: inspection.value },
+    );
+    if (!done) return;
+    if (wasDeciding) await decided(wasDeciding); else { editing.value = null; await load(); }
   } catch (e) { error.value = e as BridgeError; }
 };
 const setNone = async () => {
@@ -172,7 +204,7 @@ const closeImport = () => { importing.value = null; report.value = null; };
               <p class="truncate text-xs text-paper-mute"><bdi dir="ltr">{{ r.code }}</bdi></p>
             </td>
             <td class="w-1/2 max-w-0"><p class="truncate" :class="!r.product_name && 'text-paper-mute'" :title="r.product_name ?? undefined">{{ r.product_name ?? '—' }}</p></td>
-            <td class="whitespace-nowrap"><StatusPill :tone="r.how === 'NONE' ? 'danger' : r.how === 'USER' ? 'ok' : 'info'" :label="howLabel[r.how] ?? r.how" /></td>
+            <td class="whitespace-nowrap"><span class="inline-flex gap-1.5"><StatusPill :tone="r.how === 'NONE' ? 'danger' : r.how === 'USER' ? 'ok' : 'info'" :label="howLabel[r.how] ?? r.how" /><StatusPill v-if="r.how !== 'NONE'" :tone="linkStateTone[r.state]" :label="linkStateLabel[r.state]" /></span></td>
             <td><SimilarityBar v-if="r.similarity != null" :value="r.similarity" /><span v-else class="text-paper-mute">—</span></td>
             <td class="whitespace-nowrap">{{ isoToDate(r.decided_at) }}</td>
             <td class="text-end"><button type="button" class="btn-ghost btn-sm" @click="openEdit(r)">تغییر</button></td>
@@ -190,22 +222,33 @@ const closeImport = () => { importing.value = null; report.value = null; };
       </GlassCard>
     </template>
 
-    <UModal :open="!!editing || !!deciding" :title="deciding ? 'تصمیم برای قطعه' : 'تغییر تطبیق'" @update:open="(v: boolean) => { if (!v) { editing = null; deciding = null; } }">
+    <UModal :open="!!editing || !!deciding" :title="deciding ? 'تصمیم برای قطعه' : 'تغییر تطبیق'" :ui="{ content: 'sm:max-w-3xl' }" @update:open="(v: boolean) => { if (!v) { editing = null; deciding = null; } }">
       <template #body>
         <div v-if="editing || deciding" class="space-y-4">
           <p><span class="font-medium text-paper">{{ (deciding ?? editing)!.name_seen }}</span> <bdi dir="ltr" class="whitespace-nowrap text-sm text-paper-mute">{{ (deciding ?? editing)!.code }}</bdi></p>
           <p v-if="deciding" class="text-xs text-paper-mute">
             {{ faNumber(position) }} از {{ faNumber(shownUndecided.length) }} · {{ faNumber(deciding.times) }} بار بدون تصمیم ماند، آخرین بار {{ isoToLocal(deciding.seen_at) }}. پیشنهادهای همان بازبینی:
           </p>
+          <ul v-if="editing && needsReview(editing.state) && storedReasons(editing.state_reason).length" class="space-y-1 rounded-lg border border-warn/30 bg-warn/6 px-4 py-2.5 text-xs text-paper" aria-label="چرا این پیوند بررسی می‌خواهد">
+            <li v-for="(r, i) in storedReasons(editing.state_reason)" :key="i">{{ reasonText(r) }}</li>
+          </ul>
+          <MoneyLine v-if="candidates.length" :inspection="inspection" :loading="inspecting" :failed="inspectFailed" />
           <div class="flex gap-2">
             <input v-model="term" class="field flex-1" aria-label="عبارت جست‌وجو" @keyup.enter="search" />
             <UButton :loading="searching" icon="i-lucide-search" @click="search">جست‌وجو در لاندا</UButton>
           </div>
           <p v-if="deciding && !candidates.length" class="text-sm text-paper-mute">لاندا در آن بازبینی پیشنهادی نداشت. عبارت دیگری را جست‌وجو کنید یا «در لاندا نیست» را بزنید.</p>
           <ul class="max-h-72 divide-y divide-white/5 overflow-auto">
-            <li v-for="c in candidates" :key="c.candidate.id" class="flex items-center justify-between gap-3 py-2.5">
-              <span class="min-w-0 truncate text-paper">{{ c.candidate.name }} <span v-if="c.candidate.brand" class="text-xs text-paper-mute">{{ c.candidate.brand }}</span></span>
-              <span class="flex shrink-0 items-center gap-3"><SimilarityBar :value="c.similarity" /><button type="button" class="btn-primary btn-sm" @click="pick(c)">انتخاب</button></span>
+            <li v-for="c in candidates" :key="c.candidate.id" class="py-2.5">
+              <div class="flex items-center justify-between gap-3">
+                <span class="min-w-0 truncate text-paper">{{ c.candidate.name }} <span v-if="c.candidate.brand" class="text-xs text-paper-mute">{{ c.candidate.brand }}</span></span>
+                <span class="flex shrink-0 items-center gap-3">
+                  <ShelfCost :view="viewOf(c.candidate.id)" :failed="inspectFailed" />
+                  <button v-if="viewOf(c.candidate.id)" type="button" class="rounded-full" :aria-expanded="!!opened[c.candidate.id]" title="شواهد" @click="opened[c.candidate.id] = !opened[c.candidate.id]"><StatusPill :tone="pickTone(viewOf(c.candidate.id)!.verdict)" :label="pickLabel(viewOf(c.candidate.id)!.verdict)" /></button>
+                  <SimilarityBar :value="c.similarity" /><button type="button" class="btn-primary btn-sm" :disabled="picking" @click="pick(c)">انتخاب</button>
+                </span>
+              </div>
+              <div v-if="opened[c.candidate.id] && viewOf(c.candidate.id)" class="glass-inset mt-2 px-4 py-3"><EvidencePanel :evidence="viewOf(c.candidate.id)!.evidence" /></div>
             </li>
           </ul>
           <div class="flex flex-wrap justify-between gap-2 border-t hairline pt-4">
@@ -216,6 +259,8 @@ const closeImport = () => { importing.value = null; report.value = null; };
         </div>
       </template>
     </UModal>
+
+    <PickConfirm :pending="pending" @answer="respond" />
 
     <UModal :open="!!importing" title="بازیابی تصمیم‌ها" @update:open="(v: boolean) => { if (!v && busy !== 'import') closeImport(); }">
       <template #body>

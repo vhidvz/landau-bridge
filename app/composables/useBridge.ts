@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
   BridgeError, Dashboard, ErrorRow, JobDetail, JobDone, JobEvent, JobItemRow, JobRow, LandauStatus, MatchRow, Progress, ReviewDecision, Scored, SettingsPatch, SettingsView, UndecidedRow, DecisionImportReport,
-  UpdateState, UpdateView,
+  UpdateState, UpdateView, Authenticity, HeldWrite, Inspection, Reason,
 } from '~/types/bridge';
 
 export const isBridgeError = (e: unknown): e is BridgeError =>
@@ -37,6 +37,8 @@ export const bridge = {
   importReview: (job_id: number) => call<JobItemRow[]>('import_review', { job_id }),
   reviewDecide: (decision: ReviewDecision) => call<void>('review_decide', { decision }),
   reviewSearch: (term: string) => call<Scored[]>('review_search', { term }),
+  reviewInspect: (name: string, code: string, product_ids: string[], authenticity?: Authenticity) =>
+    call<Inspection>('review_inspect', { name, code, product_ids, authenticity }),
   importContinue: (job_id: number) => call<void>('import_continue', { job_id }),
   refreshStart: () => call<number>('refresh_start'),
   jobCancel: (job_id: number) => call<boolean>('job_cancel', { job_id }),
@@ -44,8 +46,10 @@ export const bridge = {
   jobsList: () => call<JobRow[]>('jobs_list'),
   jobGet: (job_id: number) => call<JobDetail>('job_get', { job_id }),
   matchesList: () => call<MatchRow[]>('matches_list'),
-  matchSet: (name_seen: string, code: string, product_id: string, product_name: string, similarity?: number) =>
-    call<void>('match_set', { name_seen, code, product_id, product_name, similarity }),
+  matchSet: (name_seen: string, code: string, product_id: string, confirmed?: Reason[]) =>
+    call<void>('match_set', { name_seen, code, product_id, confirmed }),
+  intentsHeld: () => call<HeldWrite[]>('intents_held'),
+  intentResolve: (id: number, resolution: 'ON_SHELF' | 'TRANSFER_AGAIN') => call<boolean>('intent_resolve', { id, resolution }),
   matchesUndecided: () => call<UndecidedRow[]>('matches_undecided'),
   decisionsExport: (path: string) => call<number>('decisions_export', { path }),
   decisionsImport: (path: string, prefer_file: boolean) => call<DecisionImportReport>('decisions_import', { path, prefer_file }),

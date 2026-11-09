@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::jobs::JobRow;
 use crate::domain::Authenticity;
 use crate::landau::Store;
+use crate::matching::gate::Reason;
 use crate::update::{InstallKind, UpdateState};
 
 #[derive(Debug, Clone, Serialize)]
@@ -57,6 +58,10 @@ pub struct Dashboard {
     pub pending_review: i64,
     pub recent_errors: i64,
     pub decided_matches: i64,
+    /// Links a job held for the seller: `NEEDS_REVIEW` or `STALE` (plan 130 task 11).
+    pub links_to_review: i64,
+    /// Shelf writes held until the seller settles them (plan 130 R-o).
+    pub held_writes: i64,
     /// Linux only: running from an AppImage that is not in the applications menu yet.
     pub appimage_offer: bool,
 }
@@ -75,4 +80,16 @@ pub struct ReviewDecision {
     #[serde(default)]
     pub later: bool,
     pub authenticity: Option<Authenticity>,
+    /// The reasons the seller confirmed in the second confirm (R-d) — exactly the ones the core
+    /// answered `ConfirmRequired` with; absent for a first, unconfirmed attempt.
+    pub confirmed: Option<Vec<Reason>>,
+}
+
+/// A held shelf write as the dashboard lists it (plan 130 R-o): the intent and the part's name.
+#[derive(Debug, Clone, Serialize)]
+pub struct HeldWrite {
+    #[serde(flatten)]
+    pub intent: crate::db::intents::IntentRow,
+    pub product_name: Option<String>,
+    pub supplier_names: Vec<String>,
 }

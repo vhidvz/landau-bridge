@@ -4,10 +4,12 @@
 
 use landau_bridge_lib::db::Db;
 use landau_bridge_lib::domain::ImportMode;
+use landau_bridge_lib::inspect;
 use landau_bridge_lib::jobs::import::{self, ImportParams, Outcome};
 use landau_bridge_lib::jobs::pricing::floor_price;
 use landau_bridge_lib::jobs::{refresh, JobCtx, Services};
 use landau_bridge_lib::landau::{fixture, LandauClient, PatchBody};
+use landau_bridge_lib::matching::gate::Verdict;
 use landau_bridge_lib::secrets::SecretStore;
 use landau_bridge_lib::settings::{Settings, SettingsPatch, SUPPLIER_ID};
 use landau_bridge_lib::supplier;
@@ -19,7 +21,11 @@ fn env(k: &str) -> Option<String> {
 /// Resolve a paused review the way a seller in a hurry would: the top candidate of the first
 /// `picks` items is accepted (a USER decision, persisted), every other item is left in REVIEW so
 /// `commit` skips it and the next run asks again.
-fn accept_top_candidates(db: &Db, _settings: &Settings, job_id: i64, picks: usize) {
+fn accept_top_candidates(db: &Db, svc: &Services, job_id: i64, picks: usize) {
+    let kept = svc
+        .snapshot
+        .latest()
+        .expect("MATCH keeps its registry read");
     let mut accepted = 0usize;
     for item in db
         .job_items(job_id)
@@ -40,9 +46,26 @@ fn accept_top_candidates(db: &Db, _settings: &Settings, job_id: i64, picks: usiz
             continue;
         };
         let id = top["candidate"]["id"].as_str().unwrap().to_string();
-        let name = top["candidate"]["name"].as_str().unwrap().to_string();
-        // the review screen's own path (`review_decide`): a USER link proven for this job
-        import::pick(db, &item, &id, &name, top["similarity"].as_i64(), None).unwrap();
+        // the review screen's own path (`review_decide`): judged by the core, and a conflict
+        // confirmed with exactly the reasons the second confirm shows (R-d)
+        let judged = inspect::judge_pick(
+            &kept.registry,
+            &item.name,
+            &item.code,
+            &id,
+            svc.settings.threshold,
+        )
+        .unwrap();
+        let shown = match &judged.verdict {
+            Verdict::Write => None,
+            Verdict::ConfirmThenWrite(r) | Verdict::Review(r) => {
+                let refused = import::pick(db, &item, &judged, None, None).unwrap_err();
+                assert_eq!(refused.kind(), "ConfirmRequired", "{refused:?}");
+                eprintln!("  #{}: confirming {} reason(s)", item.id, r.len());
+                Some(r.clone())
+            }
+        };
+        import::pick(db, &item, &judged, shown.as_deref(), None).unwrap();
         accepted += 1;
     }
 }
@@ -80,6 +103,7 @@ async fn zero_import_then_refresh_round_trip() {
         landau: LandauClient::new(&url, &token).unwrap(),
         supplier: supplier::open(SUPPLIER_ID, settings.require_supplier().unwrap()).unwrap(),
         settings: settings.clone(),
+        snapshot: Default::default(),
     };
 
     // ---- import, zero mode, three invoices
@@ -110,7 +134,7 @@ async fn zero_import_then_refresh_round_trip() {
         eprintln!(
             "{n} item(s) in review; accepting the top candidate of the first, deferring the rest"
         );
-        accept_top_candidates(&db, &settings, job_id, 1);
+        accept_top_candidates(&db, &svc, job_id, 1);
         import::commit(&ctx, &svc).await.expect("import commit");
     }
     // as the command layer's `spawn` does: one job at a time holds until the job is finished
@@ -259,6 +283,7 @@ async fn quantity_import_is_idempotent_across_runs() {
         landau: LandauClient::new(&url, &token).unwrap(),
         supplier: supplier::open(SUPPLIER_ID, settings.require_supplier().unwrap()).unwrap(),
         settings: settings.clone(),
+        snapshot: Default::default(),
     };
     const SINCE: &str = "1390/01/01";
     let run = |fetch_limit: usize, picks: usize| {
@@ -292,7 +317,7 @@ async fn quantity_import_is_idempotent_across_runs() {
                 eprintln!(
                     "run #{job_id}: {n} item(s) in review; accepting {picks}, deferring the rest"
                 );
-                accept_top_candidates(&db, &settings, job_id, picks);
+                accept_top_candidates(&db, &svc, job_id, picks);
                 import::commit(&ctx, &svc).await.expect("import commit");
             }
             ctx.finish(&Ok(()), "REPORT");

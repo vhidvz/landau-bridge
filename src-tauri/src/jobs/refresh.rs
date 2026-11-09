@@ -425,6 +425,7 @@ mod tests {
         let svc = Services {
             landau: crate::landau::LandauClient::new("http://127.0.0.1:1", "apt-test").unwrap(),
             supplier: Box::new(supplier),
+            snapshot: Default::default(),
             settings: crate::settings::Settings {
                 landau_url: "http://127.0.0.1:1".into(),
                 landau_token: Some("apt-test".into()),

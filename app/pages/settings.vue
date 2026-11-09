@@ -153,6 +153,8 @@ const authItems = [{ label: 'اصلی', value: 'ORIGINAL' }, { label: 'غیرا�
             <USelect v-model="form.store" :items="storeItems" :disabled="!storeItems.length" placeholder="ابتدا اتصال را بررسی کنید" class="w-full" />
             <p v-if="!storeItems.length && view?.store_name" class="mt-1 text-sm text-paper-mute">فروشگاه ذخیره‌شده: {{ view.store_name }}</p>
           </UFormField>
+          <!-- plan 130 PI-6: the one-transfer guard lives in this install's own data, so a second install on the same store can transfer an invoice again -->
+          <p class="flex gap-2 text-sm text-paper-dim"><UIcon name="i-lucide-info" class="mt-0.5 size-4 shrink-0 text-paper-mute" aria-hidden="true" />هر فروشگاه را فقط با یک نصب از این برنامه به کار ببرید؛ دو نصب روی یک فروشگاه ممکن است یک فاکتور را دو بار منتقل کنند.</p>
         </div>
       </GlassCard>
 

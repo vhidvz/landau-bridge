@@ -16,12 +16,15 @@ use crate::db::Db;
 use crate::decisions::{self, ImportReport};
 use crate::domain::ImportMode;
 use crate::errors::{kinds, BridgeError, Result};
+use crate::inspect::{self, Inspection};
 use crate::jobs::{self, JobCtx, JobRegistry, Services};
 use crate::landau::LandauClient;
+use crate::matching::gate::Reason;
+use crate::matching::registry::{Kept, Snapshot};
 use crate::matching::{candidates, score, Matcher, Scored};
 use crate::secrets::SecretStore;
 use crate::settings::{Settings, SettingsPatch, SUPPLIER_ID};
-use crate::supplier;
+use crate::supplier::{self, Credentials, Supplier};
 use crate::update::{self, PluginSource, UpdateState, Updater};
 use dto::*;
 
@@ -34,6 +37,14 @@ pub struct AppState {
     pub _log_guard: tracing_appender::non_blocking::WorkerGuard,
     /// The data folder's single-instance lock, held for the life of the app (plan 130 R-m).
     pub _instance: crate::instance::InstanceLock,
+    /// The latest whole-registry read, kept for the review and Matches screens (slice 4).
+    pub snapshot: Arc<Snapshot>,
+    /// The supplier session the screens' price reads share, with the credentials it was opened
+    /// with — reopened when the seller changes them.
+    pub inspector: tokio::sync::Mutex<Option<(Credentials, Arc<dyn Supplier>)>>,
+    /// One inspection at a time: the site serves one request per session at a time, and the
+    /// screens share one session (three cards ask at once).
+    pub inspecting: tokio::sync::Mutex<()>,
 }
 
 fn settings(state: &AppState) -> Result<Settings> {
@@ -57,7 +68,36 @@ fn services(state: &AppState) -> Result<Services> {
         landau,
         supplier,
         settings,
+        snapshot: state.snapshot.clone(),
     })
+}
+
+/// The kept registry snapshot, or one read now (about 90 s) when none is kept — a screen judging a
+/// pick never judges on less than the whole registry.
+async fn kept_snapshot(state: &AppState) -> Result<Kept> {
+    state
+        .snapshot
+        .get_or_read(|| async {
+            let s = settings(state)?;
+            let client = landau(&s)?;
+            jobs::read_checked(&state.db, &client).await
+        })
+        .await
+}
+
+/// The screens' supplier session: opened once, with the short retry budget of a check the seller
+/// waits on.
+async fn inspector(state: &AppState, s: &Settings) -> Result<Arc<dyn Supplier>> {
+    let creds = s.require_supplier()?;
+    let mut slot = state.inspector.lock().await;
+    if let Some((c, sup)) = slot.as_ref() {
+        if *c == creds {
+            return Ok(sup.clone());
+        }
+    }
+    let sup: Arc<dyn Supplier> = Arc::from(supplier::open_for_check(SUPPLIER_ID, creds.clone())?);
+    *slot = Some((creds, sup.clone()));
+    Ok(sup)
 }
 
 // ------------------------------------------------------------ settings
@@ -172,6 +212,8 @@ pub async fn dashboard_get(app: AppHandle, state: State<'_, AppState>) -> Result
         pending_review,
         recent_errors: state.db.count_unresolved_errors()?,
         decided_matches: state.db.list_matches(SUPPLIER_ID)?.len() as i64,
+        links_to_review: state.db.count_links_needing_review(SUPPLIER_ID)?,
+        held_writes: state.db.unresolved_superseded()?.len() as i64,
         appimage_offer: appimage_offer(&app, &state),
     })
 }
@@ -490,15 +532,56 @@ pub async fn review_decide(state: State<'_, AppState>, decision: ReviewDecision)
     let product_id = decision
         .product_id
         .ok_or_else(|| BridgeError::Other("no product picked".into()))?;
-    let product_name = decision.product_name.unwrap_or_default();
+    // R-d: judged by the core against the whole registry; a conflict needs its exact reasons
+    // confirmed, whatever the screen sent
+    let threshold = settings(&state)?.threshold;
+    let kept = kept_snapshot(&state).await?;
+    let judged = inspect::judge_pick(
+        &kept.registry,
+        &item.name,
+        &item.code,
+        &product_id,
+        threshold,
+    )?;
     jobs::import::pick(
         &state.db,
         &item,
-        &product_id,
-        &product_name,
-        decision.similarity,
+        &judged,
+        decision.confirmed.as_deref(),
         decision.authenticity,
     )
+}
+
+/// What a pick would be (R-d, R-k): for the supplier item `name`/`code`, each of `product_ids`
+/// judged against the kept registry snapshot, with Barezpakhsh's price today, the cost the bridge
+/// would write, and each candidate's row as Landau holds it. Reads only; nothing here is written.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn review_inspect(
+    state: State<'_, AppState>,
+    name: String,
+    code: String,
+    product_ids: Vec<String>,
+    authenticity: Option<crate::domain::Authenticity>,
+) -> Result<Inspection> {
+    let s = settings(&state)?;
+    let (_, _, store) = s.require_landau()?;
+    let client = landau(&s)?;
+    let kept = kept_snapshot(&state).await?;
+    let _one = state.inspecting.lock().await;
+    let sup = inspector(&state, &s).await;
+    Ok(inspect::inspect(
+        &kept.registry,
+        &kept.read_at,
+        sup.as_deref().map_err(Clone::clone),
+        &client,
+        store,
+        s.vat_percent,
+        s.threshold,
+        (&name, &code),
+        &product_ids,
+        authenticity.unwrap_or(s.default_authenticity),
+    )
+    .await)
 }
 
 /// The seller's free-text re-search. The typed text goes through the same normalisation as the
@@ -506,14 +589,24 @@ pub async fn review_decide(state: State<'_, AppState>, decision: ReviewDecision)
 /// do not skew the picker queries or the scores.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn review_search(state: State<'_, AppState>, term: String) -> Result<Vec<Scored>> {
-    let s = settings(&state)?;
-    let client = Arc::new(landau(&s)?);
-    let search = move |q: String, limit: usize, skip: usize| {
-        let client = client.clone();
-        async move { client.registry_search(&q, limit, skip).await }
-    };
     let term = Matcher::term(&term, "");
-    let hits = candidates(&search, &term).await?;
+    // the kept snapshot's local picker when there is one (slice 2 measured it equal to Landau's),
+    // so every candidate found can be judged; else Landau's own
+    let hits = if let Some(kept) = state.snapshot.latest() {
+        let registry = kept.registry;
+        let search = move |q: String, limit: usize, skip: usize| {
+            std::future::ready(Ok(registry.search(&q, limit, skip)))
+        };
+        candidates(&search, &term).await?
+    } else {
+        let s = settings(&state)?;
+        let client = Arc::new(landau(&s)?);
+        let search = move |q: String, limit: usize, skip: usize| {
+            let client = client.clone();
+            async move { client.registry_search(&q, limit, skip).await }
+        };
+        candidates(&search, &term).await?
+    };
     Ok(score(&term, &hits)
         .into_iter()
         .take(crate::matching::CANDIDATES)
@@ -627,17 +720,15 @@ pub async fn match_set(
     name_seen: String,
     code: String,
     product_id: String,
-    product_name: String,
-    similarity: Option<i64>,
+    confirmed: Option<Vec<Reason>>,
 ) -> Result<()> {
-    state.db.set_match(
-        SUPPLIER_ID,
-        &name_seen,
-        &code,
-        Some((&product_id, &product_name)),
-        "USER",
-        similarity,
-    )
+    // R-d as in review: judged by the core, a conflict confirmed exactly; the definition recorded
+    // from the snapshot, so a re-import rebuilds the pick instead of losing it. The next job's
+    // VALIDATE proves it like any stored pick.
+    let threshold = settings(&state)?.threshold;
+    let kept = kept_snapshot(&state).await?;
+    let judged = inspect::judge_pick(&kept.registry, &name_seen, &code, &product_id, threshold)?;
+    jobs::import::matches_pick(&state.db, &name_seen, &code, &judged, confirmed.as_deref())
 }
 
 #[tauri::command(rename_all = "snake_case")]
@@ -655,10 +746,24 @@ pub async fn match_clear(state: State<'_, AppState>, name_seen: String) -> Resul
 /// Writes held for the seller (plan 130 R-o): a shelf row changed outside the bridge after a write
 /// whose outcome was unknown. Every job holds the row and its invoice lines until one is settled.
 #[tauri::command(rename_all = "snake_case")]
-pub async fn intents_held(
-    state: State<'_, AppState>,
-) -> Result<Vec<crate::db::intents::IntentRow>> {
-    state.db.unresolved_superseded()
+pub async fn intents_held(state: State<'_, AppState>) -> Result<Vec<HeldWrite>> {
+    let mut out = Vec::new();
+    for intent in state.db.unresolved_superseded()? {
+        let mut product_name = None;
+        let mut supplier_names = Vec::new();
+        for id in &intent.items {
+            if let Some(item) = state.db.job_item(*id)? {
+                product_name = product_name.or(item.product_name.clone());
+                supplier_names.push(item.name);
+            }
+        }
+        out.push(HeldWrite {
+            intent,
+            product_name,
+            supplier_names,
+        });
+    }
+    Ok(out)
 }
 
 /// The seller settles a held write: `ON_SHELF` (the quantity is on the shelf: its invoice lines

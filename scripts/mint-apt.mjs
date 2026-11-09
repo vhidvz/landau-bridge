@@ -32,7 +32,8 @@ if (!access_token) throw new Error(`login failed (${login.status})`);
 const minted = await fetch(`${API}/-/auth/apts?zone=own`, {
   method: 'POST',
   headers: { 'content-type': 'application/json', authorization: `Bearer ${access_token}` },
-  body: JSON.stringify({ name: `landau-bridge ${new Date().toISOString().slice(0, 10)}`, expires_at: Date.now() + 90 * 86_400_000 }),
+  // Landau keeps key names unique per owner, so a date alone refuses a second mint that day (E11000).
+  body: JSON.stringify({ name: `landau-bridge ${new Date().toISOString().slice(0, 19)}`, expires_at: Date.now() + 90 * 86_400_000 }),
 });
 const body = await minted.json();
 const token = body?.data?.token ?? body?.token;

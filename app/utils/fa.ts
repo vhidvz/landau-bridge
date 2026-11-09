@@ -126,6 +126,7 @@ export const kindLabel = (kind: string): string =>
     AlreadyRunning: 'برنامه از قبل باز است',
     RegistryIncomplete: 'فهرست لاندا کامل خوانده نشد',
     WriteUnconfirmed: 'نتیجهٔ نوشتن هنوز روشن نیست',
+    ConfirmRequired: 'نیاز به تأیید دوباره',
   })[kind] ?? kind;
 
 // ---- job presentation (spec §6) -----------------------------------------------------------------
@@ -160,7 +161,10 @@ export const statusTone = (status: string | null | undefined): Tone =>
 export interface SummaryTile { label: string; value: number }
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const IMPORT_TILES: readonly [string, string][] = [['items', 'اقلام'], ['done', 'انجام‌شده'], ['attached', 'افزوده'], ['patched', 'به‌روز'], ['skipped', 'ردشده'], ['held', 'نگه‌داشته'], ['failed', 'ناموفق']];
-const REFRESH_TILES: readonly [string, string][] = [['rows', 'ردیف‌ها'], ['changed', 'تغییر قیمت'], ['skipped_manual', 'قیمت دستی'], ['held', 'نگه‌داشته']];
+// The keys `jobs/refresh.rs` writes (PI-16: these once read `changed` and `skipped_manual`, which no core ever wrote).
+const REFRESH_TILES: readonly [string, string][] = [
+  ['rows', 'ردیف‌ها'], ['patched', 'به‌روز'], ['unchanged', 'بدون تغییر'], ['repriced', 'قیمت‌گذاری شد'], ['skipped', 'ردشده'], ['held', 'نگه‌داشته'], ['failed', 'ناموفق'],
+];
 
 /** The numeric parts of a job summary, in display order; keys that are missing or not numbers are skipped. */
 export const summaryTiles = (job: Pick<JobRow, 'kind' | 'summary'>): SummaryTile[] => {
@@ -173,7 +177,7 @@ export const summaryTiles = (job: Pick<JobRow, 'kind' | 'summary'>): SummaryTile
 };
 
 /** Three headline tiles per run, so the dashboard's two last runs stand as equals side by side. */
-const KEY_TILES: Record<JobRow['kind'], readonly string[]> = { IMPORT: ['اقلام', 'انجام‌شده', 'ناموفق'], REFRESH: ['ردیف‌ها', 'تغییر قیمت', 'قیمت دستی'] };
+const KEY_TILES: Record<JobRow['kind'], readonly string[]> = { IMPORT: ['اقلام', 'انجام‌شده', 'ناموفق'], REFRESH: ['ردیف‌ها', 'به‌روز', 'ناموفق'] };
 export const keyTiles = (job: Pick<JobRow, 'kind' | 'summary'>): SummaryTile[] =>
   summaryTiles(job).filter((t) => KEY_TILES[job.kind].includes(t.label));
 

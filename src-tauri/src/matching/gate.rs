@@ -2,7 +2,7 @@
 //! evidence of [`super::evidence`]. Pure: the caller brings the evidence, the similarity and the
 //! other candidates; nothing here reads or writes anything.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::evidence::{evidence, Evidence, State, SupplierBrand, Vocabulary};
 use super::Scored;
@@ -16,8 +16,9 @@ pub fn effective_threshold(setting: u8) -> u8 {
     setting.clamp(SIMILARITY_FLOOR, 100)
 }
 
-/// Why a link may not write on its own. Typed, so the review screen and the audit can say it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// Why a link may not write on its own. Typed, so the review screen and the audit can say it —
+/// and so a seller's confirmation can name exactly the reasons it confirms (R-d).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum Reason {
     BelowThreshold {
@@ -236,6 +237,18 @@ pub fn verdict(origin: Origin, j: &Judged, threshold: u8) -> Verdict {
                 Verdict::ConfirmThenWrite(r)
             }
         }
+    }
+}
+
+/// A stored seller pick the seller once confirmed against conflicts (R-d, slice 4): it writes while
+/// every reason left is among the confirmed ones — a confirmation counts for what the seller was
+/// shown (Q-5). Any other reason, a new conflict or an inexact rebuild, keeps it in review.
+pub fn honour_confirmed(v: Verdict, confirmed: &[Reason]) -> Verdict {
+    match v {
+        Verdict::Review(r) if !r.is_empty() && r.iter().all(|x| confirmed.contains(x)) => {
+            Verdict::Write
+        }
+        other => other,
     }
 }
 

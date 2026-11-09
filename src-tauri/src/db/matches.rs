@@ -54,6 +54,9 @@ pub struct MatchRow {
     pub validated_job: Option<i64>,
     pub prev_product_id: Option<String>,
     pub link_version: i64,
+    /// JSON `Reason[]`: what the seller confirmed when picking against a conflict (R-d), or
+    /// `None`. A stored pick whose conflicts are all among these still writes (slice 4).
+    pub confirmed_json: Option<String>,
 }
 
 impl MatchRow {
@@ -87,13 +90,14 @@ fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<MatchRow> {
         validated_job: r.get(15)?,
         prev_product_id: r.get(16)?,
         link_version: r.get(17)?,
+        confirmed_json: r.get(18)?,
     })
 }
 
 const COLS: &str =
     "supplier, name_key, code, product_id, product_name, product_brand, product_alias, how, \
     similarity, name_seen, priced_at, decided_at, state, state_reason, state_at, validated_job, \
-    prev_product_id, link_version";
+    prev_product_id, link_version, confirmed_json";
 
 /// The product a link points at, with the definition fields that identify it (Q-1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,6 +142,8 @@ pub struct LinkPut<'a> {
     /// Keep the decision date the caller brings (an imported file's), else now.
     pub decided_at: Option<String>,
     pub priced_at: Option<String>,
+    /// JSON `Reason[]` the seller confirmed with this decision (R-d); `None` clears it.
+    pub confirmed: Option<String>,
 }
 
 /// A link's trail entry.
@@ -259,8 +265,8 @@ fn put(
     c.execute(
         "INSERT INTO supplier_links(supplier, name_key, code, product_id, product_name, product_brand,
            product_alias, how, similarity, name_seen, priced_at, decided_at, state, state_reason, state_at,
-           validated_job, prev_product_id, link_version)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, NULL, ?17)
+           validated_job, prev_product_id, link_version, confirmed_json)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, NULL, ?17, ?18)
          ON CONFLICT(supplier, name_key) DO UPDATE SET code = excluded.code,
            product_id = excluded.product_id, product_name = excluded.product_name,
            product_brand = excluded.product_brand, product_alias = excluded.product_alias,
@@ -268,7 +274,8 @@ fn put(
            priced_at = COALESCE(excluded.priced_at, supplier_links.priced_at),
            decided_at = excluded.decided_at, state = excluded.state,
            state_reason = excluded.state_reason, state_at = excluded.state_at,
-           validated_job = excluded.validated_job, link_version = excluded.link_version",
+           validated_job = excluded.validated_job, link_version = excluded.link_version,
+           confirmed_json = excluded.confirmed_json",
         params![
             supplier,
             key,
@@ -286,7 +293,8 @@ fn put(
             p.state_reason,
             at,
             p.validated_job,
-            version
+            version,
+            p.confirmed
         ],
     )?;
     event(
@@ -299,7 +307,11 @@ fn put(
         pid,
         Some(p.state),
         p.evidence,
-        Some(&serde_json::json!({"how": p.how, "version": version}).to_string()),
+        Some(&match &p.confirmed {
+            Some(c) => serde_json::json!({"how": p.how, "version": version, "confirmed": serde_json::from_str::<serde_json::Value>(c).unwrap_or_default()}),
+            None => serde_json::json!({"how": p.how, "version": version}),
+        }
+        .to_string()),
     )?;
     Ok(Some(version))
 }
@@ -393,6 +405,7 @@ impl Db {
                 job_id: None,
                 decided_at: None,
                 priced_at: None,
+                confirmed: None,
             },
         )
         .map(|_| ())
@@ -626,6 +639,7 @@ impl Db {
                         job_id: None,
                         decided_at: d.decided_at.clone(),
                         priced_at: d.priced_at.clone(),
+                        confirmed: None,
                     },
                     None,
                 )?;
@@ -669,6 +683,17 @@ impl Db {
                 )?;
             }
             tx.commit()
+        })
+    }
+
+    /// Links a job held for the seller — `NEEDS_REVIEW` or `STALE` — for the dashboard's tile.
+    pub fn count_links_needing_review(&self, supplier: &str) -> Result<i64> {
+        self.with(|c| {
+            c.query_row(
+                "SELECT COUNT(*) FROM supplier_links WHERE supplier = ?1 AND state IN (?2, ?3)",
+                params![supplier, state::NEEDS_REVIEW, state::STALE],
+                |r| r.get(0),
+            )
         })
     }
 
@@ -955,6 +980,7 @@ mod tests {
             job_id: Some(job),
             decided_at: None,
             priced_at: None,
+            confirmed: None,
         }
     }
 

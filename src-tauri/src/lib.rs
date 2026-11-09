@@ -6,6 +6,7 @@ pub mod db;
 pub mod decisions;
 pub mod domain;
 pub mod errors;
+pub mod inspect;
 pub mod instance;
 pub mod jobs;
 pub mod landau;
@@ -147,6 +148,9 @@ pub fn run() {
                 updater,
                 _log_guard: guard,
                 _instance: instance,
+                snapshot: Default::default(),
+                inspector: Default::default(),
+                inspecting: Default::default(),
             });
             commands::refresh_appimage_entry(app.handle());
 
@@ -178,6 +182,7 @@ pub fn run() {
             commands::import_review,
             commands::review_decide,
             commands::review_search,
+            commands::review_inspect,
             commands::import_continue,
             commands::refresh_start,
             commands::job_cancel,

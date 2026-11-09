@@ -77,14 +77,19 @@ describe('fa — jobs and durations', () => {
     const imp = { kind: 'IMPORT' as const, summary: { items: 89, done: 81, attached: 34, patched: 47, skipped: 0, failed: 3, invoice_ids: [1] } };
     expect(summaryTiles(imp).map((t) => t.label)).toEqual(['اقلام', 'انجام‌شده', 'افزوده', 'به‌روز', 'ردشده', 'ناموفق']);
     expect(summaryLabel(imp)).toBe('۸۹ اقلام · ۸۱ انجام‌شده · ۳۴ افزوده · ۴۷ به‌روز · ۳ ناموفق');
-    const ref = { kind: 'REFRESH' as const, summary: { rows: 412, changed: 96, skipped_manual: 12 } };
-    expect(summaryTiles(ref)).toEqual([{ label: 'ردیف‌ها', value: 412 }, { label: 'تغییر قیمت', value: 96 }, { label: 'قیمت دستی', value: 12 }]);
+    // PI-16: the keys the core's refresh summary writes (`jobs/refresh.rs`), never `changed`/`skipped_manual`
+    const ref = { kind: 'REFRESH' as const, summary: { rows: 412, linked: 400, patched: 96, unchanged: 290, repriced: 96, skipped: 2, held: 12, failed: 0 } };
+    expect(summaryTiles(ref)).toEqual([
+      { label: 'ردیف‌ها', value: 412 }, { label: 'به‌روز', value: 96 }, { label: 'بدون تغییر', value: 290 }, { label: 'قیمت‌گذاری شد', value: 96 },
+      { label: 'ردشده', value: 2 }, { label: 'نگه‌داشته', value: 12 }, { label: 'ناموفق', value: 0 },
+    ]);
+    expect(summaryTiles({ kind: 'REFRESH', summary: { rows: 412, changed: 96, skipped_manual: 12 } })).toEqual([{ label: 'ردیف‌ها', value: 412 }]);
     // plan 130 R-h: rows held for the seller are counted apart from transfer failures
     expect(summaryLabel({ kind: 'IMPORT', summary: { items: 5, done: 3, held: 2, failed: 0 } })).toBe('۵ اقلام · ۳ انجام‌شده · ۲ نگه‌داشته');
     expect(summaryLabel({ kind: 'REFRESH', summary: { rows: 7, held: 1 } })).toBe('۷ ردیف‌ها · ۱ نگه‌داشته');
     // the dashboard puts the two last runs side by side: three headline tiles each, never six against three
     expect(keyTiles(imp).map((t) => t.label)).toEqual(['اقلام', 'انجام‌شده', 'ناموفق']);
-    expect(keyTiles(ref).map((t) => t.label)).toEqual(['ردیف‌ها', 'تغییر قیمت', 'قیمت دستی']);
+    expect(keyTiles(ref).map((t) => t.label)).toEqual(['ردیف‌ها', 'به‌روز', 'ناموفق']);
     expect(keyTiles({ kind: 'IMPORT', summary: null })).toEqual([]);
     expect(summaryTiles({ kind: 'IMPORT', summary: null })).toEqual([]);
     expect(summaryLabel({ kind: 'IMPORT', summary: null })).toBe('');
@@ -92,8 +97,8 @@ describe('fa — jobs and durations', () => {
   });
 
   it('renders the REPORT event in Persian and leaves other events alone', () => {
-    const json = JSON.stringify({ rows: 412, changed: 96, skipped_manual: 12 });
-    expect(reportEventText({ phase: 'REPORT', message: json }, 'REFRESH')).toBe('گزارش نهایی: ۴۱۲ ردیف‌ها · ۹۶ تغییر قیمت · ۱۲ قیمت دستی');
+    const json = JSON.stringify({ rows: 412, patched: 96, unchanged: 0, held: 12 });
+    expect(reportEventText({ phase: 'REPORT', message: json }, 'REFRESH')).toBe('گزارش نهایی: ۴۱۲ ردیف‌ها · ۹۶ به‌روز · ۱۲ نگه‌داشته');
     expect(reportEventText({ phase: 'REPORT', message: 'not json' }, 'REFRESH')).toBe('not json');
     expect(reportEventText({ phase: 'FETCH', message: json }, 'IMPORT')).toBe(json);
   });

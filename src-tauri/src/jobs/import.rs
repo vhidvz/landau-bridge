@@ -17,8 +17,9 @@ use crate::db::matches::{actor, state, LinkProduct, LinkPut};
 use crate::db::Db;
 use crate::domain::{Authenticity, ImportMode};
 use crate::errors::{kinds, BridgeError, Result, IDENTITY_KINDS};
+use crate::inspect::PickJudgement;
 use crate::landau::writer::{ImportWrite, ShelfWriter};
-use crate::matching::gate::{verdict, Judged, Origin, Verdict};
+use crate::matching::gate::Reason;
 use crate::settings::SUPPLIER_ID;
 use crate::supplier::Progress;
 
@@ -356,44 +357,44 @@ async fn match_phase(ctx: &JobCtx, svc: &Services) -> Result<usize> {
     Ok(pending)
 }
 
-/// The seller's pick in review (spec §7.1; plan 130 R-a, R-b): a `USER` link to the product, proven
-/// for this job — its product was among the candidates this job gathered, or the seller found it
-/// by searching just now — with the definition the review list recorded when it has one. The item
-/// is planned from that link at its new version. R-d's second confirm for a pick against a conflict
-/// lands with its screen (slice 2's ruling); until then a pick writes as it always has.
+/// The seller's pick in review (spec §7.1; plan 130 R-a, R-b, R-d): a `USER` link to the product,
+/// proven for this job, with the definition the job's registry snapshot holds for it. A pick
+/// against a conflict is refused unless exactly its reasons are confirmed
+/// ([`crate::inspect::confirmation`]); what was confirmed is kept with the link, so a later job
+/// does not ask again about the same conflict on the same definition. The item is planned from
+/// that link at its new version.
 pub fn pick(
     db: &Db,
     item: &JobItemRow,
-    product_id: &str,
-    product_name: &str,
-    similarity: Option<i64>,
+    judged: &PickJudgement,
+    confirmed: Option<&[Reason]>,
     authenticity: Option<Authenticity>,
 ) -> Result<()> {
-    let shown = item
-        .candidates
-        .as_ref()
-        .and_then(|c| c.as_array())
-        .and_then(|a| a.iter().find(|s| s["candidate"]["id"] == product_id))
-        .map(|s| s["candidate"].clone());
-    let field = |k: &str| {
-        shown
-            .as_ref()
-            .map(|c| c[k].as_str().unwrap_or("").to_string())
-    };
-    let (brand, alias) = (field("brand"), field("alias"));
+    same_item(judged, &item.name)?;
+    let confirmed = crate::inspect::confirmation(&judged.verdict, confirmed)?;
+    // the item and its job may have moved on while the pick waited (a registry read takes ~90 s):
+    // a pick lands only while both still wait in review
+    let open = db.job_item(item.id)?.is_some_and(|i| i.status == "REVIEW")
+        && db.job(item.job_id)?.is_some_and(|j| j.status == "REVIEW");
+    if !open {
+        return Err(BridgeError::Other(
+            "این قلم دیگر در انتظار تصمیم نیست.".into(),
+        ));
+    }
+    let p = &judged.product;
     let version = db.put_link(
         SUPPLIER_ID,
         &LinkPut {
             name_seen: &item.name,
             code: &item.code,
             product: Some(LinkProduct {
-                id: product_id,
-                name: product_name,
-                brand: brand.as_deref(),
-                alias: alias.as_deref(),
+                id: &p.id,
+                name: &p.name,
+                brand: Some(p.brand.as_deref().unwrap_or("")),
+                alias: Some(p.alias.as_deref().unwrap_or("")),
             }),
             how: "USER",
-            similarity,
+            similarity: Some(judged.similarity as i64),
             state: state::VALID,
             state_reason: None,
             validated_job: Some(item.job_id),
@@ -402,11 +403,12 @@ pub fn pick(
             job_id: Some(item.job_id),
             decided_at: None,
             priced_at: None,
+            confirmed: confirmed_json(&confirmed)?,
         },
     )?;
     let mut patch = vec![
-        ("product_id", t(product_id)),
-        ("product_name", t(product_name)),
+        ("product_id", t(&p.id)),
+        ("product_name", t(&p.name)),
         (
             "link_key",
             t(&crate::matching::normalize::name_key(&item.name)),
@@ -423,10 +425,66 @@ pub fn pick(
     db.update_job_item(item.id, &patch)
 }
 
-/// What the write table says of a pick, for the screens: `Write`, or the conflicts a second
-/// confirm would show (R-d). Pure; nothing is stored.
-pub fn pick_verdict(judged: &Judged, threshold: u8) -> Verdict {
-    verdict(Origin::NewPick, judged, threshold)
+/// The seller's pick on the Matches screen (R-d, slice 4): refused against a conflict unless exactly
+/// its reasons are confirmed, as in review, and recorded with the snapshot's definition so a
+/// re-import rebuilds it. It proves nothing yet: the next job's VALIDATE judges it like any stored
+/// pick, honouring what was confirmed.
+pub fn matches_pick(
+    db: &Db,
+    name_seen: &str,
+    code: &str,
+    judged: &PickJudgement,
+    confirmed: Option<&[Reason]>,
+) -> Result<()> {
+    same_item(judged, name_seen)?;
+    let confirmed = crate::inspect::confirmation(&judged.verdict, confirmed)?;
+    let p = &judged.product;
+    db.put_link(
+        SUPPLIER_ID,
+        &LinkPut {
+            name_seen,
+            code,
+            product: Some(LinkProduct {
+                id: &p.id,
+                name: &p.name,
+                brand: Some(p.brand.as_deref().unwrap_or("")),
+                alias: Some(p.alias.as_deref().unwrap_or("")),
+            }),
+            how: "USER",
+            similarity: Some(judged.similarity as i64),
+            state: state::UNVERIFIED,
+            state_reason: None,
+            validated_job: None,
+            actor: actor::SELLER,
+            evidence: Some("shown"),
+            job_id: None,
+            decided_at: None,
+            priced_at: None,
+            confirmed: confirmed_json(&confirmed)?,
+        },
+    )
+    .map(|_| ())
+}
+
+/// A judgement made for another supplier item never decides this one.
+fn same_item(judged: &PickJudgement, name: &str) -> Result<()> {
+    use crate::matching::normalize::name_key;
+    if name_key(&judged.name) != name_key(name) {
+        return Err(BridgeError::Other(format!(
+            "pick judged for «{}», not «{name}»",
+            judged.name
+        )));
+    }
+    Ok(())
+}
+
+/// What a link records of a confirmation: the reasons' JSON, or nothing when none was needed.
+pub fn confirmed_json(confirmed: &[Reason]) -> Result<Option<String>> {
+    Ok(if confirmed.is_empty() {
+        None
+    } else {
+        Some(serde_json::to_string(confirmed)?)
+    })
 }
 
 /// Price → write → reprice → report over every item that is PLANNED with a product.
@@ -829,6 +887,7 @@ mod tests {
         Services {
             landau: crate::landau::LandauClient::new("http://127.0.0.1:1", "apt-test").unwrap(),
             supplier,
+            snapshot: Default::default(),
             settings: crate::settings::Settings {
                 landau_url: "http://127.0.0.1:1".into(),
                 landau_token: Some("apt-test".into()),
@@ -1102,26 +1161,131 @@ mod tests {
         );
     }
 
+    /// R-d: a hurried pick against a conflict writes nothing until its exact reasons are
+    /// confirmed; the confirmed pick keeps what was confirmed with its link.
+    #[test]
+    fn a_conflicting_pick_is_refused_until_its_reasons_are_confirmed() {
+        use crate::matching::evidence::tests::{bearing_5e12, cand, RIGHT_BEARING};
+        let ctx = job_ctx();
+        ctx.db
+            .set_job_status(ctx.job_id, "REVIEW", "REVIEW")
+            .unwrap();
+        let (code, name) = RIGHT_BEARING;
+        let id = ctx.db.add_job_item(ctx.job_id, code, name, 3).unwrap();
+        ctx.db
+            .update_job_item(id, &[("status", t("REVIEW"))])
+            .unwrap();
+        let wrong = cand(
+            "6aec987cd00e9931421a5e00",
+            "بلبرینگ چرخ جلو قدیم پراید",
+            Some("بلبرینگ 69349"),
+            Some("PSN عظام"),
+        );
+        let registry =
+            crate::matching::registry::Registry::from_products(vec![bearing_5e12(), wrong.clone()]);
+        let item = ctx.db.job_item(id).unwrap().unwrap();
+        let judged = crate::inspect::judge_pick(&registry, name, code, &wrong.id, 85).unwrap();
+        let crate::matching::gate::Verdict::ConfirmThenWrite(shown) = judged.verdict.clone() else {
+            panic!("expected a confirm: {:?}", judged.verdict)
+        };
+
+        let e = pick(&ctx.db, &item, &judged, None, None).unwrap_err();
+        assert!(matches!(e, BridgeError::ConfirmRequired { .. }), "{e:?}");
+        let e = pick(&ctx.db, &item, &judged, Some(&[Reason::Tied]), None).unwrap_err();
+        assert!(matches!(e, BridgeError::ConfirmRequired { .. }), "{e:?}");
+        assert_eq!(ctx.db.job_item(id).unwrap().unwrap().status, "REVIEW");
+        assert!(
+            ctx.db.match_for_name(SUPPLIER_ID, name).unwrap().is_none(),
+            "no link written"
+        );
+
+        pick(&ctx.db, &item, &judged, Some(&shown), None).unwrap();
+        assert_eq!(ctx.db.job_item(id).unwrap().unwrap().status, "PLANNED");
+        let link = ctx.db.match_for_name(SUPPLIER_ID, name).unwrap().unwrap();
+        let kept: Vec<Reason> =
+            serde_json::from_str(link.confirmed_json.as_deref().unwrap()).unwrap();
+        assert_eq!(kept, shown);
+
+        // a judgement made for another item never decides this one — in review or in Matches
+        let other = "بلبرينگ 44649 PSN عظام";
+        let elsewhere = crate::inspect::judge_pick(&registry, other, "X1", &wrong.id, 85).unwrap();
+        ctx.db
+            .update_job_item(id, &[("status", t("REVIEW"))])
+            .unwrap();
+        let e = pick(&ctx.db, &item, &elsewhere, Some(&shown), None).unwrap_err();
+        assert!(matches!(e, BridgeError::Other(_)), "{e:?}");
+        let e = matches_pick(&ctx.db, other, "X1", &judged, Some(&shown)).unwrap_err();
+        assert!(matches!(e, BridgeError::Other(_)), "{e:?}");
+
+        // the Matches screen's pick: the same refusal, then the definition and what was confirmed
+        let judged = crate::inspect::judge_pick(&registry, other, "X1", &wrong.id, 85).unwrap();
+        let crate::matching::gate::Verdict::ConfirmThenWrite(shown) = judged.verdict.clone() else {
+            panic!("expected a confirm: {:?}", judged.verdict)
+        };
+        let e = matches_pick(&ctx.db, other, "X1", &judged, None).unwrap_err();
+        assert!(matches!(e, BridgeError::ConfirmRequired { .. }), "{e:?}");
+        assert!(ctx.db.match_for_name(SUPPLIER_ID, other).unwrap().is_none());
+        matches_pick(&ctx.db, other, "X1", &judged, Some(&shown)).unwrap();
+        let link = ctx.db.match_for_name(SUPPLIER_ID, other).unwrap().unwrap();
+        assert_eq!(
+            (link.how.as_str(), link.state.as_str(), link.validated_job),
+            ("USER", "UNVERIFIED", None),
+            "proven by no job yet"
+        );
+        assert_eq!(
+            (link.product_brand.as_deref(), link.product_alias.as_deref()),
+            (Some("PSN عظام"), Some("بلبرینگ 69349")),
+            "the definition recorded, so a re-import rebuilds it"
+        );
+        assert!(link.confirmed_json.is_some());
+
+        // a consistent pick records no confirmation, and clears an earlier one
+        let right =
+            crate::inspect::judge_pick(&registry, name, code, &bearing_5e12().id, 85).unwrap();
+        ctx.db
+            .update_job_item(id, &[("status", t("REVIEW"))])
+            .unwrap();
+        pick(&ctx.db, &item, &right, None, None).unwrap();
+        let link = ctx.db.match_for_name(SUPPLIER_ID, name).unwrap().unwrap();
+        assert_eq!(link.confirmed_json, None);
+
+        // slice 4's review: a pick that waited while the job moved on lands nowhere
+        ctx.db
+            .update_job_item(id, &[("status", t("REVIEW"))])
+            .unwrap();
+        ctx.db
+            .set_job_status(ctx.job_id, "RUNNING", "PRICE")
+            .unwrap();
+        let e = pick(&ctx.db, &item, &right, None, None).unwrap_err();
+        assert!(matches!(e, BridgeError::Other(_)), "{e:?}");
+        let link = ctx.db.match_for_name(SUPPLIER_ID, name).unwrap().unwrap();
+        assert_eq!(link.confirmed_json, None);
+    }
+
     /// The seller's pick in review is a proven link for this job, at the version it now holds,
-    /// carrying the definition the review list showed (R-a, R-b).
+    /// carrying the definition the job's snapshot holds (R-a, R-b).
     #[test]
     fn a_review_pick_is_proven_for_its_job_with_the_definition_shown() {
         let ctx = job_ctx();
+        ctx.db
+            .set_job_status(ctx.job_id, "REVIEW", "REVIEW")
+            .unwrap();
         let id = ctx.db.add_job_item(ctx.job_id, "C1", "قطعه", 1).unwrap();
         ctx.db
-            .update_job_item(
-                id,
-                &[
-                    ("status", t("REVIEW")),
-                    (
-                        "candidates_json",
-                        t(r#"[{"candidate":{"id":"p1","name":"x","alias":"a | b","brand":"عظام","score":0.0},"similarity":70}]"#),
-                    ),
-                ],
-            )
+            .update_job_item(id, &[("status", t("REVIEW"))])
             .unwrap();
+        let registry =
+            crate::matching::registry::Registry::from_products(vec![crate::landau::Candidate {
+                id: "p1".into(),
+                name: "x".into(),
+                alias: Some("a | b".into()),
+                brand: Some("عظام".into()),
+                score: 0.0,
+            }]);
         let item = ctx.db.job_item(id).unwrap().unwrap();
-        pick(&ctx.db, &item, "p1", "x", Some(70), None).unwrap();
+        let judged =
+            crate::inspect::judge_pick(&registry, &item.name, &item.code, "p1", 85).unwrap();
+        pick(&ctx.db, &item, &judged, None, None).unwrap();
         let item = ctx.db.job_item(id).unwrap().unwrap();
         assert_eq!(item.status, "PLANNED");
         let link = ctx.db.match_for_name(SUPPLIER_ID, "قطعه").unwrap().unwrap();

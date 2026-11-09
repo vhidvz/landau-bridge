@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { BridgeError, Dashboard, JobRow, SettingsView, UpdateView } from '~/types/bridge';
+import type { BridgeError, Dashboard, HeldWrite, JobRow, RowState, SettingsView, UpdateView } from '~/types/bridge';
 
 const toast = useToast();
 const dash = ref<Dashboard | null>(null);
@@ -14,10 +14,24 @@ const load = async () => {
     settings.value = d.settings_complete ? null : await bridge.settingsGet();
     recent.value = d.settings_complete ? (await bridge.jobsList()).slice(0, 6) : [];
     dash.value = d;
+    held.value = d.held_writes > 0 ? await bridge.intentsHeld() : [];
     if (d.running && job.jobId.value !== d.running.id) await job.follow(d.running.id);
   } catch (e) { error.value = e as BridgeError; }
 };
 onMounted(load);
+
+// ---- shelf writes held for the seller (plan 130 R-o): the row changed outside the bridge after a
+// write whose outcome was unknown, so nothing is written on it until the seller says what is true.
+const held = ref<HeldWrite[]>([]);
+const settling = ref<number | null>(null);
+const rowText = (r: RowState | null | undefined): string =>
+  !r ? 'نامعلوم' : r.place === 'ABSENT' ? 'روی قفسه نبود' : `${r.place === 'TRASH' ? 'در سطل زباله، ' : ''}موجودی ${faNumber(r.inventory)} · قیمت خرید ${money(r.cost)}`;
+const targetText = (h: HeldWrite): string =>
+  `${h.target_inventory == null ? '' : `موجودی ${faNumber(h.target_inventory)} · `}قیمت خرید ${money(h.target_cost)}`;
+const settle = async (h: HeldWrite, how: 'ON_SHELF' | 'TRANSFER_AGAIN') => {
+  error.value = null; settling.value = h.id;
+  try { await bridge.intentResolve(h.id, how); await load(); } catch (e) { error.value = e as BridgeError; } finally { settling.value = null; }
+};
 
 // A newer version waiting to go in: a band here, the details on Settings.
 const upd = ref<UpdateView | null>(null);
@@ -131,11 +145,21 @@ const dismissAppImage = async () => {
             <NuxtLink to="/matches" class="mt-auto pt-3 text-xs text-crimson-400 hover:text-crimson-300">تطبیق‌ها ←</NuxtLink>
           </GlassCard>
 
+          <!-- two things wait for the seller: a paused review's items, and links a job held (plan 130 task 11) -->
           <GlassCard class="hover-glow flex flex-col" data-reveal>
-            <div class="mb-3 flex min-h-9 items-center justify-between gap-2"><span class="data-label">در انتظار شما</span><StatusPill :tone="dash.pending_review > 0 ? 'warn' : 'ok'" :label="dash.pending_review > 0 ? 'نیاز به تصمیم' : 'چیزی نیست'" /></div>
-            <div class="display tabular text-[1.75rem] leading-none text-paper">{{ faNumber(dash.pending_review) }}</div>
-            <div class="mt-1.5 text-xs text-paper-mute">قلم منتظر تصمیم</div>
+            <div class="mb-3 flex min-h-9 items-center justify-between gap-2"><span class="data-label">در انتظار شما</span><StatusPill :tone="dash.pending_review + dash.links_to_review > 0 ? 'warn' : 'ok'" :label="dash.pending_review + dash.links_to_review > 0 ? 'نیاز به تصمیم' : 'چیزی نیست'" /></div>
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <div class="display tabular text-[1.75rem] leading-none text-paper">{{ faNumber(dash.pending_review) }}</div>
+                <div class="mt-1.5 text-xs text-paper-mute">قلم منتظر تصمیم</div>
+              </div>
+              <div>
+                <div class="display tabular text-[1.75rem] leading-none" :class="dash.links_to_review > 0 ? 'text-warn' : 'text-paper'">{{ faNumber(dash.links_to_review) }}</div>
+                <div class="mt-1.5 text-xs text-paper-mute">پیوند نیازمند بررسی</div>
+              </div>
+            </div>
             <NuxtLink v-if="inReview" :to="runningTo" class="mt-auto pt-3 text-xs text-crimson-400 hover:text-crimson-300">ادامهٔ بازبینی ←</NuxtLink>
+            <NuxtLink v-else-if="dash.links_to_review > 0" to="/matches?filter=REVIEW" class="mt-auto pt-3 text-xs text-crimson-400 hover:text-crimson-300">پیوندهای نیازمند بررسی ←</NuxtLink>
           </GlassCard>
 
           <GlassCard class="hover-glow flex flex-col" data-reveal>
@@ -145,6 +169,29 @@ const dismissAppImage = async () => {
             <NuxtLink to="/errors" class="mt-auto pt-3 text-xs text-crimson-400 hover:text-crimson-300">خطاها ←</NuxtLink>
           </GlassCard>
         </div>
+
+        <!-- writes held until the seller says what is on the shelf -->
+        <GlassCard v-if="held.length" :pad="false" class="mb-6" data-reveal>
+          <div class="flex items-center justify-between gap-3 border-b hairline px-6 py-4">
+            <h2 class="display text-[1.0625rem] text-paper">نوشتن‌های نگه‌داشته <span class="tabular text-paper-mute">({{ faNumber(held.length) }})</span></h2>
+            <StatusPill tone="warn" label="منتظر تصمیم شما" />
+          </div>
+          <p class="px-6 pt-4 text-sm text-paper-mute">پس از نوشتنی که پاسخش نرسید، این ردیف‌ها بیرون از پل تغییر کرده‌اند. تا نگویید کدام درست است، چیزی روی آن‌ها نوشته نمی‌شود.</p>
+          <ul class="divide-y divide-white/5 px-6 pb-2">
+            <li v-for="h in held" :key="h.id" class="flex flex-wrap items-center justify-between gap-3 py-3.5">
+              <div class="min-w-0 space-y-0.5 text-sm">
+                <p class="truncate font-medium text-paper" :title="h.supplier_names.join('، ')">{{ h.product_name ?? h.supplier_names[0] ?? h.product }}</p>
+                <p class="text-xs text-paper-mute">پیش از نوشتن: <span class="tabular">{{ rowText(h.snapshot) }}</span></p>
+                <p class="text-xs text-paper-mute">نوشتن عملیات <span class="tabular">{{ faNumber(h.job_id) }}</span>: <span class="tabular">{{ targetText(h) }}</span></p>
+                <p class="text-xs text-paper-dim">اکنون در لاندا: <span class="tabular">{{ rowText(h.outcome?.row) }}</span></p>
+              </div>
+              <div class="flex gap-2">
+                <UButton size="sm" color="neutral" variant="outline" :loading="settling === h.id" :disabled="settling !== null" title="تعداد این فاکتورها روی قفسه هست؛ دیگر منتقل نمی‌شود" @click="settle(h, 'ON_SHELF')">روی قفسه هست</UButton>
+                <UButton size="sm" :loading="settling === h.id" :disabled="settling !== null" title="وارد کردن بعدی این فاکتورها را دوباره منتقل می‌کند" @click="settle(h, 'TRANSFER_AGAIN')">دوباره منتقل شود</UButton>
+              </div>
+            </li>
+          </ul>
+        </GlassCard>
 
         <!-- the crossing -->
         <GlassCard :pad="false" class="mb-6 overflow-hidden" data-reveal>

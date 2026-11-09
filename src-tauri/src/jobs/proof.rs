@@ -12,7 +12,9 @@ use crate::domain::Authenticity;
 use crate::errors::{BridgeError, Result};
 use crate::landau::Candidate;
 use crate::matching::evidence::evidence;
-use crate::matching::gate::{judge_link, judge_top, verdict, Judged, Origin, Reason, Verdict};
+use crate::matching::gate::{
+    honour_confirmed, judge_link, judge_top, verdict, Judged, Origin, Reason, Verdict,
+};
 use crate::matching::normalize::{name_key, search_term};
 use crate::matching::registry::{identity_of, Registry};
 use crate::matching::{candidates, score, similarity_of, Scored, CANDIDATES};
@@ -172,7 +174,7 @@ impl Prover<'_> {
             let c = c.clone();
             let (judged, scored) = self.judge(&c, user, name, code).await?;
             let origin = if user { Origin::Pick } else { Origin::Auto };
-            return match verdict(origin, &judged, self.threshold) {
+            return match judged_for(link, name, origin, &judged, self.threshold) {
                 Verdict::Write => {
                     let Some(version) = self.db.validate_link(
                         self.supplier,
@@ -259,7 +261,7 @@ impl Prover<'_> {
                 identity_exact: true,
             }
         };
-        match verdict(origin, &judged, self.threshold) {
+        match judged_for(link, name, origin, &judged, self.threshold) {
             Verdict::Write => {
                 let Some(version) = self.db.rebuild_link(
                     self.supplier,
@@ -381,6 +383,7 @@ impl Prover<'_> {
                     job_id: Some(self.job),
                     decided_at: None,
                     priced_at: None,
+                    confirmed: None,
                 },
                 expect,
             )?
@@ -432,6 +435,29 @@ impl Prover<'_> {
             link_product: None,
         })
     }
+}
+
+/// The write table's verdict on a stored link for the supplier item `name`, a seller's pick
+/// honouring what the seller confirmed with it (R-d, slice 4) — only for the name it was confirmed
+/// for. A link reached by its code under another name (the site gave the code to another item)
+/// is judged without it: a reason equal in kind and value can come from a different item.
+fn judged_for(
+    link: &MatchRow,
+    name: &str,
+    origin: Origin,
+    judged: &Judged,
+    threshold: u8,
+) -> Verdict {
+    let v = verdict(origin, judged, threshold);
+    if link.how != "USER" || name_key(name) != link.name_key {
+        return v;
+    }
+    let confirmed: Vec<Reason> = link
+        .confirmed_json
+        .as_deref()
+        .and_then(|c| serde_json::from_str(c).ok())
+        .unwrap_or_default();
+    honour_confirmed(v, &confirmed)
 }
 
 /// A link the seller changed between this job's read and its verdict: nothing is stored, and the
@@ -773,6 +799,7 @@ mod tests {
                 job_id: None,
                 decided_at: None,
                 priced_at: None,
+                confirmed: None,
             },
         )
         .unwrap();
@@ -991,6 +1018,101 @@ mod tests {
             .await
             .unwrap();
         assert!(matches!(j, Judgement::Proven { .. }), "{j:?}");
+    }
+
+    /// R-d, slice 4: a pick the seller confirmed against its conflicts writes in a later job while
+    /// they are still all its conflicts — the confirmation counts for what the seller was shown.
+    /// A conflict the seller never confirmed reopens it.
+    #[tokio::test]
+    async fn a_confirmed_pick_writes_until_a_conflict_it_never_confirmed() {
+        let r = registry();
+        let shown = crate::matching::gate::conflicts(&evidence(
+            WRONG_BEARING.1,
+            WRONG_BEARING.0,
+            &bearing_5e12(),
+            r.vocabulary(),
+        ));
+        assert!(!shown.is_empty(), "the hurried pick conflicts");
+        let confirmed = |db: &Db, reasons: &[Reason]| {
+            stored(db, WRONG_BEARING, "USER", &bearing_5e12(), true);
+            db.with(|c| {
+                c.execute(
+                    "UPDATE supplier_links SET confirmed_json = ?1",
+                    [serde_json::to_string(reasons).unwrap()],
+                )
+            })
+            .unwrap();
+        };
+
+        let (db, job) = db_with_job();
+        confirmed(&db, &shown);
+        let j = prover(&db, &r, job)
+            .item(WRONG_BEARING.1, WRONG_BEARING.0)
+            .await
+            .unwrap();
+        assert!(matches!(j, Judgement::Proven { .. }), "{j:?}");
+
+        // confirmed against another value than the one the name now conflicts on
+        let (db, job) = db_with_job();
+        confirmed(
+            &db,
+            &[Reason::NumberConflict {
+                lacking: vec!["99999".into()],
+            }],
+        );
+        let j = prover(&db, &r, job)
+            .item(WRONG_BEARING.1, WRONG_BEARING.0)
+            .await
+            .unwrap();
+        assert_eq!(reasons(&j), shown, "reopened on what was never confirmed");
+
+        // slice 4's review: the site gives the confirmed item's code to another item; reached by
+        // its code, the link is judged without the confirmation the other name earned
+        let (db, job) = db_with_job();
+        confirmed(&db, &shown);
+        // another bearing, one the name says is not the 44649 either: its conflicts with the
+        // product are exactly the ones the seller confirmed for the 69349 name
+        let renamed = "بلبرينگ چرخ جلو پرايد قديم 30205 PSN عظام (54) 3154027";
+        assert_eq!(
+            crate::matching::gate::conflicts(&evidence(
+                renamed,
+                WRONG_BEARING.0,
+                &bearing_5e12(),
+                r.vocabulary()
+            )),
+            shown,
+            "the case needs a reason equal in kind and value"
+        );
+        let j = prover(&db, &r, job)
+            .item(renamed, WRONG_BEARING.0)
+            .await
+            .unwrap();
+        assert!(matches!(j, Judgement::Held { .. }), "{j:?}");
+
+        // an automatic link holds no human judgment: even a column naming every reason the gate
+        // gives it decides nothing (only a pick ever writes one)
+        let (db, job) = db_with_job();
+        stored(&db, WRONG_BEARING, "AUTO", &bearing_5e12(), true);
+        let gate = reasons(
+            &prover(&db, &r, job)
+                .item(WRONG_BEARING.1, WRONG_BEARING.0)
+                .await
+                .unwrap(),
+        );
+        let (db, job) = db_with_job();
+        stored(&db, WRONG_BEARING, "AUTO", &bearing_5e12(), true);
+        db.with(|c| {
+            c.execute(
+                "UPDATE supplier_links SET confirmed_json = ?1",
+                [serde_json::to_string(&gate).unwrap()],
+            )
+        })
+        .unwrap();
+        let j = prover(&db, &r, job)
+            .item(WRONG_BEARING.1, WRONG_BEARING.0)
+            .await
+            .unwrap();
+        assert_eq!(reasons(&j), gate, "still held on the gate's own reasons");
     }
 
     /// Q-5: a pick whose product claims a number the supplier's name lacks is reopened.

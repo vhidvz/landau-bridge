@@ -20,7 +20,7 @@ use crate::db::Db;
 use crate::domain::cost_of;
 use crate::errors::{kinds, BridgeError, Result};
 use crate::landau::{LandauClient, RepricedRow};
-use crate::matching::registry::{self, Registry};
+use crate::matching::registry::{self, Registry, Snapshot};
 use crate::settings::{Settings, SUPPLIER_ID};
 use crate::supplier::Supplier;
 
@@ -68,6 +68,8 @@ pub struct Services {
     pub landau: LandauClient,
     pub supplier: Box<dyn Supplier>,
     pub settings: Settings,
+    /// Where a job leaves its whole-registry read for the review and Matches screens.
+    pub snapshot: Arc<Snapshot>,
 }
 
 pub fn emit_event<T: Serialize + Clone>(app: &Option<AppHandle>, name: &str, payload: T) {
@@ -271,23 +273,56 @@ pub async fn preflight(ctx: &JobCtx, svc: &Services, store: &str) -> Result<()> 
 }
 
 /// VALIDATE's source (plan 130 R-b): Landau's registry read whole through the seller's picker,
-/// or the job stops with nothing written — no link is judged on a partial vocabulary.
-pub async fn read_registry(ctx: &JobCtx, svc: &Services, phase: &str) -> Result<Registry> {
+/// or the job stops with nothing written — no link is judged on a partial vocabulary. The read is
+/// kept for the review and Matches screens (slice 4).
+pub async fn read_registry(ctx: &JobCtx, svc: &Services, phase: &str) -> Result<Arc<Registry>> {
     ctx.progress(phase, 0, 0, "خواندن فهرست کامل قطعه‌های لاندا");
-    let landau = &svc.landau;
-    let page = |skip: usize| async move {
-        landau
-            .registry_search("", crate::matching::PAGE, skip)
-            .await
-    };
-    let registry = registry::read_whole(&page).await?;
-    registry_guard(&ctx.db, registry.len())?;
+    let started = crate::db::now();
+    let registry = Arc::new(read_guarded(&ctx.db, &svc.landau).await?);
+    svc.snapshot.keep(registry.clone(), started);
     ctx.info(
         phase,
         &format!("registry read whole: {} definition(s)", registry.len()),
         None,
     );
     Ok(registry)
+}
+
+/// A job's registry read, whole and under [`registry_guard`].
+pub async fn read_guarded(db: &crate::db::Db, landau: &LandauClient) -> Result<Registry> {
+    let registry = read_all(landau).await?;
+    registry_guard(db, registry.len())?;
+    Ok(registry)
+}
+
+/// A screen's registry read when none is kept (slice 4): whole, and refused below 90 % of the
+/// last total a job accepted — but it records nothing. Only a job's read moves the guard, so a
+/// screen can never let a shrunken catalogue through for the next job.
+pub async fn read_checked(db: &crate::db::Db, landau: &LandauClient) -> Result<Registry> {
+    let registry = read_all(landau).await?;
+    registry_check(db, registry.len())?;
+    Ok(registry)
+}
+
+async fn read_all(landau: &LandauClient) -> Result<Registry> {
+    let page = |skip: usize| async move {
+        landau
+            .registry_search("", crate::matching::PAGE, skip)
+            .await
+    };
+    registry::read_whole(&page).await
+}
+
+/// [`registry_guard`]'s refusal without its bookkeeping.
+pub fn registry_check(db: &crate::db::Db, total: usize) -> Result<()> {
+    let last: Option<usize> = db.setting(REGISTRY_TOTAL)?.and_then(|v| v.parse().ok());
+    match last {
+        Some(last) if (total as f64) < last as f64 * 0.9 => Err(BridgeError::RegistryIncomplete {
+            read: total,
+            total: last,
+        }),
+        _ => Ok(()),
+    }
 }
 
 /// A registry suddenly much smaller than the last one a job accepted is a catalogue mid-change —
@@ -395,14 +430,8 @@ pub async fn quote_for(
     code: &str,
     vat: &mut VatMismatches,
 ) -> Result<Option<Costed>> {
-    let by_name = pricing::pick_by_name(name, svc.supplier.quotes_by_name(name).await?);
-    let (q, renamed) = match by_name {
-        Some(q) => (q, false),
-        None if code.is_empty() => return Ok(None),
-        None => match svc.supplier.price_of(code).await? {
-            Some(q) => (q, true),
-            None => return Ok(None),
-        },
+    let Some((q, renamed)) = todays_quote(svc.supplier.as_ref(), name, code).await? else {
+        return Ok(None);
     };
     let setting = svc.settings.vat_percent;
     let applied = if q.has_vat { setting } else { 0.0 };
@@ -432,6 +461,22 @@ pub async fn quote_for(
         name: q.name,
         renamed,
     }))
+}
+
+/// The site's row for `name`/`code` today (§14 b): the equal-name row of a name search, else the
+/// exact code — `renamed` when only the code found it. `None` when the site lists neither.
+pub async fn todays_quote(
+    supplier: &dyn Supplier,
+    name: &str,
+    code: &str,
+) -> Result<Option<(crate::domain::PriceQuote, bool)>> {
+    if let Some(q) = pricing::pick_by_name(name, supplier.quotes_by_name(name).await?) {
+        return Ok(Some((q, false)));
+    }
+    if code.is_empty() {
+        return Ok(None);
+    }
+    Ok(supplier.price_of(code).await?.map(|q| (q, true)))
 }
 
 /// `(reprice_verdict, final price)` of one row Landau answered (spec §14 f).
@@ -597,6 +642,7 @@ mod tests {
         Services {
             landau: LandauClient::new("http://127.0.0.1:1", "apt-test").unwrap(),
             supplier: Box::new(NoSupplier),
+            snapshot: Default::default(),
             settings: Settings {
                 landau_url: "http://127.0.0.1:1".into(),
                 landau_token: Some("apt-test".into()),
@@ -705,6 +751,35 @@ mod tests {
         assert!(registry_guard(&db, 31_000).is_err(), "still moving");
         registry_guard(&db, 31_000).unwrap(); // the same total twice: it holds
         registry_guard(&db, 31_000).unwrap();
+    }
+
+    /// Slice 4's review: a screen's read is refused below 90 % of the last accepted total like a
+    /// job's, but records nothing — however often a screen reads a shrunken catalogue, the next
+    /// job still meets the guard as it was.
+    #[test]
+    fn a_screen_read_checks_the_guard_but_never_moves_it() {
+        let db = Db::in_memory().unwrap();
+        registry_check(&db, 10).unwrap(); // nothing accepted yet
+        registry_guard(&db, 52_899).unwrap();
+        for _ in 0..3 {
+            assert_eq!(
+                registry_check(&db, 30_000),
+                Err(BridgeError::RegistryIncomplete {
+                    read: 30_000,
+                    total: 52_899
+                })
+            );
+        }
+        registry_check(&db, 52_000).unwrap();
+        assert_eq!(
+            db.setting(REGISTRY_TOTAL).unwrap().as_deref(),
+            Some("52899")
+        );
+        assert_eq!(db.setting(REGISTRY_PENDING).unwrap().as_deref(), Some(""));
+        assert!(
+            registry_guard(&db, 30_000).is_err(),
+            "the job meets the first refusal, not a pending total a screen left"
+        );
     }
 
     #[test]

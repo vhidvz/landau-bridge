@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Every shelf write is recorded before it is sent and closed only once its outcome is known. @vhidvz
 - Each job first settles an earlier write left unknown by reading its row: landed, never landed, or changed. @vhidvz
 - A row changed outside the bridge after an unsettled write is held, with both values, until the seller decides. @vhidvz
+- Review and Matches show each pick's evidence, today's supplier price, the new cost and the shelf's cost. @vhidvz
+- A pick against a conflicting name needs a second confirm showing the conflicts and the cost change. @vhidvz
+- The dashboard counts links waiting for review and lists held writes the seller can settle. @vhidvz
+- Settings says to run one install per store. @vhidvz
 
 ### Changed
 
@@ -30,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A product Landau no longer lists turns its link stale instead of failing every run with a 404. @vhidvz
 - A lost attach reply no longer adds the quantity a second time, nor does a crash before its lines are marked. @vhidvz
+- A pick in Matches keeps its part's brand and alias, so a re-import of Landau's list no longer drops it. @vhidvz
+- A price refresh's summary tiles show its updated, unchanged, held and failed rows, not only the row count. @vhidvz
+- The live tests' key script can mint a second key on the same day. @vhidvz
 
 ## [1.1.1] - 2026-11-04
 

@@ -150,6 +150,77 @@ impl Registry {
     }
 }
 
+/// A whole registry read, kept with the time the read started.
+#[derive(Clone)]
+pub struct Kept {
+    pub registry: Arc<Registry>,
+    pub read_at: String,
+}
+
+/// How long a failed screen read answers every screen waiting on it, instead of each reading again.
+const FAILED_FOR: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// The latest whole-registry read, kept past the job phase that made it (plan 130 slice 4): the
+/// review and Matches screens judge a pair against it, and the seller's re-search runs its local
+/// picker. One per app; only a read that started later replaces it.
+#[derive(Default)]
+pub struct Snapshot {
+    kept: Mutex<Option<Kept>>,
+    /// A screen that needs a snapshot when none is kept reads one; two such screens wait for one.
+    reading: tokio::sync::Mutex<()>,
+    /// The last screen read's failure: screens waiting on it share it rather than read again.
+    failed: Mutex<Option<(std::time::Instant, BridgeError)>>,
+}
+
+impl Snapshot {
+    /// Keeps `registry`, read from `read_at` on, unless a read that started later is kept already.
+    pub fn keep(&self, registry: Arc<Registry>, read_at: String) {
+        if let Ok(mut slot) = self.kept.lock() {
+            if slot.as_ref().is_some_and(|k| k.read_at > read_at) {
+                return;
+            }
+            *slot = Some(Kept { registry, read_at });
+        }
+    }
+
+    pub fn latest(&self) -> Option<Kept> {
+        self.kept.lock().ok().and_then(|s| s.clone())
+    }
+
+    /// The kept snapshot, else `read()`'s, kept from then on. Concurrent callers share one read,
+    /// and a failed one: for [`FAILED_FOR`] every caller gets its error instead of a read of its own.
+    pub async fn get_or_read<F, Fut>(&self, read: F) -> Result<Kept>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<Registry>>,
+    {
+        if let Some(k) = self.latest() {
+            return Ok(k);
+        }
+        let _one = self.reading.lock().await;
+        if let Some(k) = self.latest() {
+            return Ok(k);
+        }
+        if let Some((at, e)) = self.failed.lock().ok().and_then(|f| f.clone()) {
+            if at.elapsed() < FAILED_FOR {
+                return Err(e);
+            }
+        }
+        let started = crate::db::now();
+        match read().await {
+            Ok(r) => self.keep(Arc::new(r), started),
+            Err(e) => {
+                if let Ok(mut f) = self.failed.lock() {
+                    *f = Some((std::time::Instant::now(), e.clone()));
+                }
+                return Err(e);
+            }
+        }
+        self.latest()
+            .ok_or_else(|| BridgeError::Other("registry snapshot lost".into()))
+    }
+}
+
 /// Reads the whole registry through `page(skip)` (the picker on an empty term, [`PAGE`] rows a
 /// page), [`PARALLEL_PAGES`] at a time. Complete or an error: every page must report the first
 /// page's `total`, and exactly that many distinct definitions must arrive. A read that falls
@@ -213,6 +284,49 @@ where
 pub(crate) mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn tiny(id: &str) -> Arc<Registry> {
+        Arc::new(Registry::from_products(vec![cand(id, "x", None, None)]))
+    }
+
+    /// Slice 4's review: screens waiting on a failed read share its failure for a minute instead
+    /// of each reading the whole registry again; a later read succeeds and is kept.
+    #[tokio::test]
+    async fn screens_share_a_failed_read_then_keep_a_good_one() {
+        let snap = Snapshot::default();
+        let reads = AtomicUsize::new(0);
+        let failing = || async {
+            reads.fetch_add(1, Ordering::SeqCst);
+            Err(BridgeError::RegistryIncomplete { read: 1, total: 2 })
+        };
+        assert!(snap.get_or_read(failing).await.is_err());
+        assert!(snap.get_or_read(failing).await.is_err());
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            1,
+            "the second caller shared the failure"
+        );
+        if let Ok(mut f) = snap.failed.lock() {
+            *f = None; // the minute passed
+        }
+        let k = snap
+            .get_or_read(|| async { Ok(Registry::from_products(vec![cand("p", "x", None, None)])) })
+            .await
+            .unwrap();
+        assert!(k.registry.get("p").is_some());
+    }
+
+    /// A read kept only if it started later than the one kept: a screen's slow read finishing
+    /// after a job's newer one never replaces it.
+    #[test]
+    fn only_a_later_read_replaces_the_kept_snapshot() {
+        let snap = Snapshot::default();
+        snap.keep(tiny("new"), "2026-11-09T05:00:00.000Z".into());
+        snap.keep(tiny("old"), "2026-11-09T04:58:30.000Z".into());
+        assert!(snap.latest().unwrap().registry.get("new").is_some());
+        snap.keep(tiny("newer"), "2026-11-09T05:10:00.000Z".into());
+        assert!(snap.latest().unwrap().registry.get("newer").is_some());
+    }
 
     pub(crate) fn cand(
         id: &str,

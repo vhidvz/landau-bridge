@@ -21,6 +21,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0003_drop_name_map.sql"),
     include_str!("migrations/0004_supplier_links.sql"),
     include_str!("migrations/0005_write_intents.sql"),
+    include_str!("migrations/0006_confirmed_picks.sql"),
 ];
 
 /// The schema this build writes: one version per migration.

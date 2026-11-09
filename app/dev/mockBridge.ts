@@ -1,8 +1,8 @@
 // Fixtures for `pnpm dev` in a plain browser (no Tauri). Never imported by the production build:
 // useBridge.ts only reaches for this file behind `import.meta.dev`.
 import type {
-  DecisionImportReport, Dashboard, ErrorRow, JobDetail, JobEventRow, JobItemRow, JobRow, LandauStatus, MatchRow, Scored, SettingsView,
-  UndecidedRow, UpdateView,
+  CandidateView, DecisionImportReport, Dashboard, ErrorRow, HeldWrite, Inspection, JobDetail, JobEventRow, JobItemRow, JobRow, LandauStatus,
+  MatchRow, Reason, Scored, SettingsView, UndecidedRow, UpdateView,
 } from '~/types/bridge';
 import type { JobHandlers } from '~/composables/useBridge';
 
@@ -11,6 +11,9 @@ export const devState = (): State => {
   const s = new URLSearchParams(location.search).get('state');
   return s === 'empty' || s === 'running' || s === 'review' || s === 'refreshing' ? s : 'done';
 };
+
+// `?held=1`: one shelf write held for the seller, so the dashboard shows its card.
+const held = typeof location !== 'undefined' && new URLSearchParams(location.search).has('held');
 
 // `?bulk=1`: lists long enough to page through — 130 decisions, 120 undecided parts, 45 in review,
 // a 412-row report, 42 jobs and 126 errors.
@@ -46,7 +49,7 @@ const job = (id: number, kind: JobRow['kind'], status: string, phase: JobRow['ph
 const doneSummary = { items: 89, done: 81, attached: 34, patched: 47, skipped: 5, failed: 3, invoice_ids: [5121, 5140, 5177] };
 const jobs: JobRow[] = [
   job(42, 'IMPORT', 'DONE', 'REPORT', 0, doneSummary),
-  job(41, 'REFRESH', 'DONE', 'REPORT', 1, { rows: 412, changed: 96, skipped_manual: 12 }),
+  job(41, 'REFRESH', 'DONE', 'REPORT', 1, { rows: 412, linked: 400, patched: 96, unchanged: 290, repriced: 96, skipped: 2, held: 12, failed: 0 }),
   job(40, 'IMPORT', 'FAILED', 'FETCH', 3),
   job(39, 'IMPORT', 'DONE', 'REPORT', 9, doneSummary),
   job(38, 'REFRESH', 'CANCELLED', 'WRITE', 12),
@@ -79,6 +82,10 @@ const reviewItems: JobItemRow[] = [
     scored('p_4', 'فیلتر روغن پژو ۲۰۶', 'سرکان', 88, 'W712/8'), scored('p_5', 'فیلتر هوا پژو ۲۰۶', 'سرکان', 57),
   ] }),
   item(903, 'BP-33005', 'شمع NGK BKR6E', 48, { status: 'REVIEW', candidates: [] }),
+  // the incident (plan 130): the 69349 bearing ranked first for the 44649 name
+  item(904, '33102018', 'بلبرينگ بزرگ چرخ عقب پرايد جدبد (بلبرينگ بزرگ چرخ جلو پيکان) 44649 PSN عظام (96) 3154028', 0, { status: 'REVIEW', candidates: [
+    scored('p_69349', 'بلبرینگ چرخ جلو قدیم پراید', 'PSN عظام', 67, 'بلبرینگ 69349'), scored('p_44649', 'بلبرینگ بزرگ چرخ عقب پراید و چرخ جلو پیکان', 'PSN عظام', 56, 'بلبرینگ 44649 | بلبرینگ چرخ پراید عظام'),
+  ] }),
 ];
 
 const doneItems: JobItemRow[] = [
@@ -146,21 +153,22 @@ const importReport: DecisionImportReport = {
   missing: [{ name_seen: 'فیلتر بنزین قدیمی', code: 'BP-12001', product_id: 'p_gone', product_name: 'فیلتر بنزین پراید (حذف‌شده)' }],
 };
 
-const match = (code: string, name_seen: string, how: MatchRow['how'], product_name: string | null, similarity: number | null, days: number): MatchRow =>
-  ({ supplier: 'barezpakhsh', name_key: name_seen.toLowerCase(), code, product_id: product_name ? `p_${code}` : null, product_name, how, similarity, name_seen, priced_at: how === 'NONE' ? null : ago(days, 15, 0), decided_at: ago(days, 14, 5) });
+const match = (code: string, name_seen: string, how: MatchRow['how'], product_name: string | null, similarity: number | null, days: number, state: MatchRow['state'] = 'VALID', state_reason: string | null = null): MatchRow =>
+  ({ supplier: 'barezpakhsh', name_key: name_seen.toLowerCase(), code, product_id: product_name ? `p_${code}` : null, product_name, how, similarity, name_seen, priced_at: how === 'NONE' ? null : ago(days, 15, 0), decided_at: ago(days, 14, 5),
+    state, state_reason, state_at: ago(days, 15, 0), validated_job: state === 'VALID' ? 42 : null, link_version: 1, product_brand: null, product_alias: null, confirmed_json: null });
 const matches: MatchRow[] = [
   ...(bulk ? Array.from({ length: 121 }, (_, i) => match(`BP-6${String(i).padStart(4, '0')}`, `تطبیق آزمایشی ${i + 1}`, 'AUTO', `قطعهٔ لاندا ${i + 1}`, 85, 2)) : []),
   match('BP-10422', 'لنت ترمز جلو پراید', 'USER', 'لنت ترمز جلو پراید ۱۳۱', 91, 0),
   match('BP-20871', 'فیلتر روغن ۲۰۶ تیپ ۵', 'AUTO', 'فیلتر روغن پژو ۲۰۶', 88, 0),
   match('BP-33005', 'شمع NGK BKR6E', 'AUTO', 'شمع NGK BKR6E', 97, 1),
-  match('BP-44120', 'تسمه تایم ۴۰۵', 'AUTO', 'تسمه تایم پژو ۴۰۵', 84, 1),
+  match('BP-44120', 'تسمه تایم ۴۰۵', 'AUTO', 'تسمه تایم پژو ۴۰۵', 84, 1, 'NEEDS_REVIEW', JSON.stringify([{ kind: 'BELOW_THRESHOLD', similarity: 84, threshold: 85 }, { kind: 'NO_BRAND_IN_NAME' }])),
   match('BP-51002', 'دیسک ترمز جلو سمند', 'AUTO', 'دیسک ترمز جلو سمند', 95, 3),
   match('BP-60233', 'روغن موتور ۴ لیتری بهران', 'NONE', null, null, 3),
   match('BP-70110', 'سیبک فرمان چپ پژو 405 امیرنیا', 'AUTO', 'سیبک فرمان چپ پژو ۴۰۵', null, 0),
   match('BP-71850', 'واشر سرسیلندر ۲۰۶', 'USER', 'واشر سرسیلندر پژو ۲۰۶', 78, 9),
   match('BP-80017', 'پمپ بنزین پراید', 'AUTO', 'پمپ بنزین پراید', 100, 9),
   match('BP-90311', 'کمک فنر عقب تیبا', 'AUTO', 'کمک فنر عقب تیبا', 93, 12),
-  match('BP-90420', 'بلبرینگ چرخ جلو ۲۰۶', 'USER', 'بلبرینگ چرخ جلو پژو ۲۰۶', 71, 12),
+  match('BP-90420', 'بلبرینگ چرخ جلو ۲۰۶', 'USER', 'بلبرینگ چرخ جلو پژو ۲۰۶', 71, 12, 'STALE', JSON.stringify({ why: '2 products carry its name, brand and alias', reasons: [{ kind: 'DEFINITION_NOT_EXACT' }] })),
   match('BP-91002', 'رادیاتور آب دنا', 'NONE', null, null, 20),
   match('BP-91777', 'سنسور اکسیژن سمند EF7', 'AUTO', 'سنسور اکسیژن EF7', 86, 20),
 ];
@@ -185,16 +193,69 @@ const dashboard = (state: State): Dashboard => {
     invoices_unpaid: state === 'empty' ? 0 : 3, last_import: state === 'empty' ? null : jobs[0]!,
     last_refresh: state === 'empty' ? null : jobs[1]!, running, pending_review: state === 'review' ? reviewItems.length : 0,
     recent_errors: state === 'empty' ? 0 : 4, decided_matches: state === 'empty' ? 0 : matches.length,
+    links_to_review: state === 'empty' ? 0 : matches.filter((m) => m.state === 'NEEDS_REVIEW' || m.state === 'STALE').length,
+    held_writes: held ? heldWrites.length : 0,
     appimage_offer: new URLSearchParams(location.search).has('appimage'),
   };
 };
+
+// ---- plan 130: what a pick would be, and the second confirm against a conflict
+const CONFLICTS: Record<string, Reason[]> = {
+  p_69349: [{ kind: 'NUMBER_CONFLICT', lacking: ['69349'] }],
+  p_2: [{ kind: 'OPPOSITE_WORDS', supplier: 'جلو', candidate: 'عقب' }],
+  p_5: [{ kind: 'NUMBER_UNBACKED', candidate: ['206'] }],
+};
+const everyCandidate = (): Scored[] => [...reviewItems.flatMap((i) => i.candidates ?? []), ...undecided.flatMap((u) => u.candidates)];
+const SHELF_COST: Record<string, number> = { p_69349: 5_500_000, p_1: 1_380_000, p_4: 372_000 };
+const inspection = (name: string, code: string, ids: string[]): Inspection => {
+  const candidates: CandidateView[] = ids.flatMap((id) => {
+    const s = everyCandidate().find((c) => c.candidate.id === id);
+    if (!s) return [];
+    const r = CONFLICTS[id];
+    const cost = SHELF_COST[id];
+    const list = code === '33102018' ? 5_631_000 : code === 'BP-33005' ? null : 1_300_000;
+    return [{
+      name, code, product: s.candidate, similarity: s.similarity,
+      next_cost: list == null || id === 'p_3' ? null : Math.round(list * 1.1), cost_kept: false,
+      evidence: {
+        numbers: { state: r?.[0]?.kind === 'NUMBER_CONFLICT' ? 'CONFLICT' : 'INSUFFICIENT', unbacked: r?.[0]?.kind === 'NUMBER_UNBACKED', supplier: id.startsWith('p_6') || id.startsWith('p_4') ? ['44649'] : [], candidate: id === 'p_69349' ? ['69349'] : id === 'p_44649' ? ['44649'] : [], shared: id === 'p_44649' ? ['44649'] : [], lacking: id === 'p_69349' ? ['69349'] : [] },
+        words: { state: r?.[0]?.kind === 'OPPOSITE_WORDS' ? 'CONFLICT' : 'CONSISTENT', uncovered: id === 'p_69349' ? ['قدیم'] : [], opposites: r?.[0]?.kind === 'OPPOSITE_WORDS' ? [['جلو', 'عقب']] : [], missing: [] },
+        brand: { state: s.candidate.brand ? 'CONSISTENT' : 'INSUFFICIENT', supplier: s.candidate.brand ? { kind: 'ONE', brand: s.candidate.brand, ambiguous: false } : { kind: 'NONE' }, candidate: s.candidate.brand },
+      },
+      verdict: r ? { verdict: 'CONFIRM_THEN_WRITE', reasons: r } : { verdict: 'WRITE' },
+      shelf: id === 'p_3' ? { status: 'UNKNOWN', value: 'اتصال به لاندا برقرار نشد. نشانی درگاه و اینترنت را بررسی کنید.' }
+        : { status: 'KNOWN', value: cost == null ? null : { id: `s_${id}`, inventory: 0, cost, price: Math.round(cost * 1.15 / 1000) * 1000, price_source: 'RULE', read_at: ago(0, 7, 40) } },
+    }];
+  });
+  const list = code === '33102018' ? 5_631_000 : code === 'BP-33005' ? null : 1_300_000;
+  return {
+    registry_read_at: ago(0, 7, 31),
+    quote: list == null ? { status: 'UNKNOWN', value: 'اتصال به سایت بارزپخش برقرار نشد.' }
+      : { status: 'KNOWN', value: { code, name, list_price: list, has_vat: true, site_vat: 10, vat_setting: 10, cost: Math.round(list * 1.1), available: code !== 'BP-20871', renamed: false, read_at: ago(0, 7, 40) } },
+    rules: { status: 'KNOWN', value: [{ scope: 'SHELF', basis: 'MARKUP_PERCENT', value: 15 }] },
+    candidates, missing: ids.filter((id) => !candidates.some((c) => c.product.id === id)),
+  };
+};
+const confirmFirst = (product_id: unknown, confirmed: unknown) => {
+  const r = CONFLICTS[String(product_id)];
+  if (r && JSON.stringify(confirmed ?? null) !== JSON.stringify(r)) {
+    throw { kind: 'ConfirmRequired', message: 'نام بارزپخش با این قطعه جور نیست؛ ناسازگاری‌ها و تغییر قیمت خرید را ببینید و دوباره تأیید کنید.', detail: JSON.stringify(r) };
+  }
+};
+const heldWrites: HeldWrite[] = [{
+  id: 7, job_id: 42, kind: 'IMPORT', store: 'st_01', product: 'p_1', authenticity: 'ORIGINAL', verb: 'PATCH',
+  snapshot: { place: 'LIVE', stock_id: 's_1', inventory: 3, cost: 1_380_000, updated_at: ago(0, 9, 0) },
+  target_inventory: 4, target_cost: 1_430_000, items: [1], status: 'SUPERSEDED',
+  outcome: { row: { place: 'LIVE', stock_id: 's_1', inventory: 2, cost: 1_380_000, updated_at: ago(0, 9, 30) } },
+  opened_at: ago(0, 9, 1), closed_at: ago(0, 10, 2), product_name: 'لنت ترمز جلو پراید ۱۳۱', supplier_names: ['لنت ترمز جلو پراید'],
+}];
 
 const detail = (id: number, state: State): JobDetail => {
   if (id === 43 && state === 'running') return { job: runningJob, items: [], events: runningEvents };
   if (id === 43 && state === 'review') return { job: reviewJob, items: reviewItems, events: doneEvents.slice(0, 4) };
   if (id === 44 && state === 'refreshing') return { job: refreshJob, items: [], events: [ev(1, 'INFO', 'PREFLIGHT', 'اتصال به لاندا و بارزپخش برقرار است', 6), ev(2, 'INFO', 'PRICE', 'قیمت روز ۴۱۲ کد از بارزپخش خوانده شد', 3)] };
   if (id === 40) return { job: jobs[2]!, items: [], events: [ev(1, 'INFO', 'PREFLIGHT', 'اتصال به لاندا و بارزپخش برقرار است', 4400), ev(2, 'ERROR', 'FETCH', 'پاسخی از بارزپخش نیامد', 4390)] };
-  if (id === 41) return { job: jobs[1]!, items: doneItems.filter((i) => i.action === 'PATCH'), events: [ev(1, 'INFO', 'PREFLIGHT', 'اتصال به لاندا و بارزپخش برقرار است', 1500), ev(2, 'INFO', 'PRICE', 'قیمت روز ۴۱۲ کد از بارزپخش خوانده شد', 1490), ev(3, 'INFO', 'REPORT', JSON.stringify({ rows: 412, changed: 96, skipped_manual: 12 }), 1480)] };
+  if (id === 41) return { job: jobs[1]!, items: doneItems.filter((i) => i.action === 'PATCH'), events: [ev(1, 'INFO', 'PREFLIGHT', 'اتصال به لاندا و بارزپخش برقرار است', 1500), ev(2, 'INFO', 'PRICE', 'قیمت روز ۴۱۲ کد از بارزپخش خوانده شد', 1490), ev(3, 'INFO', 'REPORT', JSON.stringify(jobs[1]!.summary), 1480)] };
   const j = jobs.find((x) => x.id === id) ?? jobs[0]!;
   return { job: j, items: j.status === 'DONE' ? doneItems : [], events: j.status === 'DONE' ? doneEvents : doneEvents.slice(0, 2) };
 };
@@ -226,8 +287,17 @@ export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {
       case 'import_start': return 43;
       case 'refresh_start': return 44;
       case 'import_review': return reviewItems;
-      case 'match_set': case 'match_none': decide(args.name_seen); return undefined;
-      case 'review_decide': case 'import_continue': case 'match_clear': case 'open_log_folder': case 'appimage_dismiss': return undefined;
+      case 'match_set': confirmFirst(args.product_id, args.confirmed); decide(args.name_seen); return undefined;
+      case 'match_none': decide(args.name_seen); return undefined;
+      case 'review_decide': {
+        const d = args.decision as { product_id?: string; confirmed?: Reason[] };
+        if (d.product_id) confirmFirst(d.product_id, d.confirmed);
+        return undefined;
+      }
+      case 'review_inspect': return inspection(String(args.name), String(args.code), args.product_ids as string[]);
+      case 'intents_held': return held ? heldWrites : [];
+      case 'intent_resolve': heldWrites.splice(0, heldWrites.length); return true;
+      case 'import_continue': case 'match_clear': case 'open_log_folder': case 'appimage_dismiss': return undefined;
       case 'matches_undecided': return state === 'empty' ? [] : undecided;
       case 'decisions_export': return matches.length;
       case 'decisions_import': return importReport;

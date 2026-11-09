@@ -89,6 +89,10 @@ pub enum BridgeError {
     /// The shelf row is not what this job planned against (or is gone).
     #[error("shelf row changed: {0}")]
     RowChanged(String),
+    /// A seller's pick against a conflict, sent without confirming exactly these reasons (R-d).
+    /// `reasons` is the write table's JSON; the screen shows them and asks again.
+    #[error("{reasons}")]
+    ConfirmRequired { reasons: String },
     #[error("{0}")]
     Other(String),
 }
@@ -147,6 +151,7 @@ impl BridgeError {
             LinkConflict { .. } => "Conflict",
             LinkChanged => "LinkChanged",
             RowChanged(_) => "RowChanged",
+            ConfirmRequired { .. } => "ConfirmRequired",
             Other(_) => "Other",
         }
     }
@@ -188,6 +193,7 @@ impl BridgeError {
             LinkConflict { links } => format!("{links} نام بارزپخش با قیمت‌های متفاوت به یک ردیف قفسه وصل‌اند؛ تا یکی را انتخاب نکنید این ردیف نوشته نمی‌شود."),
             LinkChanged => "این پیوند در میانهٔ عملیات تغییر کرد؛ این ردیف در اجرای بعدی با پیوند تازه نوشته می‌شود.".into(),
             RowChanged(_) => "ردیف قفسه پس از خواندن تغییر کرد یا دیگر نیست؛ چیزی روی آن نوشته نشد.".into(),
+            ConfirmRequired { .. } => "نام بارزپخش با این قطعه جور نیست؛ ناسازگاری‌ها و تغییر قیمت خرید را ببینید و دوباره تأیید کنید.".into(),
             Other(d) => d.clone(),
         }
     }
@@ -299,6 +305,9 @@ mod tests {
             BridgeError::LinkConflict { links: 2 },
             BridgeError::LinkChanged,
             BridgeError::RowChanged("404".into()),
+            BridgeError::ConfirmRequired {
+                reasons: "[{\"kind\":\"NUMBER_CONFLICT\"}]".into(),
+            },
         ];
         for e in cases {
             let m = e.message_fa();
