@@ -24,8 +24,9 @@ const supplierPill = computed(() =>
 // overwrite_manual and fetch_since_only are edited where they apply (refresh / import pages), not here.
 const form = reactive({
   landau_url: '', landau_token: '', store: '', supplier_user: '', supplier_password: '',
-  default_authenticity: 'ORIGINAL' as 'ORIGINAL' | 'FAKE', threshold: 80, vat_percent: 10, min_margin_percent: 15,
+  default_authenticity: 'ORIGINAL' as 'ORIGINAL' | 'FAKE', threshold: 85, vat_percent: 10, min_margin_percent: 15,
 });
+
 
 const load = async () => {
   try {
@@ -89,11 +90,13 @@ const save = async () => {
     view.value = await bridge.settingsSave({
       landau_url: form.landau_url, landau_token: form.landau_token || undefined, store: form.store || undefined, store_name: storeName ?? undefined,
       supplier_user: form.supplier_user, supplier_password: form.supplier_password || undefined,
-      default_authenticity: form.default_authenticity, threshold: form.threshold, vat_percent: form.vat_percent, min_margin_percent: form.min_margin_percent,
+      default_authenticity: form.default_authenticity, threshold: clampThreshold(form.threshold), vat_percent: form.vat_percent, min_margin_percent: form.min_margin_percent,
     });
-    form.landau_token = ''; form.supplier_password = '';
+    // the field shows what was kept (85–100, R-j), and the toast says so when it differs from what was typed
+    const note = thresholdSavedNote(form.threshold, view.value.threshold);
+    form.landau_token = ''; form.supplier_password = ''; form.threshold = view.value.threshold;
     savedTick.value++;
-    toast.add({ title: 'تنظیمات ذخیره شد', color: 'success' });
+    toast.add({ title: 'تنظیمات ذخیره شد', description: note, color: 'success' });
   } catch (e) { error.value = e as BridgeError; } finally { busy.value = null; }
 };
 
@@ -205,8 +208,8 @@ const authItems = [{ label: 'اصلی', value: 'ORIGINAL' }, { label: 'غیرا�
             <UFormField label="نشانی درگاه لاندا" :hint="`پیش‌فرض: ${DEFAULT_URL}`">
               <UInput v-model="form.landau_url" dir="ltr" class="w-full" />
             </UFormField>
-            <UFormField label="آستانهٔ تطبیق خودکار" hint="از ۰ تا ۱۰۰؛ بالاتر یعنی محتاط‌تر. پیش‌فرض با آزمایش روی دادهٔ واقعی انتخاب شده">
-              <UInput v-model.number="form.threshold" type="number" min="0" max="100" dir="ltr" class="w-32" />
+            <UFormField label="آستانهٔ تطبیق خودکار" hint="از ۸۵ تا ۱۰۰؛ بالاتر یعنی محتاط‌تر. کمتر از ۸۵ پذیرفته نمی‌شود، و هر تطبیق خودکار باید از سنجش شواهد هم بگذرد">
+              <UInput v-model.number="form.threshold" type="number" min="85" max="100" dir="ltr" class="w-32" />
             </UFormField>
           </div>
         </details>

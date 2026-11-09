@@ -47,6 +47,21 @@ export interface Dashboard {
   settings_complete: boolean; store_name: string | null; supplier_user: string | null; invoices_cached: number; invoices_unpaid: number;
   last_import: JobRow | null; last_refresh: JobRow | null; running: JobRow | null; pending_review: number; recent_errors: number; decided_matches: number;
   links_to_review: number; held_writes: number; appimage_offer: boolean;
+  /** What an upgrade from before plan 130 changed, until dismissed (task 14). */
+  upgrade_notice: UpgradeNotice | null;
+}
+/** The kept notice as things stand now (the core reads the files and the links again). */
+export interface UpgradeNotice {
+  /** The schema the install was migrated from, when it predates plan 130. */
+  from_schema: number | null;
+  /** The threshold the setting held before the floor raised it. */
+  threshold_from: number | null; threshold_to: number;
+  /** Links (a product named) no job has judged yet, counted now. */
+  links_unverified: number;
+  /** Other copies of the app on disk, neither the running one nor the same build. */
+  appimages: string[];
+  /** The applications menu's copy, older than the running AppImage: «نصب» replaces it. */
+  menu_copy: string | null;
 }
 export type LinkState = 'UNVERIFIED' | 'VALID' | 'REBUILT' | 'NEEDS_REVIEW' | 'STALE';
 export interface MatchRow {
@@ -142,8 +157,20 @@ export interface AuditRow {
   difference: number | null;
   last_write: LastWrite | null; unproven_units: number;
 }
+/** A row whose last cost stands on an automatic link (PI-21): listed whether or not it is doubted. */
+export interface AutoWrite {
+  stock_id: string; product_id: string; product_name: string | null; brand: string | null; authenticity: Authenticity | null;
+  inventory: number; cost: number | null; price: number | null;
+  /** The automatic links the last cost came from; never quoted (`today` is null). */
+  links: AuditLink[]; last_write: LastWrite;
+  /** The row is listed among the doubts as well. */
+  doubted: boolean;
+}
 export interface Audit {
-  read_at: string; registry_read_at: string; store: string; rows: AuditRow[]; examined: number; consistent: number;
+  read_at: string; registry_read_at: string; store: string; rows: AuditRow[];
+  /** Every row whose last cost stands on an automatic link, newest write first. */
+  automatic: AutoWrite[];
+  examined: number; consistent: number;
   /** Rows whose deciding quote could not be read: neither listed nor vouched for. */
   unweighed: number; unlinked: number;
 }

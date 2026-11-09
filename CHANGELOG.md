@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A job's report shows each row's cost before and after the write. @vhidvz
 - The 2026-11-06 incident runs end to end offline as a regression test: no wrong cost, both rows held. @vhidvz
 - Committed evidence sets, a seeded script and a pinned test measure the link gate; an unread case fails it. @vhidvz
+- The shelf audit also lists every row an automatic link last wrote, apart from its doubts, and so does its CSV. @vhidvz
+- After an upgrade from 1.1.1 the dashboard says once what changed and names older copies of the app it finds. @vhidvz
+- The README describes the shelf audit and the risks the app names but cannot prevent. @vhidvz
 
 ### Changed
 
@@ -33,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Links move to a versioned table, each unverified until a job proves it; old builds find none. @vhidvz
 - Two supplier codes with different costs on one shelf row hold it instead of the last write winning. @vhidvz
 - Each write reads its shelf row again just before and is planned from what the row holds now. @vhidvz
+- The automatic-match threshold takes 85 to 100; a lower stored value is raised to 85 at start-up. @vhidvz
 
 ### Fixed
 

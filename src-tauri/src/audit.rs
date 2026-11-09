@@ -13,6 +13,10 @@
 //! - a quantity import moved units onto it from an item that does not prove there
 //!   ([`Doubt::UnprovenUnits`]).
 //!
+//! Apart from the doubts, every row whose last cost stands on an automatic link is listed
+//! ([`AutoWrite`], Q-6, PI-21): a link the gate passed can still be a wrong part when Landau lacks the
+//! true one, and the seller is the one who can tell. A row may be in both lists.
+//!
 //! A row whose decisive quote could not be read is counted apart as not weighed, never as
 //! consistent. "Should hold" is the proven links' cost today, when they agree, and unknown otherwise —
 //! never a figure from a link that does not prove, nor the row's own cost kept by the
@@ -107,6 +111,27 @@ pub struct AuditRow {
     pub unproven_units: i64,
 }
 
+/// A shelf row whose last cost stands on an automatic link (Q-6, PI-21): of the items that made the
+/// cost, one whose link is `AUTO` now and still points at the row's product. Listed whether or not
+/// the evidence doubts the row — an automatic write the gate passed is PI-5's accepted residual when
+/// Landau lacks the true product, and only the seller can see that. Never quoted: it asks nothing.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct AutoWrite {
+    pub stock_id: String,
+    pub product_id: String,
+    pub product_name: Option<String>,
+    pub brand: Option<String>,
+    pub authenticity: Option<String>,
+    pub inventory: i64,
+    pub cost: Option<i64>,
+    pub price: Option<i64>,
+    /// The automatic links the last cost came from, as the copy's VALIDATE judged them.
+    pub links: Vec<AuditLink>,
+    pub last_write: LastWrite,
+    /// The row is listed among the doubts as well.
+    pub doubted: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Audit {
     pub read_at: String,
@@ -114,6 +139,8 @@ pub struct Audit {
     pub store: String,
     /// Doubtful rows: an unknown "should" first, then the largest difference.
     pub rows: Vec<AuditRow>,
+    /// Every row whose last cost stands on an automatic link, newest write first.
+    pub automatic: Vec<AutoWrite>,
     /// Rows with a supplier link or a bridge write, weighed.
     pub examined: usize,
     /// Of those, the rows the evidence vouches for.
@@ -246,6 +273,41 @@ fn provenance(writes: Vec<ShelfWrite>) -> Provenance {
     out
 }
 
+/// Per shelf row: the latest write of any kind, with its keys — what the automatic list reads beside
+/// the last cost's own items (PI-21). Unlike [`provenance`] it keeps a write the unavailable-only-raises
+/// hold may have kept: v1.1.1 recorded no cost before, so its writes at an unavailable price read as
+/// kept, yet an automatic link still wrote on that row, and Q-6 wants every automatic write named.
+fn latest_writes(writes: &[ShelfWrite]) -> HashMap<String, (LastWrite, Vec<String>)> {
+    let mut by_row: HashMap<&str, Vec<&ShelfWrite>> = HashMap::new();
+    for w in writes {
+        by_row.entry(w.stock_id.as_str()).or_default().push(w);
+    }
+    let mut out = HashMap::new();
+    for (stock, writes) in by_row {
+        let Some(latest) = writes.iter().max_by_key(|w| w.item_id) else {
+            continue;
+        };
+        let group: Vec<&&ShelfWrite> = writes
+            .iter()
+            .filter(|w| w.job_id == latest.job_id && w.cost == latest.cost)
+            .collect();
+        let mut names: Vec<String> = group.iter().map(|w| w.name.clone()).collect();
+        names.dedup();
+        let last = LastWrite {
+            job_id: latest.job_id,
+            kind: latest.kind.clone(),
+            at: latest.at.clone(),
+            names,
+            cost: latest.cost,
+        };
+        out.insert(
+            stock.to_string(),
+            (last, group.iter().map(|w| write_key(w)).collect()),
+        );
+    }
+    out
+}
+
 async fn quote(sources: &Sources<'_>, name: &str, code: &str) -> Read<Option<Quoted>> {
     let _one = match sources.quote_lock {
         Some(lock) => Some(lock.lock().await),
@@ -280,12 +342,15 @@ pub async fn audit(sources: &Sources<'_>) -> Result<Audit> {
     let shelf = sources.landau.shelf(sources.store).await?;
     let copy = sources.db.scratch_copy()?;
     let judged = judge_links(&copy, sources.registry, sources.threshold).await?;
-    let mut provenance = provenance(copy.shelf_writes()?);
+    let writes = copy.shelf_writes()?;
+    let mut latest = latest_writes(&writes);
+    let mut provenance = provenance(writes);
     let mut audit = Audit {
         read_at,
         registry_read_at: sources.registry_read_at.to_string(),
         store: sources.store.to_string(),
         rows: Vec::new(),
+        automatic: Vec::new(),
         examined: 0,
         consistent: 0,
         unweighed: 0,
@@ -294,17 +359,65 @@ pub async fn audit(sources: &Sources<'_>) -> Result<Audit> {
     for row in &shelf {
         let links: &[Judged] = judged.get(&row.product).map(Vec::as_slice).unwrap_or(&[]);
         let written = provenance.remove(&row.id);
+        let latest = latest.remove(&row.id);
         if links.is_empty() && written.is_none() {
             audit.unlinked += 1;
             continue;
         }
         audit.examined += 1;
-        match weigh(sources, &copy, row, links, written).await? {
-            Weighed::Listed(r) => audit.rows.push(*r),
-            Weighed::Consistent => audit.consistent += 1,
-            Weighed::Unweighed => audit.unweighed += 1,
+        // The last cost's own items and the latest write's, whichever the hold may have kept: an
+        // automatic link among either wrote on this row (PI-21).
+        let automatic = {
+            let mut keys: Vec<String> = Vec::new();
+            if let Some((_, k, _)) = &written {
+                keys.extend(k.iter().cloned());
+            }
+            if let Some((_, k)) = &latest {
+                keys.extend(k.iter().cloned());
+            }
+            let no_units = HashMap::new();
+            let units = written.as_ref().map(|(_, _, u)| u).unwrap_or(&no_units);
+            let by = automatic_writers(&copy, row, links, &keys, units)?;
+            let last = latest
+                .as_ref()
+                .map(|(l, _)| l.clone())
+                .or_else(|| written.as_ref().map(|(l, _, _)| l.clone()));
+            match last {
+                Some(last) if !by.is_empty() => Some((last, by)),
+                _ => None,
+            }
+        };
+        let doubted = match weigh(sources, &copy, row, links, written).await? {
+            Weighed::Listed(r) => {
+                audit.rows.push(*r);
+                true
+            }
+            Weighed::Consistent => {
+                audit.consistent += 1;
+                false
+            }
+            Weighed::Unweighed => {
+                audit.unweighed += 1;
+                false
+            }
+        };
+        if let Some((last_write, links)) = automatic {
+            audit.automatic.push(AutoWrite {
+                stock_id: row.id.clone(),
+                product_id: row.product.clone(),
+                product_name: row.product_name.clone(),
+                brand: row.brand.clone(),
+                authenticity: row.authenticity.clone(),
+                inventory: row.inventory,
+                cost: row.cost,
+                price: row.price,
+                links,
+                last_write,
+                doubted,
+            });
         }
     }
+    sort_automatic(&mut audit.automatic);
     audit.rows.sort_by(|a, b| {
         a.should_cost
             .is_some()
@@ -313,6 +426,44 @@ pub async fn audit(sources: &Sources<'_>) -> Result<Audit> {
             .then(a.stock_id.cmp(&b.stock_id))
     });
     Ok(audit)
+}
+
+/// The automatic links a row's last cost stands on: of the links the items that made it came from,
+/// those `AUTO` now and still on the row's product, on the copy after its VALIDATE (PI-21). A link the
+/// seller has since picked makes the cost the seller's; one moved since is [`Doubt::WriterUnlinked`].
+/// No job item records its link's origin, so "automatic at the moment of the write" cannot be read.
+fn automatic_writers(
+    copy: &Db,
+    row: &ShelfRow,
+    links: &[Judged],
+    writer_keys: &[String],
+    units: &HashMap<String, i64>,
+) -> Result<Vec<AuditLink>> {
+    let mut out = Vec::new();
+    let mut seen = BTreeSet::new();
+    for key in writer_keys {
+        if !seen.insert(key.as_str()) {
+            continue;
+        }
+        let Some(link) = copy.link_by_key(SUPPLIER_ID, key)? else {
+            continue;
+        };
+        if link.how != "AUTO" || link.product_id.as_deref() != Some(row.product.as_str()) {
+            continue;
+        }
+        let judged = links.iter().find(|j| j.link.name_key == link.name_key);
+        out.push(AuditLink {
+            proven: judged.is_some_and(|j| j.proven),
+            reasons: judged.map(|j| j.reasons.clone()).unwrap_or_default(),
+            today: None,
+            units: units.get(&link.name_key).copied().unwrap_or(0),
+            name: link.name_seen,
+            code: link.code,
+            how: link.how,
+            state: link.state,
+        });
+    }
+    Ok(out)
 }
 
 /// One row, from its links and the write that left its cost.
@@ -538,8 +689,53 @@ fn link_fa(l: &AuditLink) -> String {
     format!("«{}» ({}) — {verdict}{today}{units}", l.name, l.code)
 }
 
+/// Appended to a doubt row's reason in the CSV when the row is an automatic write too: a row in
+/// both lists says so on both sides.
+pub const ALSO_AUTOMATIC: &str = "نوشتهٔ خودکار هم هست";
+
+/// Newest write first (a code added after the catalog import is the residual's case), the row id
+/// breaking a tie.
+fn sort_automatic(v: &mut [AutoWrite]) {
+    v.sort_by(|a, b| {
+        b.last_write
+            .job_id
+            .cmp(&a.last_write.job_id)
+            .then(a.stock_id.cmp(&b.stock_id))
+    });
+}
+
+/// What the CSV's last column says a row is: a doubt, or an automatic write (PI-21).
+pub const KIND_DOUBT: &str = "تردید";
+pub const KIND_AUTOMATIC: &str = "نوشتهٔ خودکار";
+
+/// Why an automatic write is listed, in the seller's words.
+pub fn automatic_fa(doubted: bool) -> String {
+    let mut why = "آخرین بها را پیوندی خودکار نوشته است؛ درستی قطعه را خودتان ببینید".to_string();
+    if doubted {
+        why.push_str("؛ در فهرست تردیدها هم آمده");
+    }
+    why
+}
+
+fn last_write_fa(w: &LastWrite) -> String {
+    format!(
+        "کار #{} ({}) · {} · {} ریال · {}",
+        w.job_id,
+        w.kind,
+        w.at,
+        w.cost,
+        w.names
+            .iter()
+            .map(|n| format!("«{n}»"))
+            .collect::<Vec<_>>()
+            .join(" + ")
+    )
+}
+
 /// The audit as a CSV file (R-i): UTF-8 with a BOM so a spreadsheet reads the Persian, one line per
 /// listed row, rials and toman side by side, Latin digits in the number columns, RFC 4180 quoting.
+/// The doubts come first, then every automatic write (PI-21); the last column names which. Nothing
+/// was asked for an automatic write, so its evidence cells are empty — never «نامعلوم».
 pub fn csv(a: &Audit) -> String {
     let header = [
         "شناسه ردیف",
@@ -557,36 +753,28 @@ pub fn csv(a: &Audit) -> String {
         "واحدهای منتقل‌شده از پیوندهای اثبات‌نشده",
         "فروشگاه",
         "خوانده‌شده در",
+        "نوع ردیف",
     ];
     let mut out = String::from("\u{feff}");
-    out.push_str(&header.join(","));
-    out.push_str("\r\n");
+    let mut line = |cells: [String; 16]| {
+        let line: Vec<String> = cells.iter().map(|c| field(c)).collect();
+        out.push_str(&line.join(","));
+        out.push_str("\r\n");
+    };
+    line(header.map(String::from));
+    let automatic: BTreeSet<&str> = a.automatic.iter().map(|r| r.stock_id.as_str()).collect();
     for r in &a.rows {
-        let why: Vec<&str> = r.doubts.iter().map(|d| doubt_fa(*d)).collect();
+        let mut why: Vec<&str> = r.doubts.iter().map(|d| doubt_fa(*d)).collect();
+        if automatic.contains(r.stock_id.as_str()) {
+            why.push(ALSO_AUTOMATIC);
+        }
         let links: Vec<String> = r.links.iter().map(link_fa).collect();
-        let last = r
-            .last_write
-            .as_ref()
-            .map(|w| {
-                format!(
-                    "کار #{} ({}) · {} · {} ریال · {}",
-                    w.job_id,
-                    w.kind,
-                    w.at,
-                    w.cost,
-                    w.names
-                        .iter()
-                        .map(|n| format!("«{n}»"))
-                        .collect::<Vec<_>>()
-                        .join(" + ")
-                )
-            })
-            .unwrap_or_default();
+        let last = r.last_write.as_ref().map(last_write_fa).unwrap_or_default();
         let mut should = opt(r.should_cost);
         if r.should_unavailable {
             should.push_str(" (ناموجود)");
         }
-        let cells = [
+        line([
             r.stock_id.clone(),
             text(r.product_name.as_deref().unwrap_or(&r.product_id)),
             text(r.brand.as_deref().unwrap_or_default()),
@@ -602,10 +790,29 @@ pub fn csv(a: &Audit) -> String {
             r.unproven_units.to_string(),
             a.store.clone(),
             a.read_at.clone(),
-        ];
-        let line: Vec<String> = cells.iter().map(|c| field(c)).collect();
-        out.push_str(&line.join(","));
-        out.push_str("\r\n");
+            KIND_DOUBT.into(),
+        ]);
+    }
+    for r in &a.automatic {
+        let links: Vec<String> = r.links.iter().map(link_fa).collect();
+        line([
+            r.stock_id.clone(),
+            text(r.product_name.as_deref().unwrap_or(&r.product_id)),
+            text(r.brand.as_deref().unwrap_or_default()),
+            r.authenticity.clone().unwrap_or_default(),
+            r.inventory.to_string(),
+            r.cost.map(|c| c.to_string()).unwrap_or_default(),
+            String::new(),
+            String::new(),
+            String::new(),
+            automatic_fa(r.doubted),
+            text(&links.join(" | ")),
+            text(&last_write_fa(&r.last_write)),
+            String::new(),
+            a.store.clone(),
+            a.read_at.clone(),
+            KIND_AUTOMATIC.into(),
+        ]);
     }
     out
 }
@@ -613,9 +820,11 @@ pub fn csv(a: &Audit) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::jobs::incident::{self, after_job_12, ROW_9CEA, ROW_9CF0, ROW_9D1E};
+    use crate::jobs::incident::{self, after_job_12, ROW_9CEA, ROW_9CF0, ROW_9D12, ROW_9D1E};
     use crate::landau::fake::FakeLandau;
-    use crate::matching::evidence::tests::{clamp_57a5, RIGHT_BEARING, WRONG_BEARING};
+    use crate::matching::evidence::tests::{
+        bearing_6c04, clamp_57a5, CLAMP_4, MID_SHAFT, RIGHT_BEARING, WRONG_BEARING,
+    };
     use crate::supplier::fake::FakeSupplier;
 
     async fn run(db: &Db, landau: &FakeLandau, supplier: &FakeSupplier) -> Audit {
@@ -1074,6 +1283,172 @@ mod tests {
         assert_eq!((bearing.unproven_units, bearing.difference), (3, Some(0)));
     }
 
+    /// PI-21 (Q-6): every row whose last cost stands on an automatic link is listed apart from the
+    /// doubts — a consistent one too, since a link the gate passed can still be a wrong part when
+    /// Landau lacks the true one. Here the mid-shaft bearing was written from an automatic link that
+    /// proves (consistent, not a doubt), and the clamp row's last cost came from `AR1330-4`'s
+    /// automatic link (a doubt as well). The four rows written from the seller's picks are not.
+    #[tokio::test]
+    async fn every_automatic_write_is_listed_apart_from_the_doubts() {
+        let db = Db::in_memory().unwrap();
+        let landau = after_job_12(&db);
+        incident::link(&db, MID_SHAFT, "AUTO", &bearing_6c04());
+        let a = run(&db, &landau, &incident::supplier()).await;
+
+        let doubts: Vec<&str> = a.rows.iter().map(|r| r.stock_id.as_str()).collect();
+        assert_eq!(doubts, [ROW_9CF0, ROW_9D1E], "the doubts are unchanged");
+        assert_eq!(a.consistent, 4, "the mid-shaft row is consistent");
+
+        let auto: Vec<(&str, bool)> = a
+            .automatic
+            .iter()
+            .map(|r| (r.stock_id.as_str(), r.doubted))
+            .collect();
+        assert_eq!(auto, [(ROW_9CF0, true), (ROW_9D12, false)]);
+
+        let shaft = &a.automatic[1];
+        assert_eq!(shaft.cost, Some(5_247_000));
+        assert_eq!(shaft.last_write.names, [MID_SHAFT.1.to_string()]);
+        assert_eq!(shaft.links.len(), 1);
+        let l = &shaft.links[0];
+        assert_eq!(
+            (l.name.as_str(), l.how.as_str(), l.proven),
+            (MID_SHAFT.1, "AUTO", true)
+        );
+        assert_eq!(l.today, None, "an automatic write is never quoted");
+
+        let clamp = &a.automatic[0];
+        let names: Vec<&str> = clamp.links.iter().map(|l| l.name.as_str()).collect();
+        assert_eq!(names, [CLAMP_4.1], "only the link its last cost came from");
+        assert!(!clamp.links[0].proven);
+    }
+
+    /// Found by the slice-7 drive on the seller's data: v1.1.1 wrote at an unavailable price and
+    /// recorded no cost before, so slice 5's provenance reads the write as one the hold may have
+    /// kept and drops it. The automatic list still names it: an automatic link wrote on that row.
+    #[tokio::test]
+    async fn an_automatic_write_at_an_unavailable_price_is_still_listed() {
+        let db = Db::in_memory().unwrap();
+        let landau = after_job_12(&db);
+        incident::link(&db, MID_SHAFT, "AUTO", &bearing_6c04());
+        db.with(|c| {
+            c.execute(
+                "UPDATE job_items SET available = 0, cost_before = NULL WHERE code = ?1",
+                [MID_SHAFT.0],
+            )
+        })
+        .unwrap();
+        let a = run(&db, &landau, &incident::supplier()).await;
+        let shaft = a
+            .automatic
+            .iter()
+            .find(|r| r.stock_id == ROW_9D12)
+            .unwrap_or_else(|| panic!("{:?}", a.automatic));
+        assert_eq!(shaft.links.len(), 1);
+        assert_eq!(shaft.links[0].name, MID_SHAFT.1);
+        assert_eq!(shaft.last_write.names, [MID_SHAFT.1.to_string()]);
+    }
+
+    /// A seller's pick of the same product after an automatic write makes the cost the seller's:
+    /// the row leaves the automatic list. A link moved to another product is a doubt instead.
+    #[tokio::test]
+    async fn a_later_pick_or_move_takes_a_row_off_the_automatic_list() {
+        let db = Db::in_memory().unwrap();
+        let landau = after_job_12(&db);
+        incident::link(&db, MID_SHAFT, "AUTO", &bearing_6c04());
+        incident::link(&db, MID_SHAFT, "USER", &bearing_6c04());
+        let a = run(&db, &landau, &incident::supplier()).await;
+        assert!(
+            !a.automatic.iter().any(|r| r.stock_id == ROW_9D12),
+            "{:?}",
+            a.automatic
+        );
+
+        db.clear_match(SUPPLIER_ID, CLAMP_4.1).unwrap();
+        let a = run(&db, &landau, &incident::supplier()).await;
+        assert!(a.automatic.is_empty(), "{:?}", a.automatic);
+        let clamp = a.rows.iter().find(|r| r.stock_id == ROW_9CF0).unwrap();
+        assert!(clamp.doubts.contains(&Doubt::WriterUnlinked));
+    }
+
+    /// An automatic link a later match moved to another product, still `AUTO`, no longer stands
+    /// behind the row it wrote: the row is a `WRITER_UNLINKED` doubt, never an automatic write of
+    /// a link that now names another part.
+    #[tokio::test]
+    async fn an_automatic_link_moved_to_another_product_is_not_the_rows_automatic_write() {
+        let db = Db::in_memory().unwrap();
+        let landau = after_job_12(&db);
+        incident::link(&db, CLAMP_4, "AUTO", &bearing_6c04());
+        let a = run(&db, &landau, &incident::supplier()).await;
+        assert!(
+            !a.automatic.iter().any(|r| r.stock_id == ROW_9CF0),
+            "{:?}",
+            a.automatic
+        );
+        let clamp = a.rows.iter().find(|r| r.stock_id == ROW_9CF0).unwrap();
+        assert!(
+            clamp.doubts.contains(&Doubt::WriterUnlinked),
+            "{:?}",
+            clamp.doubts
+        );
+    }
+
+    /// The CSV carries the automatic writes below the doubts, a sixteenth column naming each row's
+    /// kind; nothing was asked for an automatic row, so its evidence cells are empty, never unknown.
+    #[tokio::test]
+    async fn the_csv_lists_automatic_writes_after_the_doubts() {
+        let db = Db::in_memory().unwrap();
+        let landau = after_job_12(&db);
+        incident::link(&db, MID_SHAFT, "AUTO", &bearing_6c04());
+        let a = run(&db, &landau, &incident::supplier()).await;
+        let text = csv(&a);
+        let lines: Vec<&str> = text.trim_end().split("\r\n").collect();
+        assert_eq!(lines.len(), 5, "a header, two doubts, two automatic writes");
+        assert!(lines[0].ends_with(",نوع ردیف"), "{}", lines[0]);
+        assert!(lines[1].ends_with(",تردید") && lines[2].ends_with(",تردید"));
+        let shaft = lines[4];
+        assert!(shaft.starts_with(ROW_9D12), "{shaft}");
+        assert!(shaft.ends_with(",نوشتهٔ خودکار"), "{shaft}");
+        assert!(shaft.contains(",5247000,,,,"), "no evidence asked: {shaft}");
+        assert!(!shaft.contains(UNKNOWN), "{shaft}");
+        assert!(
+            lines[3].contains("در فهرست تردیدها هم آمده"),
+            "{}",
+            lines[3]
+        );
+        // and the doubt row says it too (the slice review's L6): both sides are marked
+        assert!(lines[1].contains(ALSO_AUTOMATIC), "{}", lines[1]);
+        assert!(!lines[2].contains(ALSO_AUTOMATIC), "{}", lines[2]);
+    }
+
+    /// Newest write first across jobs, the row id breaking a tie (the slice review's L8).
+    #[test]
+    fn automatic_writes_are_listed_newest_first() {
+        let w = |stock: &str, job: i64| AutoWrite {
+            stock_id: stock.into(),
+            product_id: "p".into(),
+            product_name: None,
+            brand: None,
+            authenticity: None,
+            inventory: 0,
+            cost: None,
+            price: None,
+            links: Vec::new(),
+            last_write: LastWrite {
+                job_id: job,
+                kind: "IMPORT".into(),
+                at: String::new(),
+                names: Vec::new(),
+                cost: 1,
+            },
+            doubted: false,
+        };
+        let mut v = vec![w("b", 12), w("c", 14), w("a", 12), w("d", 13)];
+        sort_automatic(&mut v);
+        let order: Vec<&str> = v.iter().map(|r| r.stock_id.as_str()).collect();
+        assert_eq!(order, ["c", "d", "a", "b"]);
+    }
+
     #[tokio::test]
     async fn the_csv_names_each_listed_row_in_rials_and_toman() {
         let db = Db::in_memory().unwrap();
@@ -1082,7 +1457,11 @@ mod tests {
         let text = csv(&a);
         assert!(text.starts_with('\u{feff}'), "a BOM for spreadsheets");
         let lines: Vec<&str> = text.trim_end().split("\r\n").collect();
-        assert_eq!(lines.len(), 3, "a header and the two rows");
+        assert_eq!(
+            lines.len(),
+            4,
+            "a header, the two rows, and the clamp row's automatic write"
+        );
         assert!(lines[0].contains("اختلاف (تومان)"));
         assert!(lines[1].starts_with(ROW_9CF0) && lines[1].contains(UNKNOWN));
         let bearing = lines[2];

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { auditSummary, costBefore, differenceText, doubtText, linkToday } from './audit';
+import { auditSummary, costBefore, differenceText, doubtText, linkToday, writtenCost } from './audit';
 import type { AuditLink } from '~/types/bridge';
 
 const link = (over: Partial<AuditLink>): AuditLink => ({
@@ -47,5 +47,15 @@ describe('audit', () => {
     // a row whose quote could not be read is never counted as consistent
     expect(auditSummary({ rows: [], examined: 3, consistent: 2, unweighed: 1, unlinked: 0 }))
       .toBe('۳ ردیف سنجیده شد: ۲ ردیف هم‌خوان با شواهد، ۱ ردیف سنجیده‌نشده (قیمت روز خوانده نشد)');
+  });
+
+  it('names the automatic writes in the summary, so «all consistent» never stands alone above them', () => {
+    expect(auditSummary({ rows: [], automatic: [{}, {}] as never, examined: 3, consistent: 3, unweighed: 0, unlinked: 0 }))
+      .toBe('۳ ردیف سنجیده شد: همه هم‌خوان با شواهد؛ آخرین بهای ۲ ردیف را پیوند خودکار نوشته');
+  });
+
+  it('shows the cost an automatic link wrote only when the row holds another now', () => {
+    expect(writtenCost({ cost: 410_000, last_write: { cost: 410_000 } as never })).toBeNull();
+    expect(writtenCost({ cost: 450_000, last_write: { cost: 410_000 } as never })).toBe('نوشته‌شده ۴۱۰٬۰۰۰ ریال (۴۱٬۰۰۰ تومان)؛ بعد تغییر کرده');
   });
 });

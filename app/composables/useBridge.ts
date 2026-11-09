@@ -61,6 +61,7 @@ export const bridge = {
   openLogFolder: () => call<void>('open_log_folder'),
   appimageInstall: () => call<string>('appimage_install'),
   appimageDismiss: () => call<void>('appimage_dismiss'),
+  upgradeNoticeDismiss: () => call<void>('upgrade_notice_dismiss'),
 };
 
 export interface JobHandlers {

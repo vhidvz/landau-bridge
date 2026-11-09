@@ -28,6 +28,10 @@ const MIGRATIONS: &[&str] = &[
 /// The schema this build writes: one version per migration.
 pub const SCHEMA_VERSION: i64 = MIGRATIONS.len() as i64;
 
+/// The settings key the first migration of a launch writes: the schema the install was at before it
+/// (plan 130 task 14). The lowest value is kept, and the start-up's notice consumes it.
+pub const UPGRADED_FROM_SCHEMA: &str = "upgraded_from_schema";
+
 #[derive(Clone)]
 pub struct Db {
     conn: Arc<Mutex<Connection>>,
@@ -110,6 +114,17 @@ impl Db {
                 }
                 let tx = c.unchecked_transaction()?;
                 tx.execute_batch(sql)?;
+                // An existing install's first step records where it came from, in this step's own
+                // transaction, keeping the lowest value: a launch cut between steps leaves the
+                // record, and the next launch (starting higher) does not overwrite it.
+                if current > 0 && version == current + 1 {
+                    tx.execute(
+                        "INSERT INTO settings(key, value) VALUES (?1, ?2)
+                         ON CONFLICT(key) DO UPDATE SET value =
+                           CAST(min(CAST(value AS INTEGER), CAST(excluded.value AS INTEGER)) AS TEXT)",
+                        rusqlite::params![UPGRADED_FROM_SCHEMA, current.to_string()],
+                    )?;
+                }
                 tx.pragma_update(None, "user_version", version)?;
                 tx.commit()?;
             }
@@ -1073,5 +1088,68 @@ mod tests {
         let all = db.list_matches("barezpakhsh").unwrap();
         assert_eq!(all.len(), 3);
         assert!(all.iter().all(|m| m.state == "UNVERIFIED"));
+    }
+
+    /// Plan 130 task 14: the first migration a launch applies records the schema the install came
+    /// from, in that migration's own transaction and keeping the lowest value — so a launch cut
+    /// halfway through an upgrade still leaves the record, and the next launch does not overwrite it.
+    #[test]
+    fn an_upgrade_records_the_schema_it_came_from() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.sqlite");
+        version_3_file(&path);
+        let db = Db::open(&path).unwrap();
+        assert_eq!(
+            db.setting(UPGRADED_FROM_SCHEMA).unwrap().as_deref(),
+            Some("3")
+        );
+
+        // cut after 0004: version 4 on disk, the record already there; the rest lands next launch
+        let path2 = dir.path().join("cut.sqlite");
+        version_3_file(&path2);
+        Connection::open(&path2)
+            .unwrap()
+            .execute_batch("CREATE TABLE write_intents (x INTEGER);")
+            .unwrap();
+        assert!(Db::open(&path2).is_err(), "0005 fails on the stray table");
+        let c = Connection::open(&path2).unwrap();
+        let (v, rec): (i64, String) = (
+            c.query_row("PRAGMA user_version", [], |r| r.get(0))
+                .unwrap(),
+            c.query_row(
+                "SELECT value FROM settings WHERE key = 'upgraded_from_schema'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap(),
+        );
+        assert_eq!((v, rec.as_str()), (4, "3"), "0004 landed with its record");
+        c.execute_batch("DROP TABLE write_intents;").unwrap();
+        drop(c);
+        let db = Db::open(&path2).unwrap();
+        assert_eq!(db.user_version().unwrap(), SCHEMA_VERSION);
+        assert_eq!(
+            db.setting(UPGRADED_FROM_SCHEMA).unwrap().as_deref(),
+            Some("3"),
+            "the lowest kept, never 4"
+        );
+
+        // a new install and an up-to-date one record nothing
+        assert_eq!(
+            Db::in_memory()
+                .unwrap()
+                .setting(UPGRADED_FROM_SCHEMA)
+                .unwrap(),
+            None
+        );
+        let fresh = dir.path().join("fresh.sqlite");
+        drop(Db::open(&fresh).unwrap());
+        assert_eq!(
+            Db::open(&fresh)
+                .unwrap()
+                .setting(UPGRADED_FROM_SCHEMA)
+                .unwrap(),
+            None
+        );
     }
 }

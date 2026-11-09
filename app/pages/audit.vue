@@ -14,6 +14,12 @@ const busy = ref<'run' | 'export' | null>(null);
 
 const at = (iso: string) => new Intl.DateTimeFormat('fa-IR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
 
+// Every row an automatic link last wrote (PI-21, Q-6): the gate passed it, yet a wrong part can
+// pass when Landau lacks the true one, and only the seller can see that. Newest write first, paged.
+const automatic = computed(() => audit.value?.automatic ?? []);
+const writtenAutomatically = computed(() => new Set(automatic.value.map((r) => r.stock_id)));
+const { page: autoPage, rows: autoRows } = usePaged(automatic, PAGE_SIZE.table);
+
 const run = async () => {
   error.value = null; busy.value = 'run';
   try { audit.value = await bridge.auditRun(); } catch (e) { error.value = e as BridgeError; } finally { busy.value = null; }
@@ -59,7 +65,7 @@ const exportCsv = async () => {
       </p>
 
       <GlassCard v-if="!audit.rows.length" :pad="false" data-reveal>
-        <EmptyState art="shelf" title="ردیفی نیازمند بررسی نیست" description="بهای خرید هر ردیف پیونددار را پیوندهای اثبات‌شده‌اش تأیید می‌کنند." />
+        <EmptyState art="shelf" title="تردیدی در بهای ردیف‌ها نیست" :description="automatic.length ? 'بهای خرید هر ردیف پیونددار را پیوندهای اثبات‌شده‌اش تأیید می‌کنند. نوشته‌های خودکار پایین‌تر را خودتان هم ببینید.' : 'بهای خرید هر ردیف پیونددار را پیوندهای اثبات‌شده‌اش تأیید می‌کنند.'" />
       </GlassCard>
 
       <div v-else class="flex flex-col gap-4">
@@ -73,6 +79,7 @@ const exportCsv = async () => {
             </div>
             <div class="flex flex-wrap gap-1.5">
               <StatusPill v-for="d in row.doubts" :key="d" tone="warn" :label="doubtText(d)" />
+              <StatusPill v-if="writtenAutomatically.has(row.stock_id)" tone="muted" label="نوشتهٔ خودکار هم هست" />
             </div>
           </div>
 
@@ -130,6 +137,51 @@ const exportCsv = async () => {
     <GlassCard v-else :pad="false" data-reveal>
       <EmptyState art="shelf" title="هنوز بازبینی‌ای انجام نشده" description="«بازبینی» قفسهٔ فروشگاه را با پیوندها و قیمت روز می‌سنجد و فقط می‌خواند." />
     </GlassCard>
+
+    <section v-if="audit && busy !== 'run' && automatic.length" class="mt-8" data-reveal>
+      <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 class="display text-xl text-paper">نوشته‌های خودکار <span class="tabular text-paper-mute">({{ faNumber(automatic.length) }})</span></h2>
+        <span class="text-xs text-paper-mute">تازه‌ترین نوشتن بالاتر</span>
+      </div>
+      <p class="mb-4 text-sm text-paper-dim">
+        آخرین بهای این ردیف‌ها را پیوندی نوشته که پل خودش، بی‌پرسش از شما، برگزیده است. وضع امروز هر پیوند کنار آن آمده؛
+        اما حتی پیوند اثبات‌شده هم، اگر قطعهٔ درست در فهرست لاندا نباشد، ممکن است قطعه‌ای شبیه آن باشد. نام کالای بارزپخش
+        را با قطعهٔ لاندا مقایسه کنید. اگر یکی نیستند، پیوندش را در
+        <NuxtLink to="/matches" class="text-crimson-300 hover:underline">تطبیق‌ها</NuxtLink>
+        درست کنید و قیمت‌ها را به‌روز کنید؛ اگر درست است، همان قطعه را آنجا خودتان برگزینید تا تصمیم شما شود و از این
+        فهرست بیرون برود.
+      </p>
+      <LedgerTable class="glass">
+        <thead><tr><th>قطعهٔ لاندا</th><th>کالای بارزپخش</th><th class="text-end">بهای خرید روی قفسه</th><th>آخرین نوشتن</th></tr></thead>
+        <tbody>
+          <tr v-for="r in autoRows" :key="r.stock_id">
+            <td class="min-w-48">
+              <p class="text-paper">{{ r.product_name ?? r.product_id }}</p>
+              <p class="text-xs text-paper-mute"><span v-if="r.brand">{{ r.brand }} · </span>موجودی {{ faNumber(r.inventory) }}</p>
+              <StatusPill v-if="r.doubted" tone="warn" label="در فهرست تردیدها هم هست" class="mt-1" />
+            </td>
+            <td class="min-w-48">
+              <div v-for="l in r.links" :key="l.name" class="space-y-0.5">
+                <p class="flex flex-wrap items-center gap-2 text-paper-dim">
+                  <StatusPill :tone="l.proven ? 'ok' : 'danger'" :label="l.proven ? 'اثبات‌شده' : 'اثبات‌نشده'" />
+                  <span>{{ l.name }}</span> <bdi dir="ltr" class="font-mono text-xs text-paper-mute">{{ l.code }}</bdi>
+                </p>
+                <p v-if="l.reasons.length" class="text-xs text-warn">{{ l.reasons.map(reasonText).join('؛ ') }}</p>
+              </div>
+            </td>
+            <td class="whitespace-nowrap text-end tabular">
+              {{ r.cost == null ? '—' : money(r.cost) }}
+              <div v-if="writtenCost(r)" class="text-xs text-warn">{{ writtenCost(r) }}</div>
+            </td>
+            <td class="whitespace-nowrap text-xs text-paper-mute">
+              <NuxtLink :to="`/jobs/${r.last_write.job_id}`" class="hover:text-crimson-300">عملیات #{{ faNumber(r.last_write.job_id) }}</NuxtLink>
+              <div class="tabular">{{ isoToLocal(r.last_write.at) }}</div>
+            </td>
+          </tr>
+        </tbody>
+        <template #footer><Pager v-model:page="autoPage" :total="automatic.length" :items-per-page="PAGE_SIZE.table" label="ردیف" /></template>
+      </LedgerTable>
+    </section>
 
     <p class="mt-6 text-xs text-paper-mute">
       فروشی که در صندوق درست در فاصلهٔ خواندن و نوشتن موجودی انجام شود ممکن است موجودی را بیش از واقع نشان دهد؛ این پنجرهٔ کوتاه تا آمدن رسید لاندا باقی است.

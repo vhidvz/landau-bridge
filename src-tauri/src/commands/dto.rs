@@ -64,6 +64,8 @@ pub struct Dashboard {
     pub held_writes: i64,
     /// Linux only: running from an AppImage that is not in the applications menu yet.
     pub appimage_offer: bool,
+    /// What an upgrade from before plan 130 changed, until the seller dismisses it (task 14).
+    pub upgrade_notice: Option<crate::notice::NoticeView>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

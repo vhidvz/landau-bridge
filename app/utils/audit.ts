@@ -1,7 +1,7 @@
 // What the audit page says (plan 130 R-i): why a shelf row is listed, how far its cost is from what
 // the evidence names, each link's cost today — every figure in rials with toman beside, and an unknown
 // figure said as unknown, never as zero.
-import type { Audit, AuditLink, AuditRow, Doubt, JobItemRow } from '~/types/bridge';
+import type { Audit, AuditLink, AuditRow, AutoWrite, Doubt, JobItemRow } from '~/types/bridge';
 import { faNumber } from './fa';
 import { money, toman } from './evidence';
 
@@ -34,11 +34,19 @@ export const linkToday = (l: AuditLink): string | null => {
 export const costBefore = (i: Pick<JobItemRow, 'cost' | 'cost_before'>): string | null =>
   i.cost_before != null && i.cost != null && i.cost_before !== i.cost ? `پیش از این ${faNumber(i.cost_before)}` : null;
 
-export const auditSummary = (a: Pick<Audit, 'rows' | 'examined' | 'consistent' | 'unweighed' | 'unlinked'>): string => {
+export const auditSummary = (
+  a: Pick<Audit, 'rows' | 'examined' | 'consistent' | 'unweighed' | 'unlinked'> & { automatic?: readonly unknown[] },
+): string => {
   const head = `${faNumber(a.examined)} ردیف سنجیده شد: `;
   const parts = a.rows.length || a.unweighed
     ? [`${faNumber(a.consistent)} ردیف هم‌خوان با شواهد`, a.rows.length ? `${faNumber(a.rows.length)} ردیف نیازمند بررسی` : '',
       a.unweighed ? `${faNumber(a.unweighed)} ردیف سنجیده‌نشده (قیمت روز خوانده نشد)` : ''].filter(Boolean).join('، ')
     : 'همه هم‌خوان با شواهد';
-  return head + parts + (a.unlinked ? `؛ ${faNumber(a.unlinked)} ردیف بی‌پیوند` : '');
+  // the automatic writes are named here too, so «all consistent» never stands alone above that list
+  const auto = a.automatic?.length ? `؛ آخرین بهای ${faNumber(a.automatic.length)} ردیف را پیوند خودکار نوشته` : '';
+  return head + parts + (a.unlinked ? `؛ ${faNumber(a.unlinked)} ردیف بی‌پیوند` : '') + auto;
 };
+
+/** The cost an automatic link wrote, shown only when the row holds another now (edited since). */
+export const writtenCost = (r: Pick<AutoWrite, 'cost' | 'last_write'>): string | null =>
+  r.cost === r.last_write.cost ? null : `نوشته‌شده ${money(r.last_write.cost)}؛ بعد تغییر کرده`;

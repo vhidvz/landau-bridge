@@ -85,6 +85,12 @@ const installAppImage = async () => {
 const dismissAppImage = async () => {
   try { await bridge.appimageDismiss(); await load(); } catch (e) { error.value = e as BridgeError; }
 };
+
+// What an upgrade from before plan 130 changed, once (task 14): the threshold, the links waiting
+// for the next job's proof, the audit, and older copies of the app still on this computer.
+const dismissNotice = async () => {
+  try { await bridge.upgradeNoticeDismiss(); await load(); } catch (e) { error.value = e as BridgeError; }
+};
 </script>
 
 <template>
@@ -122,6 +128,31 @@ const dismissAppImage = async () => {
         <div class="flex gap-2">
           <UButton size="sm" icon="i-lucide-download" :loading="installing" @click="installAppImage">نصب</UButton>
           <UButton size="sm" variant="outline" color="neutral" :disabled="installing" @click="dismissAppImage">نه، دیگر نپرس</UButton>
+        </div>
+      </div>
+
+      <div v-if="dash.upgrade_notice" class="glass-inset mb-6 flex flex-wrap items-start gap-x-4 gap-y-3 px-5 py-4" data-reveal>
+        <UIcon name="i-lucide-shield-check" class="mt-0.5 size-6 shrink-0 text-crimson-400" aria-hidden="true" />
+        <div class="min-w-0 flex-1 space-y-2">
+          <p class="font-medium text-paper">{{ noticeTitle(dash.upgrade_notice) }}</p>
+          <ul class="list-disc space-y-1 ps-5 text-sm text-paper-dim">
+            <li v-for="l in noticeLines(dash.upgrade_notice)" :key="l">{{ l }}</li>
+          </ul>
+          <template v-if="dash.upgrade_notice.menu_copy">
+            <p class="text-sm text-paper-dim">{{ menuCopyText() }}</p>
+            <p class="text-xs text-paper-mute"><bdi dir="ltr" class="font-mono break-all">{{ dash.upgrade_notice.menu_copy }}</bdi></p>
+          </template>
+          <template v-if="dash.upgrade_notice.appimages.length">
+            <p class="text-sm text-warn">{{ olderCopiesText() }}</p>
+            <ul class="space-y-0.5 text-xs text-paper-mute">
+              <li v-for="f in dash.upgrade_notice.appimages" :key="f"><bdi dir="ltr" class="font-mono break-all">{{ f }}</bdi></li>
+            </ul>
+          </template>
+        </div>
+        <div class="flex gap-2">
+          <UButton v-if="dash.upgrade_notice.menu_copy" size="sm" variant="outline" color="neutral" icon="i-lucide-download" :loading="installing" @click="installAppImage">نصب</UButton>
+          <UButton size="sm" variant="outline" color="neutral" icon="i-lucide-scan-search" to="/audit">بازبینی قفسه</UButton>
+          <UButton size="sm" @click="dismissNotice">متوجه شدم</UButton>
         </div>
       </div>
 

@@ -22,6 +22,7 @@ use crate::landau::LandauClient;
 use crate::matching::gate::Reason;
 use crate::matching::registry::{Kept, Snapshot};
 use crate::matching::{candidates, score, Matcher, Scored};
+use crate::notice;
 use crate::secrets::SecretStore;
 use crate::settings::{Settings, SettingsPatch, SUPPLIER_ID};
 use crate::supplier::{self, Credentials, Supplier};
@@ -217,7 +218,66 @@ pub async fn dashboard_get(app: AppHandle, state: State<'_, AppState>) -> Result
         links_to_review: state.db.count_links_needing_review(SUPPLIER_ID)?,
         held_writes: state.db.unresolved_superseded()?.len() as i64,
         appimage_offer: appimage_offer(&app, &state),
+        upgrade_notice: upgrade_notice_view(&app, &state.db)?,
     })
+}
+
+/// The kept upgrade notice as things stand now (plan 130 task 14): see [`notice::view`].
+fn upgrade_notice_view(app: &AppHandle, db: &Db) -> Result<Option<notice::NoticeView>> {
+    let Some(n) = notice::current(db)? else {
+        return Ok(None);
+    };
+    let running = appimage_running().map(|a| a.image);
+    let menu = appimage_layout(app).map(|l| l.image()).unwrap_or_default();
+    notice::view(db, n, running.as_deref(), &menu).map(Some)
+}
+
+/// The seller has read the upgrade notice: it is not shown again (plan 130 task 14).
+#[tauri::command(rename_all = "snake_case")]
+pub async fn upgrade_notice_dismiss(state: State<'_, AppState>) -> Result<()> {
+    notice::dismiss(&state.db)
+}
+
+/// At start-up: raise a threshold below the floor and build the upgrade notice when there is
+/// something to say (plan 130 task 14, R-j, R-n). Best effort — a notice is never worth failing a
+/// launch for; the gate reads the setting as the floor whatever happens here.
+pub fn prepare_upgrade_notice(app: &AppHandle, db: &Db) {
+    // The folders are read only when a new notice is about to be built, and never for longer than
+    // a few seconds: a stale network mount under Downloads must not keep the app from opening.
+    let found = match app.path().home_dir() {
+        Ok(home) if cfg!(target_os = "linux") && notice::will_build(db).unwrap_or(false) => {
+            let places = notice::usual_places(
+                &home,
+                app.path().download_dir().ok(),
+                app.path().desktop_dir().ok(),
+            );
+            let running = appimage_running().map(|a| a.image);
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(notice::find_appimages(&places, running.as_deref()));
+            });
+            rx.recv_timeout(std::time::Duration::from_secs(3))
+                .unwrap_or_else(|_| {
+                    tracing::warn!(
+                        "older AppImages not looked for: the folders did not answer in 3 s"
+                    );
+                    Vec::new()
+                })
+        }
+        _ => Vec::new(),
+    };
+    match notice::prepare(db, &found) {
+        Ok(Some(n)) => tracing::info!(
+            "upgrade notice kept: from schema {:?}, threshold {:?} → {}, {} links unverified, {} other AppImages",
+            n.from_schema,
+            n.threshold_from,
+            n.threshold_to,
+            n.links_unverified,
+            n.appimages.len()
+        ),
+        Ok(None) => {}
+        Err(e) => tracing::warn!("upgrade notice not prepared: {e}"),
+    }
 }
 
 // ------------------------------------------------------------ appimage
@@ -809,7 +869,8 @@ pub async fn audit_run(state: State<'_, AppState>) -> Result<crate::audit::Audit
     Ok(audit)
 }
 
-/// The last audit as CSV into `path` (from the native save dialog); answers how many rows.
+/// The last audit as CSV into `path` (from the native save dialog); answers how many rows: the
+/// doubts and the automatic writes, a row in both counted twice, as the file lists it.
 #[tauri::command(rename_all = "snake_case")]
 pub async fn audit_export(state: State<'_, AppState>, path: String) -> Result<usize> {
     let kept = state.audit.lock().await;
@@ -818,7 +879,7 @@ pub async fn audit_export(state: State<'_, AppState>, path: String) -> Result<us
         .ok_or_else(|| BridgeError::Other("هنوز بازبینی‌ای انجام نشده است.".into()))?;
     std::fs::write(&path, crate::audit::csv(audit))
         .map_err(|e| BridgeError::Other(format!("ذخیرهٔ فایل بازبینی ممکن نشد: {e}")))?;
-    Ok(audit.rows.len())
+    Ok(audit.rows.len() + audit.automatic.len())
 }
 
 /// The «بدون تصمیم» list: parts ended jobs left undecided, with the candidates review showed.

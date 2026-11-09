@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::db::Db;
 use crate::domain::Authenticity;
 use crate::errors::{BridgeError, Result};
+use crate::matching::gate::effective_threshold;
 use crate::secrets::{SecretKey, SecretStore};
 use crate::supplier::Credentials;
 
@@ -67,8 +68,11 @@ impl Settings {
             default_authenticity: get("default_authenticity")?
                 .and_then(|v| Authenticity::parse(&v))
                 .unwrap_or(Authenticity::Original),
+            // 85–100 (plan 130 R-j): a value stored before plan 130 reads as the floor, as the
+            // gate already judged it; the start-up's notice raises it in the table too.
             threshold: get("threshold")?
                 .and_then(|v| v.parse().ok())
+                .map(effective_threshold)
                 .unwrap_or(DEFAULT_THRESHOLD),
             vat_percent: get("vat_percent")?
                 .and_then(|v| v.parse().ok())
@@ -109,7 +113,7 @@ impl Settings {
             db.set_setting("default_authenticity", v.as_str())?;
         }
         if let Some(v) = p.threshold {
-            db.set_setting("threshold", &v.min(100).to_string())?;
+            db.set_setting("threshold", &effective_threshold(v).to_string())?;
         }
         if let Some(v) = p.vat_percent {
             db.set_setting("vat_percent", &v.to_string())?;
@@ -236,7 +240,7 @@ mod tests {
         assert_eq!(db.setting("landau_token").unwrap(), None);
         let s = Settings::load(&db, &sec).unwrap();
         assert_eq!(s.landau_token.as_deref(), Some("apt-abc"));
-        assert_eq!(s.threshold, 77);
+        assert_eq!(s.threshold, 85, "the floor (R-j)");
         let (url, tok, store) = s.require_landau().unwrap();
         assert_eq!(
             (url, tok, store),
@@ -261,5 +265,39 @@ mod tests {
             .require_supplier()
             .unwrap();
         assert_eq!(creds.username, "0913");
+    }
+
+    /// Plan 130 R-j: the setting takes 85–100. A save below is raised to the floor, above is cut to
+    /// 100, and a stored value below the floor (an install from before plan 130) reads as the floor.
+    #[test]
+    fn the_threshold_is_kept_between_85_and_100() {
+        let (db, sec, _d) = stores();
+        for (sent, kept) in [
+            (0u8, 85u8),
+            (70, 85),
+            (84, 85),
+            (85, 85),
+            (93, 93),
+            (100, 100),
+            (120, 100),
+        ] {
+            Settings::save(
+                &db,
+                &sec,
+                &SettingsPatch {
+                    threshold: Some(sent),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+            assert_eq!(
+                Settings::load(&db, &sec).unwrap().threshold,
+                kept,
+                "sent {sent}"
+            );
+            assert_eq!(db.setting("threshold").unwrap(), Some(kept.to_string()));
+        }
+        db.set_setting("threshold", "70").unwrap();
+        assert_eq!(Settings::load(&db, &sec).unwrap().threshold, 85);
     }
 }

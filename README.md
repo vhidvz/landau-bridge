@@ -2,7 +2,7 @@
 
 A desktop app for a Landau retail seller. It does two things:
 
-1. **Imports Barezpakhsh invoices onto your Landau shelf.** Every paid invoice up to today is read; each line is matched to the right part with Landau's fuzzy search (ambiguous lines are shown to you for a decision, and your decision is remembered — by the part's Barezpakhsh *name*, since their codes change). Cost = Barezpakhsh's current price plus VAT, looked up by that name; the shelf price is set by **your own pricing rules in Landau** on the write itself, so a row is never on sale at cost. Two modes: *with quantities, from a date* or *with zero quantities, for review*.
+1. **Imports Barezpakhsh invoices onto your Landau shelf.** Every paid invoice up to today is read; each line is linked to a part in Landau's catalogue only on evidence — its part numbers and sizes, its words, its brand — and every link is checked against Landau's whole catalogue at the start of each run before anything is written from it. A line the evidence cannot settle is shown to you for a decision, with the evidence and the cost it would write, and your decision is remembered — by the part's Barezpakhsh *name*, since their codes change. A pick that contradicts the supplier's name (another part number, the other side, another brand) asks you to confirm it a second time, showing what conflicts and how the cost changes. Cost = Barezpakhsh's current price plus VAT, looked up by that name; the shelf price is set by **your own pricing rules in Landau** on the write itself, so a row is never on sale at cost. Two modes: *with quantities, from a date* or *with zero quantities, for review*.
 2. **Refreshes prices.** Whenever you like, the cost of every shelf row is refreshed from Barezpakhsh's current price and Landau's rule prices it again. A price Barezpakhsh lists as «ناموجود» (out of stock) is applied only when it *raises* a cost — it is stale and will be relisted higher. A shelf row the app has no link for (a part never bought through it) is listed in the report as unlinked; it gets its link the first time that part arrives on an imported invoice.
 
 The interface is in Persian (right-to-left, Persian numerals, Jalali dates).
@@ -12,6 +12,7 @@ The interface is in Persian (right-to-left, Persian numerals, Jalali dates).
 - [Install a release](#install-a-release)
 - [First-time setup](#first-time-setup)
 - [Good to know](#good-to-know)
+- [Shelf audit](#shelf-audit)
 - [Updates](#updates)
 - [Build from source](#build-from-source)
 - [For developers](#for-developers)
@@ -81,7 +82,9 @@ The app uses Microsoft Edge WebView2, which Windows 10 (1803+) and Windows 11 al
 - A **با تعداد، از تاریخ** (quantities since a date) import asks Barezpakhsh only for invoices from that date on. Switch off **فقط فاکتورهای از این تاریخ از بارزپخش خوانده شود** (read only invoices from this date) — next to the date, on the import page — to list and cache the whole statement instead; slower, but only the first time, since every invoice is downloaded once.
 - A part that is not in Landau's catalogue: choose **هیچ‌کدام** (none) and open a ticket with Landau support to have it added.
 - The report shows, per row, whether Barezpakhsh had the part in stock and any remark: a held-back «ناموجود» price, a changed code or name, a final price below the minimum margin.
-- Upgrading from a build older than 2026-09-16 migrates the database in place; your match decisions are kept.
+- Upgrading migrates the database in place and keeps your match decisions. From 1.1.1 or earlier, every link starts unverified and the next run checks each one against Landau's catalogue before writing from it; the automatic-match threshold (Settings → advanced) is raised to at least 85; and the dashboard says so once, naming any other copy of the app it finds in your home folder, Downloads, Desktop, `~/Applications`, `~/AppImages`, `~/.local/bin` or `~/bin`. A copy older than the one you run cannot use the upgraded data — 1.0 to 1.1.1 refuse it, earlier builds find no links in it — so delete the old ones; the copy in the applications menu is the exception, since **نصب** replaces it.
+- **Run one install per store.** Each install remembers which invoices it has already added to stock; two installs on one store would each add them.
+- A run holds a shelf row rather than guess: two Barezpakhsh items with different costs on one Landau part, a link the evidence does not prove, or a row someone changed outside the app after a write whose answer never arrived. A held row keeps its cost and stock; the run's report says why, and **پیوندهای نیازمند بررسی** (links to review) and **نوشتن‌های نگه‌داشته** (held writes) on the dashboard take you to the decision.
 - Every error and warning is listed on the **خطاها و هشدارها** (errors and warnings) page and written to the log folder; **عملیات‌ها** (operations) keeps every run with its report and events.
 - **Where your data lives.** The database, logs and settings are in one folder, shown on the Settings page:
   - Linux: `~/.local/share/ir.landau.bridge/`
@@ -90,6 +93,24 @@ The app uses Microsoft Edge WebView2, which Windows 10 (1803+) and Windows 11 al
   Back up that folder to keep your match decisions and import history. Deleting it resets the app.
 - **Where your passwords live.** The Landau key and the Barezpakhsh password go into the operating system's keyring when there is one (GNOME Keyring or KDE Wallet on Linux, Credential Manager on Windows). Without a keyring they are stored in `secrets.json` inside the data folder, readable only by your user. The Settings page tells you which of the two is in use.
 - The app talks directly to Landau's gateway and to Barezpakhsh's site at `33314466.ir` (`src-tauri/src/supplier/barezpakhsh/client.rs`); it never uses a proxy.
+
+## Shelf audit
+
+**بازبینی قفسه** (shelf audit) weighs every row of your store's shelf against the evidence and writes nothing — not to Landau, not to the app's own data. It reads Landau's whole catalogue and your shelf, and Barezpakhsh's price today only where a price decides something, so it takes a few minutes. It lists:
+
+- **Rows to check** — a link on the row the evidence does not prove; proven links that disagree on the cost; a last cost written by an item no longer linked to the row; or stock moved onto the row from an item that does not prove there. Each shows the cost the row holds, the cost the proven links give today, the difference in rials and toman, and why.
+- **Automatic writes** — every row a link the app chose itself last wrote on, newest first, whether or not it is doubted, each link shown as proven or not today. Even a proven one can be a similar part when the right part is missing from Landau's catalogue (see below), so compare the Barezpakhsh name with the Landau part: you are the one who can tell. A row you find right leaves the list once you pick that same part yourself on **تطبیق‌ها**.
+
+**ذخیرهٔ CSV** saves both lists in one file (UTF-8, opens in a spreadsheet), the last column saying which list a row is in. To correct a row, fix its links on **تطبیق‌ها** (Matches) and run a price refresh: the refresh's report shows each row's cost before and after.
+
+### What the app cannot prevent
+
+These are measured or known, and named rather than hidden:
+
+- **A part Landau's catalogue lacks.** When Barezpakhsh sells a part that is not in Landau's catalogue, a similar part can pass every check: 3 of 2,000 codes in the measurement, and 1 of 557 automatic writes on a real install (a control-arm bushing written as the arm). The audit's automatic list is where you find one.
+- **A sale at the till during a write.** Landau overwrites a row's stock with the number the app sends. The app reads the row again just before each write and plans from what it holds, which leaves about a second in which a sale could be overwritten. This stays until Landau accepts stock receipts it applies once.
+- **Two installs on one store.** Each install keeps its own record of the invoices it has added; the rule above, one install per store, is the only guard.
+- **A piece price on a pack product.** Barezpakhsh prices a part per the unit it invoices; a Landau product sold per pack, set or pair gets that price as it is. No conversion is made, and such rows are not held yet.
 
 ## Updates
 

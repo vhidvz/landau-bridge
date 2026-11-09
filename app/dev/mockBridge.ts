@@ -28,7 +28,7 @@ const ago = (days: number, hour = 10, minute = 20): string => {
 
 const settings: SettingsView = {
   landau_url: 'https://api.landau.ir', has_landau_token: true, store: 'st_01', store_name: 'یدکی مرکزی',
-  supplier_user: 'yadaki.markazi', has_supplier_password: true, default_authenticity: 'ORIGINAL', threshold: 80,
+  supplier_user: 'yadaki.markazi', has_supplier_password: true, default_authenticity: 'ORIGINAL', threshold: 85,
   vat_percent: 10, min_margin_percent: 15, overwrite_manual: false, fetch_since_only: true, secret_backend: 'keyring', data_dir: '/home/vahid/.local/share/ir.landau.bridge',
 };
 const settingsEmpty: SettingsView = {
@@ -196,7 +196,16 @@ const dashboard = (state: State): Dashboard => {
     links_to_review: state === 'empty' ? 0 : matches.filter((m) => m.state === 'NEEDS_REVIEW' || m.state === 'STALE').length,
     held_writes: held ? heldWrites.length : 0,
     appimage_offer: new URLSearchParams(location.search).has('appimage'),
+    upgrade_notice: upgraded ? upgradeNotice : null,
   };
+};
+
+// `?upgraded=1`: an install upgraded from v1.1.1 (plan 130 task 14), so the dashboard shows its notice.
+let upgraded = typeof location !== 'undefined' && new URLSearchParams(location.search).has('upgraded');
+const upgradeNotice = {
+  from_schema: 3, threshold_from: 70, threshold_to: 85, links_unverified: 869,
+  appimages: ['/home/seller/Downloads/landau-bridge_0.1.0_amd64.AppImage', '/home/seller/دانلودها/landau-bridge_1.1.1_amd64.AppImage'],
+  menu_copy: '/home/seller/.local/bin/landau-bridge.AppImage',
 };
 
 // ---- plan 130: what a pick would be, and the second confirm against a conflict
@@ -295,6 +304,22 @@ const audit: Audit = {
       last_write: { job_id: 12, kind: 'IMPORT', at: '2026-11-06T06:08:00Z', names: ['بلبرينگ چرخ جلو پرايد قديم 69349 PSN عظام (54) 3154027'], cost: 5_500_000 }, unproven_units: 3,
     },
   ],
+  // PI-21: every row an automatic link last wrote — the clamp row (a doubt too) and a consistent one.
+  automatic: [
+    {
+      stock_id: '6aecc0a1d00e9931421f9cf0', product_id: '6aec9869d00e9931421a576d', product_name: 'بست کمری نایلونی 30 سانتی عرض 3.6 میلی متر CW',
+      brand: 'آراد پارت', authenticity: 'ORIGINAL', inventory: 0, cost: 96_800, price: 111_000, doubted: true,
+      links: [{ name: 'بست کمري CW4.8*370 تايوان آراد پارت (100)', code: 'AR1330-4', how: 'AUTO', state: 'NEEDS_REVIEW', proven: false, reasons: [{ kind: 'NUMBER_CONFLICT', lacking: ['30 cm', '3.6 mm'] }], today: null, units: 0 }],
+      last_write: { job_id: 12, kind: 'IMPORT', at: '2026-11-06T06:08:00Z', names: ['بست کمري CW4.8*370 تايوان آراد پارت (100)'], cost: 96_800 },
+    },
+    ...Array.from({ length: bulk ? 41 : 1 }, (_, i) => ({
+      stock_id: `6aecc0a1d00e9931421f${(0x9d12 + i).toString(16)}`, product_id: `6aec9869d00e9931421a${(0x6c04 + i).toString(16)}`,
+      product_name: i ? `طبق پراید بوش فلزی ${i}` : 'بلبرینگ میانی گاردان پژو 405 6006', brand: i ? 'سایپا یدک' : 'الما۷',
+      authenticity: 'ORIGINAL' as const, inventory: i % 4, cost: i ? 410_000 + i * 1_000 : 5_247_000, price: null, doubted: false,
+      links: [{ name: i ? `بوش طبق پرايد فلزي سايپا يدک ${i}` : 'بلبرينگ ميل گاردان 405 (6006) ELMA7', code: i ? `5903${10 + i}` : '115001165', how: 'AUTO' as const, state: 'VALID' as const, proven: true, reasons: [], today: null, units: 0 }],
+      last_write: { job_id: 12, kind: 'IMPORT' as const, at: '2026-11-06T06:08:00Z', names: [i ? `بوش طبق پرايد فلزي سايپا يدک ${i}` : 'بلبرينگ ميل گاردان 405 (6006) ELMA7'], cost: i ? 410_000 + i * 1_000 : 5_247_000 },
+    })),
+  ],
 };
 
 export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
@@ -323,10 +348,11 @@ export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {
       case 'intents_held': return held ? heldWrites : [];
       case 'intent_resolve': heldWrites.splice(0, heldWrites.length); return true;
       case 'import_continue': case 'match_clear': case 'open_log_folder': case 'appimage_dismiss': return undefined;
+      case 'upgrade_notice_dismiss': upgraded = false; return undefined;
       case 'matches_undecided': return state === 'empty' ? [] : undecided;
       case 'decisions_export': return matches.length;
     case 'audit_run': return audit;
-    case 'audit_export': return audit.rows.length;
+    case 'audit_export': return audit.rows.length + audit.automatic.length;
       case 'decisions_import': return importReport;
       case 'appimage_install': return '/home/vahid/.local/bin/landau-bridge.AppImage';
       case 'review_search': return [scored('p_s1', `${args.term}`, 'جست‌وجو', 66)];

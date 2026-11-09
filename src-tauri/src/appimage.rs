@@ -144,7 +144,7 @@ pub fn should_offer(running: Option<&AppImage>, layout: &Layout, dismissed: bool
     !dismissed && !same_build(&r.image, &layout.image())
 }
 
-fn same_build(a: &Path, b: &Path) -> bool {
+pub(crate) fn same_build(a: &Path, b: &Path) -> bool {
     let canon = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
     if canon(a) == canon(b) {
         return true;

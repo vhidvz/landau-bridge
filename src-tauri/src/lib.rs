@@ -12,6 +12,7 @@ pub mod instance;
 pub mod jobs;
 pub mod landau;
 pub mod matching;
+pub mod notice;
 pub mod secrets;
 pub mod settings;
 pub mod supplier;
@@ -136,6 +137,7 @@ pub fn run() {
                     None,
                 );
             }
+            commands::prepare_upgrade_notice(app.handle(), &db);
             let secrets = secrets::SecretStore::open(&data_dir);
             let updater = Arc::new(update::Updater::new(
                 update::PluginSource::new(app.handle().clone()),
@@ -204,6 +206,7 @@ pub fn run() {
             commands::open_log_folder,
             commands::appimage_install,
             commands::appimage_dismiss,
+            commands::upgrade_notice_dismiss,
             commands::update_status,
             commands::update_check,
             commands::update_install,
