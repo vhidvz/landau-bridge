@@ -97,7 +97,7 @@ pub enum Read<T> {
 }
 
 impl<T> Read<T> {
-    fn of(r: Result<T>) -> Read<T> {
+    pub(crate) fn of(r: Result<T>) -> Read<T> {
         match r {
             Ok(v) => Read::Known(v),
             Err(e) => Read::Unknown(e.message_fa()),

@@ -1,6 +1,7 @@
 //! Landau Bridge — Rust core.
 
 pub mod appimage;
+pub mod audit;
 pub mod commands;
 pub mod db;
 pub mod decisions;
@@ -151,6 +152,7 @@ pub fn run() {
                 snapshot: Default::default(),
                 inspector: Default::default(),
                 inspecting: Default::default(),
+                audit: Default::default(),
             });
             commands::refresh_appimage_entry(app.handle());
 
@@ -172,6 +174,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::settings_get,
+            commands::audit_run,
+            commands::audit_export,
             commands::intents_held,
             commands::intent_resolve,
             commands::settings_save,

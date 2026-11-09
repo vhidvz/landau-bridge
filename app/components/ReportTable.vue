@@ -34,10 +34,10 @@ const saving = ref(false);
 // A blob download is unreliable in WebKitGTK, so the export goes through the native save dialog
 // and the fs plugin. The BOM makes Excel read the UTF-8 Persian text correctly.
 const csv = async () => {
-  const head = ['کد', 'نام', 'اقدام', 'تعداد قبل', 'تعداد بعد', 'قیمت خرید', 'موجودی بارزپخش', 'قیمت قفسه قبل', 'قیمت قفسه بعد', 'تغییر قیمت', 'نتیجه قیمت‌گذاری', 'وضعیت', 'یادداشت', 'خطا'];
+  const head = ['کد', 'نام', 'اقدام', 'تعداد قبل', 'تعداد بعد', 'قیمت خرید قبل', 'قیمت خرید', 'موجودی بارزپخش', 'قیمت قفسه قبل', 'قیمت قفسه بعد', 'تغییر قیمت', 'نتیجه قیمت‌گذاری', 'وضعیت', 'یادداشت', 'خطا'];
   const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const lines = [head.join(','), ...props.items.map((i) => [
-    i.code, i.name, i.action ? actionLabel[i.action] : '—', i.qty_before, i.qty_after, i.cost, availabilityLabel(i.available), i.price_before, i.price_after,
+    i.code, i.name, i.action ? actionLabel[i.action] : '—', i.qty_before, i.qty_after, i.cost_before, i.cost, availabilityLabel(i.available), i.price_before, i.price_after,
     priceDeltaLabel(priceDelta(i)), verdictLabel(i.reprice_verdict), statusLabel[i.status] ?? i.status, i.note, i.error_msg,
   ].map(esc).join(','))];
   error.value = null;
@@ -94,7 +94,10 @@ const csv = async () => {
             <span class="font-medium text-paper">{{ faNumber(i.qty_after ?? i.qty) }}</span>
             <span v-if="qtyDelta(i)" class="ms-1.5 text-xs text-paper-mute" :title="`پیش از این: ${faNumber(i.qty_before)}`"><bdi dir="ltr">{{ qtyDelta(i) }}</bdi></span>
           </td>
-          <td class="whitespace-nowrap">{{ faNumber(i.cost) }}</td>
+          <td class="whitespace-nowrap">
+            <span>{{ faNumber(i.cost) }}</span>
+            <span v-if="costBefore(i)" class="ms-1.5 text-xs text-paper-mute">{{ costBefore(i) }}</span>
+          </td>
           <td class="whitespace-nowrap" :title="i.price_before != null && i.price_before !== i.price_after ? `پیش از این: ${faNumber(i.price_before)}` : undefined">
             <span class="font-medium text-paper">{{ faNumber(i.price_after) }}</span>
             <span v-if="priceDelta(i)?.dir === 'up' || priceDelta(i)?.dir === 'down'" class="ms-1.5 text-xs" :class="priceDelta(i)?.dir === 'up' ? 'text-warn' : 'text-info'">{{ priceDeltaLabel(priceDelta(i)) }}</span>

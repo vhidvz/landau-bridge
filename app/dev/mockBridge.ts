@@ -2,7 +2,7 @@
 // useBridge.ts only reaches for this file behind `import.meta.dev`.
 import type {
   CandidateView, DecisionImportReport, Dashboard, ErrorRow, HeldWrite, Inspection, JobDetail, JobEventRow, JobItemRow, JobRow, LandauStatus,
-  MatchRow, Reason, Scored, SettingsView, UndecidedRow, UpdateView,
+  MatchRow, Reason, Scored, SettingsView, UndecidedRow, UpdateView, Audit,
 } from '~/types/bridge';
 import type { JobHandlers } from '~/composables/useBridge';
 
@@ -272,6 +272,31 @@ const updateView = (): UpdateView => {
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// The incident's two damaged rows as the audit lists them (plan 130 task 9).
+const audit: Audit = {
+  read_at: '2026-11-09T09:30:00Z', registry_read_at: '2026-11-09T09:28:00Z', store: 'store1', examined: 6, consistent: 4, unweighed: 0, unlinked: 12,
+  rows: [
+    {
+      stock_id: '6aecc0a1d00e9931421f9cf0', product_id: '6aec9869d00e9931421a576d', product_name: 'بست کمری نایلونی 30 سانتی عرض 3.6 میلی متر CW',
+      brand: 'آراد پارت', authenticity: 'ORIGINAL', inventory: 0, cost: 96_800, price: 111_000, doubts: ['UNPROVEN_LINK'], should_cost: null, should_unavailable: false, difference: null,
+      links: [
+        { name: 'بست کمري CW3.6*370 آراد پارت (100)', code: 'AR1330-11', how: 'AUTO', state: 'NEEDS_REVIEW', proven: false, reasons: [{ kind: 'NUMBER_CONFLICT', lacking: ['30 cm'] }], today: { status: 'KNOWN', value: { cost: 91_300, available: true } }, units: 0 },
+        { name: 'بست کمري CW4.8*370 تايوان آراد پارت (100)', code: 'AR1330-4', how: 'AUTO', state: 'NEEDS_REVIEW', proven: false, reasons: [{ kind: 'NUMBER_CONFLICT', lacking: ['30 cm', '3.6 mm'] }], today: { status: 'UNKNOWN', value: 'بارزپخش پاسخ نداد' }, units: 0 },
+      ],
+      last_write: { job_id: 12, kind: 'IMPORT', at: '2026-11-06T06:08:00Z', names: ['بست کمري CW4.8*370 تايوان آراد پارت (100)'], cost: 96_800 }, unproven_units: 0,
+    },
+    {
+      stock_id: '6aecc0a1d00e9931421f9d1e', product_id: '6aec987cd00e9931421a5e12', product_name: 'بلبرینگ بزرگ چرخ عقب پراید و چرخ جلو پیکان',
+      brand: 'PSN عظام', authenticity: 'ORIGINAL', inventory: 0, cost: 5_500_000, price: 6_325_000, doubts: ['UNPROVEN_LINK', 'UNPROVEN_UNITS'], should_cost: 6_194_100, should_unavailable: false, difference: 694_100,
+      links: [
+        { name: 'بلبرينگ بزرگ چرخ عقب پرايد جدبد (بلبرينگ بزرگ چرخ جلو پيکان) 44649 PSN عظام (96) 3154028', code: '33102018', how: 'USER', state: 'REBUILT', proven: true, reasons: [], today: { status: 'KNOWN', value: { cost: 6_194_100, available: true } }, units: 0 },
+        { name: 'بلبرينگ چرخ جلو پرايد قديم 69349 PSN عظام (54) 3154027', code: '33102017', how: 'USER', state: 'NEEDS_REVIEW', proven: false, reasons: [{ kind: 'NUMBER_CONFLICT', lacking: ['44649'] }], today: { status: 'KNOWN', value: { cost: 5_500_000, available: true } }, units: 3 },
+      ],
+      last_write: { job_id: 12, kind: 'IMPORT', at: '2026-11-06T06:08:00Z', names: ['بلبرينگ چرخ جلو پرايد قديم 69349 PSN عظام (54) 3154027'], cost: 5_500_000 }, unproven_units: 3,
+    },
+  ],
+};
+
 export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   const state = devState();
   await wait(120);
@@ -300,6 +325,8 @@ export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {
       case 'import_continue': case 'match_clear': case 'open_log_folder': case 'appimage_dismiss': return undefined;
       case 'matches_undecided': return state === 'empty' ? [] : undecided;
       case 'decisions_export': return matches.length;
+    case 'audit_run': return audit;
+    case 'audit_export': return audit.rows.length;
       case 'decisions_import': return importReport;
       case 'appimage_install': return '/home/vahid/.local/bin/landau-bridge.AppImage';
       case 'review_search': return [scored('p_s1', `${args.term}`, 'جست‌وجو', 66)];

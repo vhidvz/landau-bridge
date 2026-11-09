@@ -6,6 +6,7 @@ const links = [
   { to: '/import', label: 'وارد کردن فاکتورها', icon: 'i-lucide-file-input' },
   { to: '/refresh', label: 'به‌روزرسانی قیمت‌ها', icon: 'i-lucide-refresh-cw' },
   { to: '/matches', label: 'تطبیق‌ها', icon: 'i-lucide-link' },
+  { to: '/audit', label: 'بازبینی قفسه', icon: 'i-lucide-scan-search' },
   { to: '/jobs', label: 'عملیات‌ها', icon: 'i-lucide-history' },
   { to: '/errors', label: 'خطاها و هشدارها', icon: 'i-lucide-triangle-alert' },
   { to: '/settings', label: 'تنظیمات', icon: 'i-lucide-settings' },

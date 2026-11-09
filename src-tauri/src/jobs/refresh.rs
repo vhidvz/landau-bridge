@@ -290,11 +290,16 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
         ctx.check_cancel()?;
         match writer.refresh(w, &store, *available, row).await {
             Ok(outcome) => {
-                let (cost, was_held, action, price_after) = match outcome {
-                    Refreshed::Unchanged { cost, held } => (cost, held, "SKIP", row.price),
+                // the cost before is the one the write replaced, as the writer's fresh read found it
+                // (plan 130 R-i); an unchanged row had nothing replaced
+                let (cost, was_held, action, price_after, before) = match outcome {
+                    Refreshed::Unchanged { cost, held } => {
+                        (cost, held, "SKIP", row.price, Some(cost))
+                    }
                     Refreshed::Patched {
                         cost,
                         held,
+                        before,
                         price_after,
                         replanned,
                     } => {
@@ -304,7 +309,7 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
                                 "ردیف قفسه پس از خواندن تغییر کرده بود؛ با مقدار تازهٔ آن نوشته شد.",
                             )?;
                         }
-                        (cost, held, "PATCH", price_after)
+                        (cost, held, "PATCH", price_after, before)
                     }
                 };
                 if was_held {
@@ -317,6 +322,7 @@ pub async fn run(ctx: &JobCtx, svc: &Services) -> Result<()> {
                     *item_id,
                     &[
                         ("cost", i(cost)),
+                        ("cost_before", opt_i(before)),
                         ("action", t(action)),
                         ("price_after", opt_i(price_after)),
                         ("status", t("WRITTEN")),

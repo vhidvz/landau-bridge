@@ -22,6 +22,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0004_supplier_links.sql"),
     include_str!("migrations/0005_write_intents.sql"),
     include_str!("migrations/0006_confirmed_picks.sql"),
+    include_str!("migrations/0007_cost_before.sql"),
 ];
 
 /// The schema this build writes: one version per migration.
@@ -64,6 +65,22 @@ impl Db {
         };
         db.migrate()?;
         Ok(db)
+    }
+
+    /// A copy of this database in memory, taken by SQLite's backup API as one consistent read —
+    /// for work that must judge the seller's data exactly as a job would and may never write it
+    /// (plan 130 R-i, the audit). Nothing of the copy reaches the disk; it is gone when dropped.
+    pub fn scratch_copy(&self) -> Result<Db> {
+        let mut copy = Connection::open_in_memory()?;
+        self.with(|c| {
+            let backup = rusqlite::backup::Backup::new(c, &mut copy)?;
+            // every page in one step: the copy is one consistent read of the database
+            backup.run_to_completion(i32::MAX, std::time::Duration::ZERO, None)
+        })?;
+        copy.execute_batch("PRAGMA foreign_keys = ON;")?;
+        Ok(Db {
+            conn: Arc::new(Mutex::new(copy)),
+        })
     }
 
     /// Run `f` with the connection. Poisoned locks surface as `Db` errors rather than panics.
@@ -806,6 +823,40 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         Db::open(&dir.path().join("bridge.sqlite")).unwrap();
         assert!(backups(dir.path()).is_empty());
+    }
+
+    /// Plan 130 R-i: the audit's copy is the whole database as one read, and whatever is done to
+    /// it never reaches the seller's file — not its rows, not its bytes.
+    #[test]
+    fn a_scratch_copy_is_whole_and_writes_nothing_back() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.sqlite");
+        let db = Db::open(&path).unwrap();
+        db.set_match("s", "قطعه", "C1", Some(("p1", "x")), "USER", None)
+            .unwrap();
+        db.with(|c| c.execute_batch("PRAGMA wal_checkpoint(TRUNCATE)"))
+            .unwrap();
+        let bytes = || std::fs::read(&path).unwrap();
+        let before = bytes();
+
+        let copy = db.scratch_copy().unwrap();
+        assert_eq!(copy.user_version().unwrap(), SCHEMA_VERSION);
+        assert_eq!(
+            copy.list_matches("s").unwrap(),
+            db.list_matches("s").unwrap()
+        );
+        copy.clear_match("s", "قطعه").unwrap();
+        copy.create_job("REFRESH", None, None, "store", false)
+            .unwrap();
+
+        assert_eq!(
+            db.list_matches("s").unwrap().len(),
+            1,
+            "the seller's link stays"
+        );
+        assert!(db.list_jobs().unwrap().is_empty());
+        drop(copy);
+        assert_eq!(bytes(), before, "the file is byte for byte as it was");
     }
 
     #[test]

@@ -1,6 +1,8 @@
 //! Job runners (spec §7). One job at a time; every step persisted; progress as Tauri events.
 
 pub mod import;
+#[cfg(test)]
+pub(crate) mod incident;
 pub mod planner;
 pub mod pricing;
 pub mod proof;

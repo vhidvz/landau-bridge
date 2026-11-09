@@ -34,6 +34,8 @@ pub struct JobItemRow {
     pub qty_before: Option<i64>,
     pub qty_after: Option<i64>,
     pub cost: Option<i64>,
+    /// The row's cost before this job wrote it (plan 130 R-i); `None` for a new row.
+    pub cost_before: Option<i64>,
     pub price_before: Option<i64>,
     pub price_after: Option<i64>,
     pub reprice_verdict: Option<String>,
@@ -88,6 +90,7 @@ const ITEM_COLUMNS: &[&str] = &[
     "qty_after",
     "cost",
     "price_before",
+    "cost_before",
     "price_after",
     "reprice_verdict",
     "error_kind",
@@ -122,7 +125,7 @@ fn job_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<JobRow> {
     })
 }
 
-const ITEM_COLS: &str = "id, job_id, code, name, qty, product_id, product_name, stock_id, authenticity, action, qty_before, qty_after, cost, price_before, price_after, reprice_verdict, error_kind, error_msg, candidates_json, invoice_ids_json, status, available, note, link_key, link_version, link_product, reasons_json";
+const ITEM_COLS: &str = "id, job_id, code, name, qty, product_id, product_name, stock_id, authenticity, action, qty_before, qty_after, cost, price_before, price_after, reprice_verdict, error_kind, error_msg, candidates_json, invoice_ids_json, status, available, note, link_key, link_version, link_product, reasons_json, cost_before";
 
 fn item_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<JobItemRow> {
     Ok(JobItemRow {
@@ -140,6 +143,7 @@ fn item_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<JobItemRow> {
         qty_after: r.get(11)?,
         cost: r.get(12)?,
         price_before: r.get(13)?,
+        cost_before: r.get(27)?,
         price_after: r.get(14)?,
         reprice_verdict: r.get(15)?,
         error_kind: r.get(16)?,
@@ -163,7 +167,92 @@ fn item_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<JobItemRow> {
     })
 }
 
+/// A cost a job left on a shelf row — written, or confirmed unchanged by a refresh — with the
+/// supplier item it came from: the row's provenance, which the audit reads (plan 130 R-i). A write
+/// whose reply was lost and that a later job settled as landed counts too, from its intent.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ShelfWrite {
+    pub item_id: i64,
+    pub job_id: i64,
+    /// `IMPORT` | `REFRESH`
+    pub kind: String,
+    /// `ZERO` | `QUANTITY` for an import.
+    pub mode: Option<String>,
+    /// When the job ended (or started, if it never did).
+    pub at: String,
+    pub code: String,
+    pub name: String,
+    /// The link the item was written from (since plan 130 slice 2); `None` on older items.
+    pub link_key: Option<String>,
+    pub stock_id: String,
+    pub cost: i64,
+    /// The row's cost before the write, when the job recorded it.
+    pub cost_before: Option<i64>,
+    /// The supplier's availability when the item was priced.
+    pub available: Option<bool>,
+    /// The item's quantity; transferred onto the row only by a `QUANTITY` import.
+    pub qty: i64,
+}
+
 impl Db {
+    /// Every cost a job left on a shelf row, oldest first (see [`ShelfWrite`]): the items stamped
+    /// written, then the items of landed intents that were not (a lost reply settled by a later job).
+    pub fn shelf_writes(&self) -> Result<Vec<ShelfWrite>> {
+        const COLS: &str =
+            "ji.id, ji.job_id, j.kind, j.mode, COALESCE(j.finished_at, j.started_at),
+                            ji.code, ji.name, ji.link_key, ji.cost_before, ji.available, ji.qty";
+        let read =
+            |r: &rusqlite::Row<'_>, stock: String, cost: i64| -> rusqlite::Result<ShelfWrite> {
+                Ok(ShelfWrite {
+                    item_id: r.get(0)?,
+                    job_id: r.get(1)?,
+                    kind: r.get(2)?,
+                    mode: r.get(3)?,
+                    at: r.get(4)?,
+                    code: r.get(5)?,
+                    name: r.get(6)?,
+                    link_key: r.get(7)?,
+                    cost_before: r.get(8)?,
+                    available: r.get::<_, Option<i64>>(9)?.map(|a| a != 0),
+                    qty: r.get(10)?,
+                    stock_id: stock,
+                    cost,
+                })
+            };
+        self.with(|c| {
+            let mut out: Vec<ShelfWrite> = Vec::new();
+            let mut st = c.prepare(&format!(
+                "SELECT {COLS}, ji.stock_id, ji.cost
+                 FROM job_items ji JOIN jobs j ON j.id = ji.job_id
+                 WHERE ji.stock_id IS NOT NULL AND ji.cost IS NOT NULL
+                   AND ji.status IN ('WRITTEN', 'DONE')"
+            ))?;
+            for w in st.query_map([], |r| {
+                let (stock, cost) = (r.get(11)?, r.get(12)?);
+                read(r, stock, cost)
+            })? {
+                out.push(w?);
+            }
+            let mut st = c.prepare(&format!(
+                "SELECT {COLS}, wi.stock_id, wi.target_cost
+                 FROM write_intents wi, json_each(wi.items_json) item
+                 JOIN job_items ji ON ji.id = item.value
+                 JOIN jobs j ON j.id = ji.job_id
+                 WHERE wi.status = 'LANDED' AND wi.stock_id IS NOT NULL
+                   AND NOT (ji.status IN ('WRITTEN', 'DONE') AND ji.stock_id IS NOT NULL
+                            AND ji.cost IS NOT NULL)"
+            ))?;
+            for w in st.query_map([], |r| {
+                let (stock, cost) = (r.get(11)?, r.get(12)?);
+                read(r, stock, cost)
+            })? {
+                out.push(w?);
+            }
+            out.sort_by_key(|w| w.item_id);
+            Ok(out)
+        })
+    }
+
     pub fn create_job(
         &self,
         kind: &str,

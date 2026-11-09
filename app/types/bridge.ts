@@ -34,6 +34,8 @@ export interface JobItemRow {
   id: number; job_id: number; code: string; name: string; qty: number; product_id: string | null; product_name: string | null;
   stock_id: string | null; authenticity: Authenticity | null; action: 'ATTACH' | 'PATCH' | 'SKIP' | null;
   qty_before: number | null; qty_after: number | null; cost: number | null; price_before: number | null; price_after: number | null;
+  /** The row's cost before this job wrote it (plan 130 R-i); null for a new row or an older job. */
+  cost_before?: number | null;
   reprice_verdict: string | null; error_kind: string | null; error_msg: string | null; candidates: Scored[] | null; status: string;
   invoice_ids: number[]; available: boolean | null; note: string | null;
   /** Why the write table held the link (plan 130 R-k); null when it was not held. */
@@ -118,6 +120,32 @@ export interface HeldWrite {
   snapshot: RowState; target_inventory: number | null; target_cost: number; items: number[]; status: string;
   outcome: { row?: RowState } | null; opened_at: string; closed_at: string | null;
   product_name: string | null; supplier_names: string[];
+}
+// ---- plan 130 R-i: the audit — every shelf row weighed against the evidence, read only ------------
+export type Doubt = 'UNPROVEN_LINK' | 'COSTS_DISAGREE' | 'WRITER_UNLINKED' | 'UNPROVEN_UNITS';
+export interface Quoted { cost: number; available: boolean }
+export interface AuditLink {
+  name: string; code: string; how: 'AUTO' | 'USER'; state: LinkState; proven: boolean; reasons: Reason[];
+  /** null: not asked (a proven link on a row of one link); KNOWN null: the site lists neither name nor code today. */
+  today: Read<Quoted | null> | null;
+  units: number;
+}
+export interface LastWrite { job_id: number; kind: 'IMPORT' | 'REFRESH'; at: string; names: string[]; cost: number }
+export interface AuditRow {
+  stock_id: string; product_id: string; product_name: string | null; brand: string | null; authenticity: Authenticity | null;
+  inventory: number; cost: number | null; price: number | null; doubts: Doubt[]; links: AuditLink[];
+  /** The cost the proven links' quotes give today, when they agree; null when the evidence names none. */
+  should_cost: number | null;
+  /** The site lists that cost as unavailable: a refresh keeps the row's cost where it is higher. */
+  should_unavailable: boolean;
+  /** should_cost − cost, in rials: positive when the row holds less than it should. */
+  difference: number | null;
+  last_write: LastWrite | null; unproven_units: number;
+}
+export interface Audit {
+  read_at: string; registry_read_at: string; store: string; rows: AuditRow[]; examined: number; consistent: number;
+  /** Rows whose deciding quote could not be read: neither listed nor vouched for. */
+  unweighed: number; unlinked: number;
 }
 export interface Progress { job_id: number; phase: Phase; done: number; total: number; message: string }
 export interface JobEvent { job_id: number; level: 'INFO' | 'WARN' | 'ERROR'; kind?: string; phase: string; message: string; detail?: unknown }

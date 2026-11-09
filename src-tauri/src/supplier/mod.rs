@@ -3,6 +3,8 @@
 
 pub mod adaptive;
 pub mod barezpakhsh;
+#[cfg(test)]
+pub mod fake;
 
 use std::sync::Arc;
 

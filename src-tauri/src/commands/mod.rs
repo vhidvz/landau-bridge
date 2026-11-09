@@ -45,6 +45,8 @@ pub struct AppState {
     /// One inspection at a time: the site serves one request per session at a time, and the
     /// screens share one session (three cards ask at once).
     pub inspecting: tokio::sync::Mutex<()>,
+    /// The last audit (plan 130 R-i), kept for its CSV export.
+    pub audit: tokio::sync::Mutex<Option<crate::audit::Audit>>,
 }
 
 fn settings(state: &AppState) -> Result<Settings> {
@@ -776,6 +778,47 @@ pub async fn intent_resolve(
     resolution: String,
 ) -> Result<bool> {
     state.db.resolve_intent(id, &resolution)
+}
+
+/// The audit (plan 130 R-i): every shelf row weighed against the evidence, read only — the registry
+/// read whole now (kept for the screens when newer), the links judged on a copy of the database,
+/// Barezpakhsh quoted under the screens' one-inspection lock where a quote decides something.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn audit_run(state: State<'_, AppState>) -> Result<crate::audit::Audit> {
+    let s = settings(&state)?;
+    let (_, _, store) = s.require_landau()?;
+    let client = landau(&s)?;
+    let started = crate::db::now();
+    let registry = Arc::new(jobs::read_checked(&state.db, &client).await?);
+    state.snapshot.keep(registry.clone(), started.clone());
+    let sup = inspector(&state, &s).await;
+    let audit = crate::audit::audit(&crate::audit::Sources {
+        db: &state.db,
+        registry: &registry,
+        registry_read_at: &started,
+        landau: &client,
+        store,
+        supplier: sup.as_deref().map_err(Clone::clone),
+        // only each quote waits for the screens' one-at-a-time session, not the whole audit
+        quote_lock: Some(&state.inspecting),
+        vat_percent: s.vat_percent,
+        threshold: s.threshold,
+    })
+    .await?;
+    *state.audit.lock().await = Some(audit.clone());
+    Ok(audit)
+}
+
+/// The last audit as CSV into `path` (from the native save dialog); answers how many rows.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn audit_export(state: State<'_, AppState>, path: String) -> Result<usize> {
+    let kept = state.audit.lock().await;
+    let audit = kept
+        .as_ref()
+        .ok_or_else(|| BridgeError::Other("هنوز بازبینی‌ای انجام نشده است.".into()))?;
+    std::fs::write(&path, crate::audit::csv(audit))
+        .map_err(|e| BridgeError::Other(format!("ذخیرهٔ فایل بازبینی ممکن نشد: {e}")))?;
+    Ok(audit.rows.len())
 }
 
 /// The «بدون تصمیم» list: parts ended jobs left undecided, with the candidates review showed.

@@ -11,6 +11,8 @@ use crate::domain::Authenticity;
 use crate::errors::{BridgeError, Result};
 
 #[cfg(test)]
+pub mod fake;
+#[cfg(test)]
 pub mod stub;
 pub mod writer;
 
@@ -674,6 +676,11 @@ pub mod fixture {
 
     pub async fn patch(client: &LandauClient, id: &str, body: &PatchBody) -> Result<ShelfRow> {
         client.patch(id, body).await.result
+    }
+
+    /// A row out of the trash (a staged row an earlier run removed: Landau's index still holds it).
+    pub async fn restore(client: &LandauClient, id: &str) -> Result<()> {
+        client.restore(id).await.result
     }
 
     pub async fn delete(client: &LandauClient, id: &str) -> Result<()> {

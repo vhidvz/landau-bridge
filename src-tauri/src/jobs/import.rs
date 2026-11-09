@@ -735,6 +735,7 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                             ("qty_before", opt_i(done.qty_before)),
                             ("qty_after", opt_i(done.qty_after)),
                             ("price_before", opt_i(done.price_before)),
+                            ("cost_before", opt_i(done.cost_before)),
                             ("price_after", opt_i(done.price_after)),
                         ]);
                     } else {

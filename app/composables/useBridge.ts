@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
   BridgeError, Dashboard, ErrorRow, JobDetail, JobDone, JobEvent, JobItemRow, JobRow, LandauStatus, MatchRow, Progress, ReviewDecision, Scored, SettingsPatch, SettingsView, UndecidedRow, DecisionImportReport,
-  UpdateState, UpdateView, Authenticity, HeldWrite, Inspection, Reason,
+  UpdateState, UpdateView, Authenticity, HeldWrite, Inspection, Reason, Audit,
 } from '~/types/bridge';
 
 export const isBridgeError = (e: unknown): e is BridgeError =>
@@ -55,6 +55,8 @@ export const bridge = {
   decisionsImport: (path: string, prefer_file: boolean) => call<DecisionImportReport>('decisions_import', { path, prefer_file }),
   matchNone: (name_seen: string, code: string) => call<void>('match_none', { name_seen, code }),
   matchClear: (name_seen: string) => call<void>('match_clear', { name_seen }),
+  auditRun: () => call<Audit>('audit_run'),
+  auditExport: (path: string) => call<number>('audit_export', { path }),
   errorsList: (limit = 200) => call<ErrorRow[]>('errors_list', { limit }),
   openLogFolder: () => call<void>('open_log_folder'),
   appimageInstall: () => call<string>('appimage_install'),

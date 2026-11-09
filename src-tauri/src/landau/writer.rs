@@ -35,6 +35,8 @@ pub struct Written {
     pub qty_before: Option<i64>,
     pub qty_after: Option<i64>,
     pub price_before: Option<i64>,
+    /// The row's cost before this write (plan 130 R-i); `None` for an attach.
+    pub cost_before: Option<i64>,
     /// The price Landau answered on the write (plan 107); the REPRICE phase confirms it.
     pub price_after: Option<i64>,
     pub verb: &'static str,
@@ -58,6 +60,8 @@ pub enum Refreshed {
     Patched {
         cost: i64,
         held: bool,
+        /// The cost the fresh read found, which this write replaced (plan 130 R-i's report).
+        before: Option<i64>,
         price_after: Option<i64>,
         /// The row had changed since the job read the shelf (R-p).
         replanned: bool,
@@ -429,6 +433,7 @@ impl<'a> ShelfWriter<'a> {
                     qty_before: Some(qty_before),
                     qty_after: inventory.or(Some(qty_before)),
                     price_before: row.price,
+                    cost_before: row.cost,
                     price_after: reply.price,
                     verb: "PATCH",
                     shortfall: shortfall(qty_before, *qty),
@@ -482,6 +487,7 @@ impl<'a> ShelfWriter<'a> {
             qty_before: None,
             qty_after: Some(inventory),
             price_before: None,
+            cost_before: None,
             price_after: row.price,
             verb: "ATTACH",
             shortfall: shortfall(0, *qty),
@@ -604,6 +610,7 @@ impl<'a> ShelfWriter<'a> {
                 qty_before: Some(row.inventory),
                 qty_after: inv.or(Some(row.inventory)),
                 price_before: row.price,
+                cost_before: row.cost,
                 price_after: reply.price,
                 verb: "PATCH",
                 shortfall: shortfall(row.inventory, *qty),
@@ -678,6 +685,7 @@ impl<'a> ShelfWriter<'a> {
             qty_before: Some(removed.inventory),
             qty_after: Some(inv),
             price_before: removed.price,
+            cost_before: removed.cost,
             price_after: reply.price,
             verb: "PATCH",
             shortfall: shortfall(0, *qty),
@@ -760,6 +768,7 @@ impl<'a> ShelfWriter<'a> {
         Ok(Refreshed::Patched {
             cost,
             held,
+            before: fresh.cost,
             price_after: reply.price,
             replanned,
         })
@@ -1372,6 +1381,7 @@ mod tests {
                 .unwrap(),
             Refreshed::Patched {
                 cost: 5_000,
+                before: Some(4_000),
                 replanned: false,
                 ..
             }
