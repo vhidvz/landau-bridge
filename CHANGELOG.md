@@ -45,6 +45,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A pick in Matches keeps its part's brand and alias, so a re-import of Landau's list no longer drops it. @vhidvz
 - A price refresh's summary tiles show its updated, unchanged, held and failed rows, not only the row count. @vhidvz
 - The live tests' key script can mint a second key on the same day. @vhidvz
+- An import holds a row another proven code prices differently, even when its invoices carry only one code. @vhidvz
+- A write read as never landed is read again before units are added, so a late landing is not counted twice. @vhidvz
+- A line a finished run held is still transferred after «از تاریخ» moves past it; an unfinished run's is named. @vhidvz
+- A link changed while a run writes is caught right before each send, and nothing is sent from the old link. @vhidvz
+- A price found by code under a name that contradicts the part is no longer written. @vhidvz
 
 ## [1.1.1] - 2026-11-04
 

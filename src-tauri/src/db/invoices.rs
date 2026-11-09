@@ -167,6 +167,21 @@ impl Db {
         })
     }
 
+    /// The first of `lines` already transferred, if any — read right before a quantity write, since
+    /// a recheck in the same job can mark lines the job aggregated before (plan 130 PI-23's review).
+    pub fn first_imported(&self, lines: &[(i64, String)]) -> Result<Option<(i64, String)>> {
+        self.with(|c| {
+            let mut st =
+                c.prepare("SELECT 1 FROM invoice_imports WHERE invoice_id = ?1 AND code = ?2")?;
+            for (invoice, code) in lines {
+                if st.exists(params![invoice, code])? {
+                    return Ok(Some((*invoice, code.clone())));
+                }
+            }
+            Ok(None)
+        })
+    }
+
     /// One transfer per `(invoice, code)` pair, ever (`INSERT OR IGNORE`; idempotent).
     pub fn mark_lines_imported(&self, lines: &[(i64, String)], job_id: i64) -> Result<()> {
         self.with(|c| {

@@ -789,6 +789,18 @@ impl Db {
         Ok(out)
     }
 
+    /// Every link pointing at `product`, whatever its state, in key order.
+    pub fn links_on_product(&self, supplier: &str, product: &str) -> Result<Vec<MatchRow>> {
+        self.with(|c| {
+            let mut st = c.prepare(&format!(
+                "SELECT {COLS} FROM supplier_links WHERE supplier = ?1 AND product_id = ?2 \
+                 ORDER BY name_key"
+            ))?;
+            let rows = st.query_map(params![supplier, product], row)?;
+            rows.collect()
+        })
+    }
+
     /// Every link with a product, whatever its state.
     pub fn linked_matches(&self, supplier: &str) -> Result<Vec<MatchRow>> {
         self.with(|c| {

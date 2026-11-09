@@ -588,4 +588,235 @@ mod tests {
             "the right bearing held against the hurried pick's link"
         );
     }
+
+    /// A second code of the GSR clamp: the same part as `CLAMP_GSR`, its numbers the same.
+    const GSR_TWIN: (&str, &str) = ("8800095", "بست کمري 4/8*380 GSR مشکي");
+
+    /// A ZERO import whose invoice carries only `GSR_TWIN` (list 21,000 → cost 23,100), while the
+    /// install also links `other` to the same clamp and the site prices it at `other_price`. The
+    /// clamp's row is on the shelf at `CLAMP_GSR`'s 20,900.
+    async fn one_code_of_two(
+        other: (&str, &str),
+        other_how: &str,
+        other_price: i64,
+    ) -> (FakeLandau, JobCtx) {
+        one_code_of_two_named(other, other_how, other_price, other.1).await
+    }
+
+    /// [`one_code_of_two`], the site listing the other code under `site_name`.
+    async fn one_code_of_two_named(
+        other: (&str, &str),
+        other_how: &str,
+        other_price: i64,
+        site_name: &str,
+    ) -> (FakeLandau, JobCtx) {
+        let db = Db::in_memory().unwrap();
+        link(&db, other, other_how, &clamp_57eb());
+        link(&db, GSR_TWIN, "USER", &clamp_57eb());
+        let landau = FakeLandau::start(
+            STORE,
+            registry(),
+            vec![row(ROW_9CED, &clamp_57eb(), 20_900)],
+        );
+        let supplier = FakeSupplier::new(&[(GSR_TWIN.0, GSR_TWIN.1, 1, 21_000)]).price_only(
+            other.0,
+            site_name,
+            other_price,
+        );
+        let svc = Services {
+            landau: LandauClient::new(&landau.url, "apt-test").unwrap(),
+            supplier: Box::new(supplier),
+            settings: settings(&landau.url),
+            snapshot: Default::default(),
+        };
+        let ctx = ctx(&db, "IMPORT");
+        assert_eq!(
+            import::start(&ctx, &svc, &zero()).await.unwrap(),
+            Outcome::Done
+        );
+        ctx.finish(&Ok(()), "REPORT");
+        (landau, ctx)
+    }
+
+    /// PI-24 (DoD 24's review, finding 3): a QUANTITY run holds the twin's line (another code
+    /// prices its clamp differently) and ends `DONE`, its line unmarked (R-f). The seller resolves
+    /// it — the site now prices both alike — and runs again with «از تاریخ» after the invoice, as
+    /// the import page defaults it to the last run's finish. The held unit still reaches the shelf.
+    #[tokio::test]
+    async fn a_held_line_is_transferred_when_from_date_moves_past_it() {
+        let db = Db::in_memory().unwrap();
+        link(&db, CLAMP_GSR, "USER", &clamp_57eb());
+        link(&db, GSR_TWIN, "USER", &clamp_57eb());
+        let landau = FakeLandau::start(
+            STORE,
+            registry(),
+            vec![row(ROW_9CED, &clamp_57eb(), 20_900)],
+        );
+        let svc = |other_price: i64| Services {
+            landau: LandauClient::new(&landau.url, "apt-test").unwrap(),
+            supplier: Box::new(
+                FakeSupplier::new(&[(GSR_TWIN.0, GSR_TWIN.1, 1, 21_000)]).price_only(
+                    CLAMP_GSR.0,
+                    CLAMP_GSR.1,
+                    other_price,
+                ),
+            ),
+            settings: settings(&landau.url),
+            snapshot: Default::default(),
+        };
+        let quantity = |since: &str| ImportParams {
+            mode: ImportMode::Quantity,
+            since: Some(since.into()),
+            fetch_since_only: false,
+            fetch_limit: None,
+        };
+        let run = |since: &'static str, other_price: i64| {
+            let db = db.clone();
+            let svc = svc(other_price);
+            async move {
+                let job = db
+                    .create_job("IMPORT", Some("QUANTITY"), Some(since), STORE, false)
+                    .unwrap();
+                let ctx = JobCtx {
+                    db: db.clone(),
+                    app: None,
+                    job_id: job,
+                    cancel: Default::default(),
+                };
+                let outcome = import::start(&ctx, &svc, &quantity(since)).await;
+                ctx.finish(
+                    &outcome.as_ref().map(|_| ()).map_err(Clone::clone),
+                    "REPORT",
+                );
+                assert_eq!(outcome.unwrap(), Outcome::Done);
+                ctx
+            }
+        };
+
+        // the invoice is dated 1405/08/15; the first run holds the twin against the other code
+        let first = run("1405/08/01", 19_000).await;
+        assert_eq!(
+            item(&first, GSR_TWIN.0).error_kind.as_deref(),
+            Some("Conflict")
+        );
+        assert!(landau.writes().is_empty());
+        assert!(
+            db.imported_lines().unwrap().is_empty(),
+            "R-f: the line unmarked"
+        );
+
+        // resolved; the next run starts after the invoice's date
+        let second = run("1405/09/01", 21_000).await;
+        let twin = item(&second, GSR_TWIN.0);
+        assert_eq!((twin.qty, twin.status.as_str()), (1, "DONE"), "{twin:?}");
+        let r = landau.row(ROW_9CED).unwrap();
+        assert_eq!((r.inventory, r.cost), (1, Some(23_100)));
+        assert_eq!(db.imported_lines().unwrap().len(), 1);
+    }
+
+    /// PI-26 (DoD 24's review, finding 5): the site no longer lists `CLAMP_GSR` under its invoice
+    /// name; its code finds an item now named `site_name`, at 21,000 (23,100 with VAT). An import
+    /// and a refresh each write that cost only when the new name does not contradict the clamp.
+    async fn renamed_at_the_site(site_name: &str) -> (FakeLandau, JobCtx, JobCtx) {
+        let db = Db::in_memory().unwrap();
+        link(&db, CLAMP_GSR, "USER", &clamp_57eb());
+        let landau = FakeLandau::start(
+            STORE,
+            registry(),
+            vec![row(ROW_9CED, &clamp_57eb(), 20_900)],
+        );
+        let svc = Services {
+            landau: LandauClient::new(&landau.url, "apt-test").unwrap(),
+            supplier: Box::new(
+                FakeSupplier::new(&[(CLAMP_GSR.0, CLAMP_GSR.1, 1, 21_000)])
+                    .renamed(CLAMP_GSR.0, site_name),
+            ),
+            settings: settings(&landau.url),
+            snapshot: Default::default(),
+        };
+        let import = ctx(&db, "IMPORT");
+        assert_eq!(
+            import::start(&import, &svc, &zero()).await.unwrap(),
+            Outcome::Done
+        );
+        import.finish(&Ok(()), "REPORT");
+        let refresh = ctx(&db, "REFRESH");
+        super::super::refresh::run(&refresh, &svc).await.unwrap();
+        refresh.finish(&Ok(()), "REPORT");
+        (landau, import, refresh)
+    }
+
+    #[tokio::test]
+    async fn a_code_given_to_another_part_never_writes_its_cost() {
+        // 30 cm × 3.6 white where the clamp is 38 cm × 4.8 black: the numbers conflict
+        let (landau, import, refresh) = renamed_at_the_site("بست کمري 300*3/6 GSR سفيد").await;
+        assert!(landau.writes().is_empty(), "{:?}", landau.writes());
+        assert_eq!(landau.row(ROW_9CED).unwrap().cost, Some(20_900));
+        assert_eq!(
+            item(&import, CLAMP_GSR.0).error_kind.as_deref(),
+            Some("EvidenceConflict")
+        );
+        let held = ctx_items(&refresh);
+        assert_eq!(held.len(), 1);
+        assert_eq!(held[0].error_kind.as_deref(), Some("EvidenceConflict"));
+
+        // the same part under a corrected spelling: written as before (the rename noted)
+        let (landau, import, _) = renamed_at_the_site("بست کمری 380*4/8 GSR مشکی").await;
+        assert_eq!(landau.row(ROW_9CED).unwrap().cost, Some(23_100));
+        assert_eq!(item(&import, CLAMP_GSR.0).status, "DONE");
+    }
+
+    fn ctx_items(ctx: &JobCtx) -> Vec<JobItemRow> {
+        ctx.db.job_items(ctx.job_id).unwrap()
+    }
+
+    /// PI-22 (DoD 24's review, finding 1): Q-3 holds a row that two codes with different costs
+    /// feed, and a job whose invoices carry only one of them must hold it too — as REFRESH does —
+    /// or the row's cost follows whichever code was invoiced last. Equal costs write; another link
+    /// on the product that does not prove holds the row whatever the costs.
+    #[tokio::test]
+    async fn a_code_the_job_lacks_still_holds_its_row() {
+        // the other code proves and its cost differs: held, the shelf untouched
+        let (landau, ctx) = one_code_of_two(CLAMP_GSR, "USER", 19_000).await;
+        assert!(landau.writes().is_empty(), "{:?}", landau.writes());
+        assert_eq!(landau.row(ROW_9CED).unwrap().cost, Some(20_900));
+        let twin = item(&ctx, GSR_TWIN.0);
+        assert_eq!(
+            (twin.status.as_str(), twin.error_kind.as_deref()),
+            ("SKIPPED", Some("Conflict")),
+            "held, not failed"
+        );
+        let other = ctx
+            .db
+            .match_for_name(SUPPLIER_ID, CLAMP_GSR.1)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            (other.state.as_str(), other.validated_job),
+            (state::VALID, Some(ctx.job_id)),
+            "the other code was judged by this job"
+        );
+
+        // the other code agrees: one write at the shared cost, both links proven for it
+        let (landau, ctx) = one_code_of_two(CLAMP_GSR, "USER", 21_000).await;
+        assert_eq!(landau.row(ROW_9CED).unwrap().cost, Some(23_100));
+        assert_eq!(item(&ctx, GSR_TWIN.0).status, "DONE");
+
+        // another link on the product that does not prove: held, even at an equal cost
+        let (landau, ctx) = one_code_of_two(CLAMP_11, "AUTO", 21_000).await;
+        assert!(landau.writes().is_empty(), "{:?}", landau.writes());
+        assert_eq!(
+            item(&ctx, GSR_TWIN.0).error_kind.as_deref(),
+            Some("Conflict")
+        );
+
+        // PI-26 on the other link: its code now names another part, at an equal cost — held
+        let (landau, ctx) =
+            one_code_of_two_named(CLAMP_GSR, "USER", 21_000, "بست کمري 300*3/6 GSR سفيد").await;
+        assert!(landau.writes().is_empty(), "{:?}", landau.writes());
+        assert_eq!(
+            item(&ctx, GSR_TWIN.0).error_kind.as_deref(),
+            Some("Conflict")
+        );
+    }
 }

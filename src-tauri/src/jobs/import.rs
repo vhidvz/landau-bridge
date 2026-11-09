@@ -1,16 +1,18 @@
 //! Feature 1 (spec §7.1): preflight → fetch → aggregate → match → [REVIEW] → price → write →
 //! reprice → report. `start` runs up to the review pause; `commit` runs the rest.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use futures_util::stream::{FuturesUnordered, StreamExt};
 use serde_json::json;
 
-use super::planner::aggregate;
-use super::proof::{plan_import, ImportCandidate, Judgement, Planned, Prover};
+use super::planner::aggregate_carrying;
+use super::proof::{
+    held_error, plan_import, ImportCandidate, Judgement, OtherLink, Planned, Prover,
+};
 use super::{
-    fatal, held, i, opt_i, preflight, quote_for, read_registry, report, reprice_items, t, JobCtx,
-    Services, VatMismatches,
+    fatal, held, i, job_registry, opt_i, preflight, quote_for, read_registry, renamed_reasons,
+    report, reprice_items, t, JobCtx, Services, VatMismatches,
 };
 use crate::db::jobs::JobItemRow;
 use crate::db::matches::{actor, state, LinkProduct, LinkPut};
@@ -207,7 +209,36 @@ fn aggregate_phase(ctx: &JobCtx, params: &ImportParams) -> Result<()> {
     ctx.phase("AGGREGATE")?;
     let lines = ctx.db.lines_with_invoices(SUPPLIER_ID)?;
     let already = ctx.db.imported_lines()?;
-    let agg = aggregate(&lines, params.mode, params.since.as_deref(), &already);
+    let carried = ctx.db.aggregated_lines(ctx.job_id)?;
+    let agg = aggregate_carrying(
+        &lines,
+        params.mode,
+        params.since.as_deref(),
+        &already,
+        &carried,
+    );
+    if agg.carried > 0 {
+        ctx.info(
+            "AGGREGATE",
+            &format!(
+                "{} ردیف فاکتور که اجرای قبلی نگه داشته بود این بار هم شمرده شد، هرچند تاریخش پیش از «از تاریخ» است: {}",
+                agg.carried,
+                agg.carried_codes.join("، ")
+            ),
+            Some(json!({"lines": agg.carried, "codes": agg.carried_codes})),
+        );
+    }
+    if let Some(first) = agg.left_before_since.iter().min() {
+        ctx.warn(
+            "AGGREGATE",
+            kinds::LINES_BEFORE_SINCE,
+            &format!(
+                "{} ردیف فاکتور از اجرای نیمه‌تمام قبلی پیش از «از تاریخ» است و منتقل نشد؛ قدیمی‌ترینِ آن‌ها {first} است. «از تاریخ» زودتر هر ردیف دیگری از همان تاریخ به بعد را هم منتقل می‌کند.",
+                agg.left_before_since.len()
+            ),
+            Some(json!({"lines": agg.left_before_since.len(), "from": first})),
+        );
+    }
     if !agg.skipped_unpaid.is_empty() {
         ctx.warn(
             "AGGREGATE",
@@ -487,6 +518,124 @@ pub fn confirmed_json(confirmed: &[Reason]) -> Result<Option<String>> {
     })
 }
 
+/// The other stored links on the products a job writes (PI-22), weighed for [`plan_import`].
+#[derive(Debug, Default)]
+struct Others {
+    /// product id → its links no item of this job carries.
+    links: BTreeMap<String, Vec<OtherLink>>,
+    /// product id → a note naming each such link and what it came to, for the held rows.
+    notes: BTreeMap<String, String>,
+    /// Products one of those links is quoted unavailable for.
+    unavailable: HashSet<String>,
+}
+
+/// Every stored link on a product this job is about to write that no item of the job carries
+/// (PI-22) — weighed as REFRESH weighs a row's links (Q-3, R-e): judged by VALIDATE against the
+/// registry snapshot unless this job judged it already, then quoted if it proves. An unproven one
+/// is passed on unpriced, so [`plan_import`] holds the row without a quote; a quote that fails in
+/// transfer fails that product's items here, and they leave `candidates`. A link on a product the
+/// registry no longer holds is not on the target product and is weighed by the job that rebuilds it.
+async fn other_links(
+    ctx: &JobCtx,
+    svc: &Services,
+    candidates: &mut Vec<ImportCandidate>,
+    all: &[JobItemRow],
+    vat: &mut VatMismatches,
+) -> Result<Others> {
+    let carried: HashSet<&str> = all.iter().filter_map(|i| i.link_key.as_deref()).collect();
+    let products: BTreeSet<String> = candidates.iter().map(|c| c.product.clone()).collect();
+    let mut found: Vec<(String, Vec<crate::db::matches::MatchRow>)> = Vec::new();
+    for product in products {
+        let links: Vec<_> = ctx
+            .db
+            .links_on_product(SUPPLIER_ID, &product)?
+            .into_iter()
+            .filter(|l| !carried.contains(l.name_key.as_str()))
+            .collect();
+        if !links.is_empty() {
+            found.push((product, links));
+        }
+    }
+    let mut out = Others::default();
+    if found.is_empty() {
+        return Ok(out);
+    }
+    let registry = job_registry(ctx, svc).await?;
+    let prover = Prover {
+        db: &ctx.db,
+        registry: &registry,
+        supplier: SUPPLIER_ID,
+        job: ctx.job_id,
+        threshold: svc.settings.threshold,
+    };
+    'products: for (product, links) in found {
+        let mut weighed = Vec::new();
+        let mut said = Vec::new();
+        for link in links {
+            ctx.check_cancel()?;
+            if link.validated_job != Some(ctx.job_id) {
+                prover.stored(&link, &link.name_seen, &link.code).await?;
+            }
+            let now = ctx.db.link_by_key(SUPPLIER_ID, &link.name_key)?;
+            let Some(now) = now.filter(|l| l.writable_for(ctx.job_id, l.link_version, &product))
+            else {
+                said.push(format!("«{}» اثبات‌نشده", link.name_seen));
+                weighed.push(OtherLink {
+                    key: link.name_key.clone(),
+                    version: link.link_version,
+                    cost: None,
+                });
+                continue;
+            };
+            let cost = match quote_for(ctx, svc, &now.name_seen, &now.code, vat).await {
+                Ok(Some(c)) if renamed_reasons(&registry, &product, &c).is_some() => {
+                    said.push(format!(
+                        "«{}» نام تازه‌اش جور نیست: «{}»",
+                        now.name_seen, c.name
+                    ));
+                    None
+                }
+                Ok(Some(c)) => {
+                    if !c.available {
+                        out.unavailable.insert(product.clone());
+                    }
+                    said.push(format!("«{}» {} ریال", now.name_seen, c.cost));
+                    Some(c.cost)
+                }
+                Ok(None) => {
+                    said.push(format!("«{}» بی‌قیمت", now.name_seen));
+                    None
+                }
+                Err(e) if fatal(&e) => return Err(e),
+                Err(e) => {
+                    let ids: Vec<i64> = candidates
+                        .iter()
+                        .filter(|c| c.product == product)
+                        .map(|c| c.item_id)
+                        .collect();
+                    held(ctx, &ids, &e)?;
+                    candidates.retain(|c| c.product != product);
+                    continue 'products;
+                }
+            };
+            weighed.push(OtherLink {
+                key: now.name_key.clone(),
+                version: now.link_version,
+                cost,
+            });
+        }
+        out.notes.insert(
+            product.clone(),
+            format!(
+                "پیوندهای دیگر همین قطعه که در این اجرا نبودند: {}",
+                said.join(" | ")
+            ),
+        );
+        out.links.insert(product, weighed);
+    }
+    Ok(out)
+}
+
 /// Price → write → reprice → report over every item that is PLANNED with a product.
 pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
     let (_, _, store) = svc.settings.require_landau()?;
@@ -540,19 +689,53 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
         .collect();
     let total = items.len() as u32;
     let mut vat = VatMismatches::default();
+    let mut registry = None;
     for (n, item) in items.iter().enumerate() {
         ctx.check_cancel()?;
         match quote_for(ctx, svc, &item.name, &item.code, &mut vat).await {
+            Ok(Some(c)) if c.renamed => {
+                // PI-26: the code found another name — judged against the product before its cost
+                // may stand for this link
+                if registry.is_none() {
+                    registry = Some(job_registry(ctx, svc).await?);
+                }
+                let product = item.product_id.as_deref().unwrap_or("");
+                let judged = registry
+                    .as_deref()
+                    .and_then(|r| renamed_reasons(r, product, &c));
+                ctx.db
+                    .add_item_note(item.id, &format!("نام در بارزپخش عوض شد: «{}»", c.name))?;
+                match judged {
+                    Some(reasons) => {
+                        ctx.db.add_item_note(
+                            item.id,
+                            "نام تازهٔ این کد با قطعهٔ لاندا جور نیست؛ قیمت آن نوشته نشد.",
+                        )?;
+                        held(ctx, &[item.id], &held_error(&reasons))?;
+                    }
+                    None => {
+                        if !item.code.is_empty() && c.code != item.code {
+                            ctx.db.add_item_note(
+                                item.id,
+                                &format!("کد بارزپخش عوض شد: {} ← {}", item.code, c.code),
+                            )?;
+                        }
+                        if !c.available {
+                            ctx.db.add_item_note(item.id, "ناموجود در بارزپخش")?;
+                        }
+                        ctx.item(
+                            item.id,
+                            &[("cost", i(c.cost)), ("available", i(c.available as i64))],
+                        )?
+                    }
+                }
+            }
             Ok(Some(c)) => {
                 if !item.code.is_empty() && c.code != item.code {
                     ctx.db.add_item_note(
                         item.id,
                         &format!("کد بارزپخش عوض شد: {} ← {}", item.code, c.code),
                     )?;
-                }
-                if c.renamed {
-                    ctx.db
-                        .add_item_note(item.id, &format!("نام در بارزپخش عوض شد: «{}»", c.name))?;
                 }
                 if !c.available {
                     ctx.db.add_item_note(item.id, "ناموجود در بارزپخش")?;
@@ -595,10 +778,7 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
         }
         ctx.progress("PRICE", n as u32 + 1, total, "قیمت روز بارزپخش");
     }
-    vat.warn(ctx, "PRICE", svc.settings.vat_percent);
 
-    ctx.phase("WRITE")?;
-    let mut shelf = svc.landau.shelf(&store).await?;
     let all = ctx.db.job_items(ctx.job_id)?;
     // Products a link of this job still waits on — under review, unpriced, failed at its quote, or
     // planned without a link — so no other link writes there in its place (R-e; slice 2's review).
@@ -636,7 +816,19 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
             link_version: version,
         });
     }
-    let plan = plan_import(&ctx.db, SUPPLIER_ID, ctx.job_id, &candidates, &unresolved)?;
+    let others = other_links(ctx, svc, &mut candidates, &all, &mut vat).await?;
+    vat.warn(ctx, "PRICE", svc.settings.vat_percent);
+
+    ctx.phase("WRITE")?;
+    let mut shelf = svc.landau.shelf(&store).await?;
+    let plan = plan_import(
+        &ctx.db,
+        SUPPLIER_ID,
+        ctx.job_id,
+        &candidates,
+        &unresolved,
+        &others.links,
+    )?;
     let writer = ShelfWriter::new(&svc.landau, &ctx.db, SUPPLIER_ID);
     let total = plan.len() as u32;
     let mut written: Vec<(i64, String)> = Vec::new();
@@ -644,6 +836,19 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
         ctx.check_cancel()?;
         let w = match planned {
             Planned::Held { items, error } => {
+                let product = candidates
+                    .iter()
+                    .find(|c| c.item_id == items[0])
+                    .map(|c| c.product.as_str());
+                let collision = matches!(error, BridgeError::LinkConflict { .. });
+                if let Some(note) = product
+                    .and_then(|p| others.notes.get(p))
+                    .filter(|_| collision)
+                {
+                    for id in items {
+                        ctx.db.add_item_note(*id, note)?;
+                    }
+                }
                 held(ctx, items, error)?;
                 continue;
             }
@@ -654,7 +859,10 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
             .iter()
             .filter_map(|id| all.iter().find(|i| i.id == *id))
             .collect();
-        let available = group.iter().all(|i| i.available.unwrap_or(true));
+        // an unavailable quote on any link of the row keeps the unavailable-only-raises hold, as in
+        // REFRESH
+        let available = group.iter().all(|i| i.available.unwrap_or(true))
+            && !others.unavailable.contains(w.product());
         let authenticity = match w.target() {
             super::proof::Target::Row { authenticity, .. } => *authenticity,
             super::proof::Target::Stock { .. } => svc.settings.default_authenticity,

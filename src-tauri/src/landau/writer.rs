@@ -145,6 +145,17 @@ struct RowKey<'a> {
     stock_id: Option<&'a str>,
 }
 
+/// Is the intent's row the one a write is about to touch?
+fn same_row(i: &IntentRow, key: &RowKey<'_>) -> bool {
+    let by_id = key.stock_id.is_some() && i.snapshot.stock_id.as_deref() == key.stock_id;
+    // an import intent names its row by the whole tuple, always NEW; a refresh intent by its id
+    let by_tuple = i.kind == "IMPORT"
+        && key.condition == Some("NEW")
+        && i.product == key.product
+        && i.authenticity == key.authenticity;
+    i.store == key.store && (by_id || by_tuple)
+}
+
 /// An unsettled intent on the row (or on these invoice lines) that a new write must not cross:
 /// one superseded by an external change and not yet settled by the seller, or one still open from
 /// an earlier job (reconciliation runs first, so this is the guard behind it).
@@ -154,13 +165,7 @@ fn blocks(i: &IntentRow, job: i64, key: &RowKey<'_>, lines: &[(i64, String)]) ->
     if !(superseded || open_before) {
         return false;
     }
-    let by_id = key.stock_id.is_some() && i.snapshot.stock_id.as_deref() == key.stock_id;
-    // an import intent names its row by the whole tuple, always NEW; a refresh intent by its id
-    let by_tuple = i.kind == "IMPORT"
-        && key.condition == Some("NEW")
-        && i.product == key.product
-        && i.authenticity == key.authenticity;
-    let same_row = i.store == key.store && (by_id || by_tuple);
+    let same_row = same_row(i, key);
     // An open intent's lines are held in its own store only: one left on a store the key no
     // longer reaches holds nothing here. A superseded one's lines wherever they would go, until
     // the seller settles it — they may already be on that other shelf.
@@ -216,6 +221,121 @@ impl<'a> ShelfWriter<'a> {
                 i.id, i.job_id
             ))),
             None => Ok(()),
+        }
+    }
+
+    /// PI-23: a quantity write onto a row, or of invoice lines, whose earlier write reconciliation
+    /// judged never landed. That judgement rests on reads a mirror lagging past the settle can
+    /// still fool, and this write's fresh read is a later look at the row:
+    /// - still the snapshot — it truly never landed, and this write goes on;
+    /// - the earlier target — it landed late: settled `LANDED` after all (its lines marked) and
+    ///   this write held, since its quantity counts those units again;
+    /// - anything else, or the lines bound for another row — superseded, held for the seller.
+    ///
+    /// The ones still at their snapshot are returned, not yet settled: they are settled
+    /// `NOT_LANDED` once this write lands, and an attach that answers 409 checks the row it then
+    /// finds against them ([`Self::recheck_found`]) — Landau's 409 is a later look than any read.
+    ///
+    /// `adds_units` is false for a cost-only write (ZERO import, REFRESH): it settles what it meets
+    /// the same way, so its own move of the row never reads later as a change from outside, but a
+    /// landing found late does not hold it — an absolute cost counts nothing twice (PI-23's review).
+    /// The fresh read sees live rows only: a never-landed restore whose row is still in the trash
+    /// is not judged on that absence, and waits for the restore path's own check.
+    fn recheck(
+        &self,
+        job: i64,
+        key: &RowKey<'_>,
+        fresh: Option<&ShelfRow>,
+        lines: &[(i64, String)],
+        adds_units: bool,
+    ) -> Result<Vec<IntentRow>> {
+        use crate::jobs::reconcile::{judge, Verdict};
+        let mut pending = Vec::new();
+        for i in self.db.rechecks()? {
+            let on_row = same_row(&i, key);
+            if !on_row && !lines.iter().any(|l| i.lines.contains(l)) {
+                continue;
+            }
+            if on_row && fresh.is_none() && i.snapshot.place == place::TRASH {
+                pending.push(i);
+                continue;
+            }
+            let now = match fresh {
+                Some(r) if on_row => RowState::of(r, place::LIVE),
+                _ => RowState::absent(),
+            };
+            let verdict = if on_row {
+                judge(&i, &now)
+            } else {
+                Verdict::Superseded
+            };
+            self.settle_rechecked(job, &i, &now, verdict, on_row, adds_units)?;
+            if verdict == Verdict::NotLanded {
+                pending.push(i);
+            }
+        }
+        Ok(pending)
+    }
+
+    /// An attach answered 409 at its first attempt, and `found` is the row Landau holds: checked
+    /// against the never-landed writes [`Self::recheck`] let through on this row.
+    fn recheck_found(&self, job: i64, pending: &[IntentRow], found: &RowState) -> Result<()> {
+        use crate::jobs::reconcile::judge;
+        for i in pending {
+            self.settle_rechecked(job, i, found, judge(i, found), true, true)?;
+        }
+        Ok(())
+    }
+
+    /// One recheck's verdict: a landing or a move holds this write; "still the snapshot" waits.
+    fn settle_rechecked(
+        &self,
+        job: i64,
+        i: &IntentRow,
+        now: &RowState,
+        verdict: crate::jobs::reconcile::Verdict,
+        on_row: bool,
+        adds_units: bool,
+    ) -> Result<()> {
+        use crate::jobs::reconcile::Verdict;
+        let how = json!({"by_job": job, "row": now, "on_row": on_row});
+        {
+            match verdict {
+                Verdict::NotLanded => {}
+                Verdict::Landed => {
+                    if self.db.settle_recheck(i.id, status::LANDED, &how)? && adds_units {
+                        return Err(BridgeError::RowChanged(format!(
+                            "write #{} of job #{} landed after all — the shelf showed it only \
+                             after this job's reconciliation — so its units are on the row and \
+                             this write, which counts them again, is held; the next job transfers \
+                             what remains",
+                            i.id, i.job_id
+                        )));
+                    }
+                }
+                Verdict::Superseded => {
+                    if self.db.settle_recheck(i.id, status::SUPERSEDED, &how)? {
+                        return Err(BridgeError::RowChanged(format!(
+                            "write #{} of job #{} was read as never landed, but its row has moved \
+                             since (or its lines now go to another row) — the seller settles it \
+                             before anything more is written here",
+                            i.id, i.job_id
+                        )));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// This write landed, planned from a row that still held each `pending` write's snapshot:
+    /// those truly never landed, and are read again by no later write.
+    fn rechecked_never_landed(&self, job: i64, pending: &[IntentRow]) {
+        for i in pending {
+            let how = json!({"by_job": job, "written": true});
+            if let Err(e) = self.db.settle_recheck(i.id, status::NOT_LANDED, &how) {
+                tracing::warn!(intent = i.id, error = %e, "recheck not settled; read again next write");
+            }
         }
     }
 
@@ -275,14 +395,27 @@ impl<'a> ShelfWriter<'a> {
         }
     }
 
+    /// The links once more, right before a send (PI-25): a seller's edit in Matches can land while
+    /// the writer reads the row, and a re-pointed link must not write the old link's cost. Refused,
+    /// nothing of this write was sent: its intent closes `NOT_LANDED`.
+    fn about_to_send(&self, w: &ProvenWrite, intent: i64) -> Result<()> {
+        if let Err(e) = self.still_proven(w) {
+            self.unlanded(intent, false, &e);
+            return Err(e);
+        }
+        Ok(())
+    }
+
     /// One patch of an intent's absolute target onto `stock_id`.
     async fn send_patch(
         &self,
+        w: &ProvenWrite,
         intent: i64,
         stock_id: &str,
         inventory: Option<i64>,
         cost: i64,
     ) -> Result<ShelfRow> {
+        self.about_to_send(w, intent)?;
         let sent = self
             .client
             .patch(
@@ -380,6 +513,30 @@ impl<'a> ShelfWriter<'a> {
             }
             (None, None) => (None, false),
         };
+        // PI-23: an earlier quantity write onto this row or these lines, read as never landed, is
+        // read again now — before this write counts its units a second time
+        let pending = self.recheck(
+            w.job(),
+            &RowKey {
+                store: req.store,
+                product,
+                authenticity: auth,
+                condition: Some("NEW"),
+                stock_id: existing.as_ref().map(|r| r.id.as_str()),
+            },
+            existing.as_ref(),
+            lines,
+            req.mode == ImportMode::Quantity,
+        )?;
+        // A line already transferred is never sent again: the job aggregated it before a recheck
+        // above, or one of this job's earlier writes, found it landed after all (PI-23's review).
+        if let Some((invoice, code)) = self.db.first_imported(lines)? {
+            return Err(BridgeError::RowChanged(format!(
+                "invoice line {invoice}/{code} of this write is already on the shelf — an earlier \
+                 write, read as never landed, landed after all — so this write is held; the next \
+                 job transfers what remains"
+            )));
+        }
         // §14 d: an unavailable quote never lowers a row's cost.
         let (cost, held) = pricing::effective_cost(
             w.cost(),
@@ -402,8 +559,18 @@ impl<'a> ShelfWriter<'a> {
                     items: w.items(),
                     lines,
                 })?;
-                self.attach(w, req, intent, *authenticity, inventory, cost, held, shelf)
-                    .await?
+                self.attach(
+                    w,
+                    req,
+                    intent,
+                    *authenticity,
+                    inventory,
+                    cost,
+                    held,
+                    shelf,
+                    &pending,
+                )
+                .await?
             }
             WriteAction::Patch {
                 stock_id,
@@ -427,7 +594,9 @@ impl<'a> ShelfWriter<'a> {
                     items: w.items(),
                     lines,
                 })?;
-                let reply = self.send_patch(intent, &stock_id, inventory, cost).await?;
+                let reply = self
+                    .send_patch(w, intent, &stock_id, inventory, cost)
+                    .await?;
                 Written {
                     stock_id: stock_id.clone(),
                     qty_before: Some(qty_before),
@@ -445,6 +614,7 @@ impl<'a> ShelfWriter<'a> {
             }
         };
         written.replanned |= replanned;
+        self.rechecked_never_landed(w.job(), &pending);
         // keep the local mirror current with what was written
         if let Some(pos) = shelf.iter().position(|r| r.id == written.stock_id) {
             if let Some(q) = written.qty_after {
@@ -467,6 +637,7 @@ impl<'a> ShelfWriter<'a> {
         cost: i64,
         held: bool,
         shelf: &mut Vec<ShelfRow>,
+        pending: &[IntentRow],
     ) -> Result<Written> {
         let Target::Row { product, qty, .. } = w.target() else {
             return Err(BridgeError::Other(
@@ -481,6 +652,7 @@ impl<'a> ShelfWriter<'a> {
             price: pricing::floor_price(cost, req.min_margin_percent),
             authenticity,
         };
+        self.about_to_send(w, intent)?;
         let sent = self.client.attach(&body).await;
         let attached = |row: &ShelfRow| Written {
             stock_id: row.id.clone(),
@@ -508,6 +680,12 @@ impl<'a> ShelfWriter<'a> {
             // PI-8: an earlier attempt may have created the row and lost its reply. The row at
             // the target is this attach; nothing more is sent, so nothing is added twice.
             Err(BridgeError::DuplicateRow) if sent.uncertain => {
+                // stamped before any read: a read that fails below leaves the intent open, and
+                // reconciliation's settle must count from this attempt, not from the intent's
+                // opening minutes of retries earlier (PI-23)
+                if let Err(e) = self.db.intent_attempted(intent) {
+                    tracing::warn!(intent, error = %e, "write attempt not stamped");
+                }
                 for n in 0..LOST_REPLY_READS {
                     if n > 0 {
                         tokio::time::sleep(self.lost_reply_gap).await;
@@ -547,7 +725,9 @@ impl<'a> ShelfWriter<'a> {
                 // row, so this attach cannot have landed. The restore path takes it from there.
                 let trash = self.client.shelf_deleted(req.store).await?;
                 if find_row(&trash, product, authenticity.as_str()).is_some() {
-                    return self.existing_row(w, req, intent, authenticity, shelf).await;
+                    return self
+                        .existing_row(w, req, intent, authenticity, shelf, pending)
+                        .await;
                 }
                 let e = BridgeError::WriteUnconfirmed(
                     "Landau answered 409 after a lost attach reply and the row is not on the \
@@ -560,7 +740,8 @@ impl<'a> ShelfWriter<'a> {
             // The first attempt answered 409: the row existed before this write (the reads
             // missed it). Planned again from that row — a patch, or a restore out of the trash.
             Err(BridgeError::DuplicateRow) => {
-                self.existing_row(w, req, intent, authenticity, shelf).await
+                self.existing_row(w, req, intent, authenticity, shelf, pending)
+                    .await
             }
             Err(e) => {
                 self.unlanded(intent, sent.uncertain, &e);
@@ -579,6 +760,7 @@ impl<'a> ShelfWriter<'a> {
         intent: i64,
         authenticity: Authenticity,
         shelf: &mut Vec<ShelfRow>,
+        pending: &[IntentRow],
     ) -> Result<Written> {
         let Target::Row { product, qty, .. } = w.target() else {
             return Err(BridgeError::Other(
@@ -599,12 +781,15 @@ impl<'a> ShelfWriter<'a> {
             // would drop the figures this run has already written to sibling rows the lagging
             // read does not show yet.
             merge_row(shelf, row.clone());
+            // the row the reads missed may be an earlier attach read as never landed (PI-23)
+            self.recheck_found(w.job(), pending, &RowState::of(&row, place::LIVE))
+                .map_err(refused)?;
             let (cost, held) = pricing::effective_cost(w.cost(), req.available, row.cost);
             let inv = (req.mode == ImportMode::Quantity).then_some(floored(row.inventory, *qty));
             self.db
                 .replan_intent(intent, "PATCH", &RowState::of(&row, place::LIVE), inv, cost)
                 .map_err(refused)?;
-            let reply = self.send_patch(intent, &row.id, inv, cost).await?;
+            let reply = self.send_patch(w, intent, &row.id, inv, cost).await?;
             return Ok(Written {
                 stock_id: row.id.clone(),
                 qty_before: Some(row.inventory),
@@ -633,6 +818,8 @@ impl<'a> ShelfWriter<'a> {
             self.unlanded(intent, false, &BridgeError::DuplicateRow);
             return Err(BridgeError::DuplicateRow);
         };
+        self.recheck_found(w.job(), pending, &RowState::of(&removed, place::TRASH))
+            .map_err(refused)?;
         let (cost, held) = pricing::effective_cost(w.cost(), req.available, None);
         let inv = if req.mode == ImportMode::Quantity {
             floored(0, *qty)
@@ -648,6 +835,9 @@ impl<'a> ShelfWriter<'a> {
                 cost,
             )
             .map_err(refused)?;
+        // the restore and its patch are one write: the links are checked before the restore only,
+        // since a row restored and left unpatched would read as changed outside the bridge
+        self.about_to_send(w, intent)?;
         let sent = self.client.restore(&removed.id).await;
         if let Err(e) = sent.result {
             self.unlanded(intent, sent.uncertain, &e);
@@ -750,6 +940,20 @@ impl<'a> ShelfWriter<'a> {
         if fresh.cost == Some(cost) {
             return Ok(Refreshed::Unchanged { cost, held });
         }
+        // a quantity write on this row read as never landed is settled from this read (PI-23)
+        let pending = self.recheck(
+            w.job(),
+            &RowKey {
+                store,
+                product,
+                authenticity: auth,
+                condition: fresh.condition.as_deref(),
+                stock_id: Some(stock_id),
+            },
+            Some(&fresh),
+            &[],
+            false,
+        )?;
         let snapshot = RowState::of(&fresh, place::LIVE);
         let intent = self.db.open_intent(&NewIntent {
             job_id: w.job(),
@@ -764,7 +968,8 @@ impl<'a> ShelfWriter<'a> {
             items: w.items(),
             lines: &[],
         })?;
-        let reply = self.send_patch(intent, stock_id, None, cost).await?;
+        let reply = self.send_patch(w, intent, stock_id, None, cost).await?;
+        self.rechecked_never_landed(w.job(), &pending);
         Ok(Refreshed::Patched {
             cost,
             held,
@@ -832,6 +1037,7 @@ mod tests {
                 link_key: "قطعه".into(),
                 link_version: v,
             }],
+            &Default::default(),
             &Default::default(),
         )
         .unwrap();
@@ -1015,6 +1221,97 @@ mod tests {
         assert!(seen.lock().unwrap().is_empty(), "nothing reached Landau");
     }
 
+    /// PI-25 (DoD 24's review, finding 4): the seller re-points the link in Matches while the
+    /// writer reads the row. The links are checked again right before the send: nothing is sent,
+    /// the intent closes `NOT_LANDED`, the item is held `LinkChanged`.
+    #[tokio::test]
+    async fn a_link_edited_during_the_fresh_read_is_not_sent() {
+        let db = Db::in_memory().unwrap();
+        let (_, w) = proven_qty(&db, "p1", 2);
+        let seller = db.clone();
+        let (url, seen) = stub::serve(move |r| match r.method.as_str() {
+            "GET" => {
+                seller
+                    .set_match(SUP, "قطعه", "C1", Some(("p2", "y")), "USER", None)
+                    .unwrap();
+                Reply::Status(200, page(&[row_json("s1", "p1", 3, 900)]))
+            }
+            _ => Reply::Status(200, row_json("s1", "p1", 5, 5_000)),
+        });
+        let client = LandauClient::new(&url, "apt-test").unwrap();
+        let mut shelf = vec![shelf_row("s1", "p1", 3, 900)];
+        let e = writer(&client, &db)
+            .import(&w, &quantity(&[]), &mut shelf)
+            .await
+            .unwrap_err();
+        assert_eq!(e, BridgeError::LinkChanged);
+        assert!(stub::writes(&seen).is_empty(), "{:?}", stub::lines(&seen));
+        assert_eq!(only_intent(&db).status, status::NOT_LANDED);
+    }
+
+    /// PI-25 on the 409 fallback: the attach answered 409, and the link is re-pointed while the
+    /// writer reads the row the 409 names. No patch follows.
+    #[tokio::test]
+    async fn a_link_edited_before_the_409_fallback_is_not_patched() {
+        let db = Db::in_memory().unwrap();
+        let (_, w) = proven(&db, "p1");
+        let seller = db.clone();
+        let (url, seen) = stub::serve(move |r| match r.method.as_str() {
+            "GET" if r.path.contains("term=") => Reply::Status(200, page(&[])),
+            "GET" => {
+                seller
+                    .set_match(SUP, "قطعه", "C1", Some(("p2", "y")), "USER", None)
+                    .unwrap();
+                Reply::Status(200, page(&[row_json("s1", "p1", 3, 900)]))
+            }
+            "POST" => Reply::Status(409, "{}".into()),
+            _ => Reply::Status(200, row_json("s1", "p1", 3, 5_000)),
+        });
+        let client = LandauClient::new(&url, "apt-test").unwrap();
+        let e = writer(&client, &db)
+            .import(&w, &zero(), &mut Vec::new())
+            .await
+            .unwrap_err();
+        assert_eq!(e, BridgeError::LinkChanged);
+        assert!(
+            stub::writes(&seen).iter().all(|r| r.method == "POST"),
+            "{:?}",
+            stub::lines(&seen)
+        );
+        assert_eq!(only_intent(&db).status, status::NOT_LANDED);
+    }
+
+    /// PI-25 in REFRESH: the same edit during the refresh's fresh read; no patch.
+    #[tokio::test]
+    async fn a_link_edited_during_a_refresh_read_is_not_sent() {
+        let db = Db::in_memory().unwrap();
+        let (job, _) = proven(&db, "p1");
+        let link = db.match_for_name(SUP, "قطعه").unwrap().unwrap();
+        let Planned::Write(w) =
+            prove_refresh(&db, SUP, job, 1, "s1", "p1", &[(link, Some(5_000))]).unwrap()
+        else {
+            panic!()
+        };
+        let seller = db.clone();
+        let (url, seen) = stub::serve(move |r| match r.method.as_str() {
+            "GET" => {
+                seller
+                    .set_match(SUP, "قطعه", "C1", Some(("p2", "y")), "USER", None)
+                    .unwrap();
+                Reply::Status(200, page(&[row_json("s1", "p1", 3, 4_000)]))
+            }
+            _ => Reply::Status(200, row_json("s1", "p1", 3, 5_000)),
+        });
+        let client = LandauClient::new(&url, "apt-test").unwrap();
+        let e = writer(&client, &db)
+            .refresh(&w, "store", true, &shelf_row("s1", "p1", 3, 4_000))
+            .await
+            .unwrap_err();
+        assert_eq!(e, BridgeError::LinkChanged);
+        assert!(stub::writes(&seen).is_empty(), "{:?}", stub::lines(&seen));
+        assert_eq!(only_intent(&db).status, status::NOT_LANDED);
+    }
+
     /// The preserved 409 path: a row the reads did not show is re-read and patched from its own
     /// values — and the intent is re-planned onto it.
     #[tokio::test]
@@ -1179,6 +1476,32 @@ mod tests {
             "the trash is read before the outcome is called unknown"
         );
         assert_eq!(only_intent(&db).status, status::OPEN);
+    }
+
+    /// PI-23: after a lost attach reply, a shelf read that fails leaves the intent open — stamped
+    /// with this attempt, so reconciliation's settle counts from it and not from the intent's
+    /// opening, retries earlier.
+    #[tokio::test]
+    async fn a_failed_read_after_a_lost_reply_still_stamps_the_attempt() {
+        let db = Db::in_memory().unwrap();
+        let (_, w) = proven_qty(&db, "p1", 3);
+        let posts = Arc::new(AtomicUsize::new(0));
+        let n = posts.clone();
+        let (url, _seen) = stub::serve(move |r| match r.method.as_str() {
+            "GET" if r.path.contains("term=") => Reply::Status(200, page(&[])),
+            "GET" => Reply::Status(403, r#"{"message":"forbidden"}"#.into()),
+            "POST" if n.fetch_add(1, Ordering::SeqCst) == 0 => Reply::Drop,
+            "POST" => Reply::Status(409, "{}".into()),
+            _ => Reply::Status(500, "{}".into()),
+        });
+        let client = LandauClient::new(&url, "apt-test").unwrap();
+        writer(&client, &db)
+            .import(&w, &quantity(&[]), &mut Vec::new())
+            .await
+            .unwrap_err();
+        let intent = only_intent(&db);
+        assert_eq!(intent.status, status::OPEN);
+        assert!(intent.attempted_at.is_some(), "{intent:?}");
     }
 
     /// R-p: a POS sale between the job's read and the write. The write is planned from the fresh

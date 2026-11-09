@@ -23,6 +23,23 @@ pub struct Aggregation {
     pub skipped_unpaid: Vec<i64>,
     pub skipped_imported: Vec<i64>,
     pub non_positive_lines: usize,
+    /// Lines dated before `since` taken anyway: an earlier finished run held them (PI-24).
+    pub carried: usize,
+    /// Their codes, each once, in the order met — named in the run's notice.
+    pub carried_codes: Vec<String>,
+    /// Dates of lines before `since` an earlier run that never finished had aggregated, left
+    /// out and reported (PI-24).
+    pub left_before_since: Vec<String>,
+}
+
+/// The `(invoice, code)` lines earlier QUANTITY imports aggregated, not transferred since
+/// (PI-24). `finished`: their run ended `DONE`, so each line was held for the seller, and R-f
+/// says it is transferred once resolved — taken whatever `since` is now. `unfinished`: their run
+/// was cancelled, failed or interrupted — left to `since`, but never dropped silently.
+#[derive(Debug, Clone, Default)]
+pub struct Carried {
+    pub finished: HashSet<(i64, String)>,
+    pub unfinished: HashSet<(i64, String)>,
 }
 
 /// Quantity mode: paid invoices dated on/after `since` and not transferred before, sales minus
@@ -37,6 +54,18 @@ pub fn aggregate(
     since: Option<&str>,
     already: &HashSet<(i64, String)>,
 ) -> Aggregation {
+    aggregate_carrying(lines, mode, since, already, &Carried::default())
+}
+
+/// [`aggregate`], with the lines earlier runs left unmarked (PI-24): a held line of a finished run
+/// is taken before `since` too; one of an unfinished run is left out and its date reported.
+pub fn aggregate_carrying(
+    lines: &[LineWithInvoice],
+    mode: ImportMode,
+    since: Option<&str>,
+    already: &HashSet<(i64, String)>,
+    carried: &Carried,
+) -> Aggregation {
     let mut agg = Aggregation::default();
     let mut items: BTreeMap<String, AggregatedItem> = BTreeMap::new();
     let mut unpaid: HashSet<i64> = HashSet::new();
@@ -50,7 +79,21 @@ pub fn aggregate(
         if mode == ImportMode::Quantity {
             if let Some(since) = since {
                 if l.date_jalali.as_str() < since {
-                    continue;
+                    let key = (l.invoice_id, l.code.clone());
+                    if already.contains(&key) {
+                        continue;
+                    }
+                    if carried.finished.contains(&key) {
+                        agg.carried += 1;
+                        if !agg.carried_codes.contains(&l.code) {
+                            agg.carried_codes.push(l.code.clone());
+                        }
+                    } else {
+                        if carried.unfinished.contains(&key) {
+                            agg.left_before_since.push(l.date_jalali.clone());
+                        }
+                        continue;
+                    }
                 }
             }
             if already.contains(&(l.invoice_id, l.code.clone())) {
@@ -186,6 +229,42 @@ mod tests {
             unit: "عدد".into(),
             unit_price: 1000,
         }
+    }
+
+    /// PI-24: before `since`, a line a finished run held is taken (R-f), one an unfinished run
+    /// aggregated is left out and its date reported, a marked one is neither, and any other line
+    /// is left out silently as before.
+    #[test]
+    fn lines_earlier_runs_left_unmarked_are_carried_or_reported() {
+        let lines = vec![
+            line(1, InvoiceKind::Sale, true, "1405/07/01", "A", "a", 2),
+            line(2, InvoiceKind::Sale, true, "1405/07/02", "B", "b", 3),
+            line(3, InvoiceKind::Sale, true, "1405/07/03", "C", "c", 4),
+            line(4, InvoiceKind::Sale, true, "1405/07/04", "D", "d", 5),
+            line(5, InvoiceKind::Sale, true, "1405/09/02", "A", "a", 1),
+        ];
+        let carried = Carried {
+            finished: HashSet::from([(1, "A".to_string()), (3, "C".to_string())]),
+            unfinished: HashSet::from([(2, "B".to_string())]),
+        };
+        let already = HashSet::from([(3, "C".to_string())]);
+        let agg = aggregate_carrying(
+            &lines,
+            ImportMode::Quantity,
+            Some("1405/09/01"),
+            &already,
+            &carried,
+        );
+        let a = agg.items.iter().find(|i| i.code == "A").unwrap();
+        assert_eq!((a.qty, a.invoice_ids.clone()), (3, vec![1, 5]));
+        assert_eq!(agg.items.len(), 1, "B, C and D stay out: {:?}", agg.items);
+        assert_eq!(agg.carried, 1);
+        assert_eq!(agg.carried_codes, vec!["A".to_string()]);
+        assert_eq!(agg.left_before_since, vec!["1405/07/02".to_string()]);
+        assert!(
+            agg.skipped_imported.is_empty(),
+            "a marked line before the date is not counted"
+        );
     }
 
     #[test]

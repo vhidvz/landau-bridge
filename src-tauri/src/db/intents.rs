@@ -281,6 +281,50 @@ impl Db {
         self.intents_where("status = 'SUPERSEDED' AND resolved_at IS NULL")
     }
 
+    /// Quantity writes reconciliation judged never landed, which the next quantity write onto
+    /// their row or lines has not yet read again (PI-23): reconciliation's reads may still have
+    /// lagged behind a landing.
+    pub fn rechecks(&self) -> Result<Vec<IntentRow>> {
+        // filtered in SQL: every refused write closes `NOT_LANDED` too, and that set only grows
+        self.intents_where("status = 'NOT_LANDED' AND json_extract(outcome_json, '$.recheck') = 1")
+    }
+
+    /// Settle a [`Db::rechecks`] entry once its row has been read again, in one transaction:
+    /// `NOT_LANDED` again (it truly never landed), `LANDED` (its invoice lines marked) or
+    /// `SUPERSEDED` (held for the seller). `false` when it was no longer awaiting the check.
+    pub fn settle_recheck(&self, id: i64, to: &str, how: &Value) -> Result<bool> {
+        self.with(|c| {
+            let tx = c.unchecked_transaction()?;
+            let outcome: Option<String> = tx
+                .query_row(
+                    "SELECT outcome_json FROM write_intents WHERE id = ?1 AND status = 'NOT_LANDED'",
+                    [id],
+                    |r| r.get(0),
+                )
+                .optional()?
+                .flatten();
+            let Some(mut outcome) = outcome.and_then(|o| serde_json::from_str::<Value>(&o).ok())
+            else {
+                return Ok(false);
+            };
+            if outcome["recheck"] != true {
+                return Ok(false);
+            }
+            outcome["recheck"] = json!(false);
+            outcome["rechecked"] = how.clone();
+            tx.execute(
+                "UPDATE write_intents SET status = ?2, outcome_json = ?3, closed_at = ?4
+                 WHERE id = ?1 AND status = 'NOT_LANDED'",
+                params![id, to, outcome.to_string(), now()],
+            )?;
+            if to == status::LANDED {
+                mark_lines(&tx, id)?;
+            }
+            tx.commit()?;
+            Ok(true)
+        })
+    }
+
     fn intents_where(&self, filter: &str) -> Result<Vec<IntentRow>> {
         self.with(|c| {
             let mut st = c.prepare(&format!(

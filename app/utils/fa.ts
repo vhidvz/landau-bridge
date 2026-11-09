@@ -90,6 +90,7 @@ export const kindLabel = (kind: string): string =>
     InvoiceUnpaid: 'فاکتور پرداخت‌نشده',
     InvoiceAlreadyImported: 'فاکتور قبلاً منتقل‌شده',
     LineNonPositiveQty: 'ردیف با تعداد صفر',
+    LinesBeforeSince: 'ردیف پیش از «از تاریخ»',
     LandauUnauthorized: 'کلید API لاندا',
     LandauForbidden: 'عدم مجوز در لاندا',
     LandauUnreachable: 'اتصال به لاندا',
@@ -201,7 +202,7 @@ export const reportEventText = (e: { phase: string; message: string }, kind: 'IM
 export type KindFamily = 'supplier' | 'landau' | 'app';
 /** Which side an error kind belongs to — the split that tells the seller whom to call. */
 export const kindFamily = (kind: string): KindFamily => {
-  if (/^Supplier|^Invoice|^(NoCurrentPrice|LineNonPositiveQty|VatRateMismatch)$/.test(kind)) return 'supplier';
+  if (/^Supplier|^Invoice|^(NoCurrentPrice|LineNonPositiveQty|LinesBeforeSince|VatRateMismatch)$/.test(kind)) return 'supplier';
   if (/^Landau|^(BusinessNotApproved|NoStore|ProductNotApproved|DuplicateRow|MirrorTimeout|NoPricingRule|BelowMinMargin|RepriceSkipped|RegistryIncomplete|WriteUnconfirmed)$/.test(kind)) return 'landau';
   return 'app';
 };

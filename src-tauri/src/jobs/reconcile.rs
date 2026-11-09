@@ -195,6 +195,13 @@ fn settle(ctx: &JobCtx, intent: &IntentRow, now: &RowState, verdict: Verdict) ->
         "snapshot": intent.snapshot,
         "target": {"inventory": intent.target_inventory, "cost": intent.target_cost},
         "reconciled_by": ctx.job_id,
+        // PI-23: "never landed" rests on reads a lagging mirror can still fool; the next write onto
+        // this row or these lines reads the row again before adding anything
+        // ([`crate::landau::writer`]). Only a write that transfers invoice lines adds units twice
+        // if it landed late; a cost-only or zero write sets absolute values.
+        "recheck": verdict == Verdict::NotLanded
+            && intent.target_inventory.is_some()
+            && !intent.lines.is_empty(),
     });
     let (to, note) = match verdict {
         Verdict::Landed => (
@@ -517,6 +524,505 @@ mod tests {
         assert!(
             ctx.db.unresolved_superseded().unwrap().is_empty(),
             "nothing held"
+        );
+    }
+
+    /// The job's own proven write of `qty` onto `p1` at 1 000, from link «قطعه» (code C1).
+    fn proven_write(db: &Db, job: i64, qty: i64) -> crate::jobs::proof::ProvenWrite {
+        proven_write_on(db, job, ("قطعه", "C1"), "p1", qty)
+    }
+
+    /// [`proven_write`] from link `name` (code) onto `product`.
+    fn proven_write_on(
+        db: &Db,
+        job: i64,
+        (name, code): (&str, &str),
+        product: &str,
+        qty: i64,
+    ) -> crate::jobs::proof::ProvenWrite {
+        use crate::db::matches::{state, LinkProduct};
+        use crate::jobs::proof::{plan_import, ImportCandidate, Planned};
+        db.set_match(
+            "barezpakhsh",
+            name,
+            code,
+            Some((product, "x")),
+            "USER",
+            None,
+        )
+        .unwrap();
+        let p = LinkProduct {
+            id: product,
+            name: "x",
+            brand: Some(""),
+            alias: Some(""),
+        };
+        let key = crate::matching::normalize::name_key(name);
+        let read = db.link_by_key("barezpakhsh", &key).unwrap().unwrap();
+        let v = db
+            .validate_link(
+                "barezpakhsh",
+                &key,
+                read.link_version,
+                p,
+                state::VALID,
+                None,
+                job,
+            )
+            .unwrap()
+            .unwrap();
+        let plan = plan_import(
+            db,
+            "barezpakhsh",
+            job,
+            &[ImportCandidate {
+                item_id: 1,
+                product: product.into(),
+                authenticity: crate::domain::Authenticity::Original,
+                cost: 1_000,
+                qty,
+                link_key: key,
+                link_version: v,
+            }],
+            &Default::default(),
+            &Default::default(),
+        )
+        .unwrap();
+        match plan.into_iter().next().unwrap() {
+            Planned::Write(w) => w,
+            p => panic!("{p:?}"),
+        }
+    }
+
+    /// PI-23's run: job 1's quantity patch (3 → 5 at 1 000, line C1) lost its reply. This job's
+    /// reconciliation reads the whole shelf twice and both reads still show the snapshot (the
+    /// mirror lags past the settle), so the intent closes `NOT_LANDED` and line C1 is released;
+    /// the job aggregates it again (2 units) and writes. The writer's fresh read — a term read,
+    /// later than both — answers `fresh`.
+    async fn written_after_a_late_mirror(
+        fresh: String,
+    ) -> (
+        Result<crate::landau::writer::Written>,
+        stub::Seen,
+        JobCtx,
+        i64,
+        i64,
+    ) {
+        let db = Db::in_memory().unwrap();
+        let inv = invoice(&db, "7010");
+        let id = open_patch(&db, 1, "store", inv, 1);
+        let ctx = ctx(db);
+        let (url, seen) = stub::serve(move |r| {
+            if r.path.contains("deleted=true") {
+                Reply::Status(200, page(&[]))
+            } else if r.method == "PATCH" {
+                Reply::Status(200, row_json("s1", "p1", 5, 1_000))
+            } else if r.path.contains("term=") {
+                Reply::Status(200, page(std::slice::from_ref(&fresh)))
+            } else {
+                Reply::Status(200, page(&[row_json("s1", "p1", 3, 900)]))
+            }
+        });
+        let client = LandauClient::new(&url, "apt-test").unwrap();
+        reconcile_with(&ctx, &client, "store", Duration::ZERO)
+            .await
+            .unwrap();
+        assert_eq!(
+            ctx.db.intent(id).unwrap().unwrap().status,
+            status::NOT_LANDED,
+            "both lagging reads showed the snapshot"
+        );
+        let w = proven_write(&ctx.db, ctx.job_id, 2);
+        let lines = vec![(inv, "C1".to_string())];
+        let req = crate::landau::writer::ImportWrite {
+            store: "store",
+            mode: crate::domain::ImportMode::Quantity,
+            available: true,
+            min_margin_percent: 15.0,
+            term: "قطعه",
+            lines: &lines,
+        };
+        let mut shelf = vec![row("s1", 3, 900)];
+        let out = crate::landau::writer::ShelfWriter::new(&client, &ctx.db, "barezpakhsh")
+            .import(&w, &req, &mut shelf)
+            .await;
+        (out, seen, ctx, id, inv)
+    }
+
+    /// PI-23 (DoD 24's review, finding 2): by WRITE the mirror shows job 1's patch landed (5, its
+    /// stamp moved). The job's write of the same line is held — never 5 + 2 — and job 1's write is
+    /// settled `LANDED` after all, its line marked, so no later job adds it either.
+    #[tokio::test]
+    async fn a_landing_the_mirror_showed_late_is_never_added_twice() {
+        let landed = row_json("s1", "p1", 5, 1_000).replace("09:00:00", "09:00:12");
+        let (out, seen, ctx, id, inv) = written_after_a_late_mirror(landed).await;
+        assert!(matches!(out, Err(BridgeError::RowChanged(_))), "{out:?}");
+        assert!(
+            stub::writes(&seen).is_empty(),
+            "nothing sent: {:?}",
+            stub::lines(&seen)
+        );
+        assert_eq!(ctx.db.intent(id).unwrap().unwrap().status, status::LANDED);
+        assert!(ctx
+            .db
+            .imported_lines()
+            .unwrap()
+            .contains(&(inv, "C1".into())));
+    }
+
+    /// The fresh read still shows the snapshot: job 1's write truly never landed, and this job's
+    /// write goes on (3 + 2). A row that moved some other way (a sale: 2, its stamp moved) is held
+    /// for the seller, the earlier write superseded, its line unmarked.
+    #[tokio::test]
+    async fn a_never_landed_write_is_rechecked_once_by_the_writer() {
+        let (out, seen, ctx, id, _) =
+            written_after_a_late_mirror(row_json("s1", "p1", 3, 900)).await;
+        let done = out.unwrap();
+        assert_eq!(done.qty_after, Some(5));
+        assert_eq!(stub::writes(&seen).pop().unwrap().json()["inventory"], 5);
+        assert_eq!(
+            ctx.db.intent(id).unwrap().unwrap().status,
+            status::NOT_LANDED
+        );
+        assert!(ctx.db.rechecks().unwrap().is_empty(), "checked once");
+
+        let sold = row_json("s1", "p1", 2, 900).replace("09:00:00", "09:03:00");
+        let (out, seen, ctx, id, _) = written_after_a_late_mirror(sold).await;
+        assert!(matches!(out, Err(BridgeError::RowChanged(_))), "{out:?}");
+        assert!(stub::writes(&seen).is_empty());
+        assert_eq!(
+            ctx.db.intent(id).unwrap().unwrap().status,
+            status::SUPERSEDED
+        );
+        assert!(ctx.db.imported_lines().unwrap().is_empty());
+        assert!(ctx
+            .db
+            .unresolved_superseded()
+            .unwrap()
+            .iter()
+            .any(|i| i.id == id));
+    }
+
+    /// PI-23's review, finding 1: job 1's write carried codes C1 and C2 onto `p1`. Its reply was
+    /// lost and the mirror lagged past the settle, so this job's reconciliation released both lines;
+    /// C2 has since been linked to `p2`. The job's first write (C1, onto `p1`) finds job 1's write
+    /// landed after all and marks both lines. Its second write (C2, onto `p2`) must not send C2's
+    /// units again: they are on `p1`.
+    #[tokio::test]
+    async fn a_line_marked_mid_job_is_never_sent_again() {
+        let db = Db::in_memory().unwrap();
+        let inv = invoice(&db, "7012");
+        let snap = RowState::of(&row("s1", 3, 900), place::LIVE);
+        let old = db
+            .open_intent(&NewIntent {
+                job_id: 1,
+                kind: "IMPORT",
+                store: "store",
+                product: "p1",
+                authenticity: "ORIGINAL",
+                verb: "PATCH",
+                snapshot: &snap,
+                target_inventory: Some(5),
+                target_cost: 1_000,
+                items: &[1, 2],
+                lines: &[(inv, "C1".into()), (inv, "C2".into())],
+            })
+            .unwrap();
+        let ctx = ctx(db);
+        let landed = row_json("s1", "p1", 5, 1_000).replace("09:00:00", "09:00:12");
+        let (url, seen) = stub::serve(move |r| {
+            if r.path.contains("deleted=true") {
+                Reply::Status(200, page(&[]))
+            } else if r.method != "GET" {
+                Reply::Status(201, row_json("s2", "p2", 1, 1_000))
+            } else if r.path.contains("term=") {
+                Reply::Status(200, page(std::slice::from_ref(&landed)))
+            } else {
+                Reply::Status(200, page(&[row_json("s1", "p1", 3, 900)]))
+            }
+        });
+        let client = LandauClient::new(&url, "apt-test").unwrap();
+        reconcile_with(&ctx, &client, "store", Duration::ZERO)
+            .await
+            .unwrap();
+        let writer = crate::landau::writer::ShelfWriter::new(&client, &ctx.db, "barezpakhsh");
+        let req = |lines| crate::landau::writer::ImportWrite {
+            store: "store",
+            mode: crate::domain::ImportMode::Quantity,
+            available: true,
+            min_margin_percent: 15.0,
+            term: "قطعه",
+            lines,
+        };
+        let first = proven_write_on(&ctx.db, ctx.job_id, ("قطعه", "C1"), "p1", 1);
+        let c1 = vec![(inv, "C1".to_string())];
+        let out = writer
+            .import(&first, &req(&c1), &mut vec![row("s1", 3, 900)])
+            .await;
+        assert!(matches!(out, Err(BridgeError::RowChanged(_))), "{out:?}");
+        assert_eq!(ctx.db.intent(old).unwrap().unwrap().status, status::LANDED);
+
+        let second = proven_write_on(&ctx.db, ctx.job_id, ("قطعه دوم", "C2"), "p2", 1);
+        let c2 = vec![(inv, "C2".to_string())];
+        let out = writer.import(&second, &req(&c2), &mut Vec::new()).await;
+        assert!(matches!(out, Err(BridgeError::RowChanged(_))), "{out:?}");
+        assert!(
+            stub::writes(&seen).is_empty(),
+            "nothing sent: {:?}",
+            stub::lines(&seen)
+        );
+    }
+
+    /// PI-23's review, finding 3: only a write that transfers invoice lines is read again — a ZERO
+    /// attach (inventory 0, no lines) adds no units if it landed late. And a refresh onto a row
+    /// whose quantity write was read as never landed settles it from its own fresh read: at the
+    /// snapshot the flag clears once the refresh lands; at the target the earlier write is
+    /// settled `LANDED` (its line marked) and the refresh, which adds nothing, still writes. Left
+    /// flagged, the refresh's own move of the row would later read as a change from outside.
+    #[tokio::test]
+    async fn only_unit_writes_are_reread_and_a_refresh_settles_them() {
+        // a ZERO attach is not flagged
+        let db = Db::in_memory().unwrap();
+        let attach = db
+            .open_intent(&NewIntent {
+                job_id: 1,
+                kind: "IMPORT",
+                store: "store",
+                product: "p1",
+                authenticity: "ORIGINAL",
+                verb: "ATTACH",
+                snapshot: &RowState::absent(),
+                target_inventory: Some(0),
+                target_cost: 1_000,
+                items: &[1],
+                lines: &[],
+            })
+            .unwrap();
+        let ctx0 = ctx(db);
+        let (url, _) = stub::serve(|_| Reply::Status(200, page(&[])));
+        let client = LandauClient::new(&url, "apt-test").unwrap();
+        reconcile_with(&ctx0, &client, "store", Duration::ZERO)
+            .await
+            .unwrap();
+        assert_eq!(
+            ctx0.db.intent(attach).unwrap().unwrap().status,
+            status::NOT_LANDED
+        );
+        assert!(ctx0.db.rechecks().unwrap().is_empty(), "not flagged");
+
+        // a refresh over a flagged quantity write, its fresh read at `fresh`
+        let refresh = |fresh: String| async move {
+            let db = Db::in_memory().unwrap();
+            let inv = invoice(&db, "7013");
+            let id = open_patch(&db, 1, "store", inv, 1);
+            let ctx = ctx(db);
+            let (url, seen) = stub::serve(move |r| {
+                if r.path.contains("deleted=true") {
+                    Reply::Status(200, page(&[]))
+                } else if r.method == "PATCH" {
+                    Reply::Status(200, row_json("s1", "p1", 3, 1_200))
+                } else if r.path.contains("term=") {
+                    Reply::Status(200, page(std::slice::from_ref(&fresh)))
+                } else {
+                    Reply::Status(200, page(&[row_json("s1", "p1", 3, 900)]))
+                }
+            });
+            let client = LandauClient::new(&url, "apt-test").unwrap();
+            reconcile_with(&ctx, &client, "store", Duration::ZERO)
+                .await
+                .unwrap();
+            let link = {
+                proven_write(&ctx.db, ctx.job_id, 0);
+                ctx.db
+                    .match_for_name("barezpakhsh", "قطعه")
+                    .unwrap()
+                    .unwrap()
+            };
+            let crate::jobs::proof::Planned::Write(w) = crate::jobs::proof::prove_refresh(
+                &ctx.db,
+                "barezpakhsh",
+                ctx.job_id,
+                9,
+                "s1",
+                "p1",
+                &[(link, Some(1_200))],
+            )
+            .unwrap() else {
+                panic!("a refresh write")
+            };
+            let out = crate::landau::writer::ShelfWriter::new(&client, &ctx.db, "barezpakhsh")
+                .refresh(&w, "store", true, &row("s1", 3, 900))
+                .await;
+            (out, seen, ctx, id, inv)
+        };
+        let (out, seen, ctx, id, _) = refresh(row_json("s1", "p1", 3, 900)).await;
+        assert!(out.is_ok(), "{out:?}");
+        assert_eq!(stub::writes(&seen).len(), 1);
+        assert_eq!(
+            ctx.db.intent(id).unwrap().unwrap().status,
+            status::NOT_LANDED
+        );
+        assert!(
+            ctx.db.rechecks().unwrap().is_empty(),
+            "settled by the refresh"
+        );
+
+        let landed = row_json("s1", "p1", 5, 1_000).replace("09:00:00", "09:00:12");
+        let (out, seen, ctx, id, inv) = refresh(landed).await;
+        assert!(out.is_ok(), "the refresh adds no units: {out:?}");
+        assert_eq!(stub::writes(&seen).len(), 1);
+        assert_eq!(ctx.db.intent(id).unwrap().unwrap().status, status::LANDED);
+        assert!(ctx
+            .db
+            .imported_lines()
+            .unwrap()
+            .contains(&(inv, "C1".into())));
+    }
+
+    /// PI-23's review, finding 4: a never-landed restore (its row was in the trash) is met by a
+    /// write whose fresh read — live rows only — finds no row. That says nothing of the trash:
+    /// the intent waits for the restore path's own check, never superseded on the absence.
+    #[tokio::test]
+    async fn a_never_landed_restore_is_not_superseded_by_a_live_read() {
+        let db = Db::in_memory().unwrap();
+        let inv = invoice(&db, "7014");
+        let mut trashed = RowState::of(&row("s1", 3, 900), place::TRASH);
+        trashed.place = place::TRASH.into();
+        let id = db
+            .open_intent(&NewIntent {
+                job_id: 1,
+                kind: "IMPORT",
+                store: "store",
+                product: "p1",
+                authenticity: "ORIGINAL",
+                verb: "RESTORE",
+                snapshot: &trashed,
+                target_inventory: Some(2),
+                target_cost: 1_000,
+                items: &[1],
+                lines: &[(inv, "C1".into())],
+            })
+            .unwrap();
+        let ctx = ctx(db);
+        let trash_row = row_json("s1", "p1", 3, 900);
+        let (url, seen) = stub::serve(move |r| match r.method.as_str() {
+            "GET" if r.path.contains("deleted=true") => {
+                Reply::Status(200, page(std::slice::from_ref(&trash_row)))
+            }
+            "GET" => Reply::Status(200, page(&[])),
+            "POST" if r.path.contains("restore") => {
+                Reply::Status(200, row_json("s1", "p1", 3, 900))
+            }
+            "POST" => Reply::Status(409, "{}".into()),
+            _ => Reply::Status(200, row_json("s1", "p1", 2, 1_000)),
+        });
+        let client = LandauClient::new(&url, "apt-test").unwrap();
+        reconcile_with(&ctx, &client, "store", Duration::ZERO)
+            .await
+            .unwrap();
+        assert_eq!(
+            ctx.db.intent(id).unwrap().unwrap().status,
+            status::NOT_LANDED
+        );
+        let w = proven_write(&ctx.db, ctx.job_id, 2);
+        let lines = vec![(inv, "C1".to_string())];
+        let req = crate::landau::writer::ImportWrite {
+            store: "store",
+            mode: crate::domain::ImportMode::Quantity,
+            available: true,
+            min_margin_percent: 15.0,
+            term: "قطعه",
+            lines: &lines,
+        };
+        let out = crate::landau::writer::ShelfWriter::new(&client, &ctx.db, "barezpakhsh")
+            .import(&w, &req, &mut Vec::new())
+            .await;
+        assert!(out.is_ok(), "{out:?} {:?}", stub::lines(&seen));
+        assert_eq!(
+            ctx.db.intent(id).unwrap().unwrap().status,
+            status::NOT_LANDED,
+            "still never landed, the trash row unchanged"
+        );
+        assert!(ctx.db.rechecks().unwrap().is_empty());
+    }
+
+    /// PI-23 through an attach: job 1's attach (2 at 1 000, line C1) lost its reply, and the mirror
+    /// still lacks the row at reconciliation and at this job's fresh read, so this job attaches
+    /// again. Landau answers 409 — the row exists — and the re-read now finds it at job 1's
+    /// target: that attach landed after all. Held, nothing patched on top, job 1's line marked.
+    #[tokio::test]
+    async fn an_attach_answered_409_after_a_never_landed_attach_is_held() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+        let db = Db::in_memory().unwrap();
+        let inv = invoice(&db, "7011");
+        let snap = RowState::absent();
+        let old = db
+            .open_intent(&NewIntent {
+                job_id: 1,
+                kind: "IMPORT",
+                store: "store",
+                product: "p1",
+                authenticity: "ORIGINAL",
+                verb: "ATTACH",
+                snapshot: &snap,
+                target_inventory: Some(2),
+                target_cost: 1_000,
+                items: &[1],
+                lines: &[(inv, "C1".into())],
+            })
+            .unwrap();
+        let ctx = ctx(db);
+        let live_reads = Arc::new(AtomicUsize::new(0));
+        let n = live_reads.clone();
+        let (url, seen) = stub::serve(move |r| match r.method.as_str() {
+            "POST" => Reply::Status(409, r#"{"message":"exists"}"#.into()),
+            "GET" if r.path.contains("deleted=true") || r.path.contains("term=") => {
+                Reply::Status(200, page(&[]))
+            }
+            // reconciliation's two reads lag; the read after the 409 does not
+            "GET" if n.fetch_add(1, Ordering::SeqCst) < 2 => Reply::Status(200, page(&[])),
+            "GET" => Reply::Status(200, page(&[row_json("s9", "p1", 2, 1_000)])),
+            _ => Reply::Status(500, "{}".into()),
+        });
+        let client = LandauClient::new(&url, "apt-test").unwrap();
+        reconcile_with(&ctx, &client, "store", Duration::ZERO)
+            .await
+            .unwrap();
+        assert_eq!(
+            ctx.db.intent(old).unwrap().unwrap().status,
+            status::NOT_LANDED
+        );
+        let w = proven_write(&ctx.db, ctx.job_id, 2);
+        let lines = vec![(inv, "C1".to_string())];
+        let req = crate::landau::writer::ImportWrite {
+            store: "store",
+            mode: crate::domain::ImportMode::Quantity,
+            available: true,
+            min_margin_percent: 15.0,
+            term: "قطعه",
+            lines: &lines,
+        };
+        let out = crate::landau::writer::ShelfWriter::new(&client, &ctx.db, "barezpakhsh")
+            .import(&w, &req, &mut Vec::new())
+            .await;
+        assert!(matches!(out, Err(BridgeError::RowChanged(_))), "{out:?}");
+        assert!(
+            stub::writes(&seen).iter().all(|r| r.method == "POST"),
+            "no patch on top: {:?}",
+            stub::lines(&seen)
+        );
+        assert_eq!(ctx.db.intent(old).unwrap().unwrap().status, status::LANDED);
+        assert!(ctx
+            .db
+            .imported_lines()
+            .unwrap()
+            .contains(&(inv, "C1".into())));
+        let mine = ctx.db.intent(old + 1).unwrap().unwrap();
+        assert_eq!(
+            mine.status,
+            status::NOT_LANDED,
+            "this attach landed nothing"
         );
     }
 

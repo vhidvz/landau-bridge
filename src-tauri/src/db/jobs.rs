@@ -195,6 +195,40 @@ pub struct ShelfWrite {
 }
 
 impl Db {
+    /// The `(invoice, code)` lines QUANTITY imports before `job` aggregated and did not write (PI-24),
+    /// split by how their run ended. `finished`: a run that ended `DONE` held them — skipped for an
+    /// identity reason, a missing price or a deferred decision, or failed in transfer — and R-f says
+    /// a held line is transferred once resolved. `unfinished`: a run cancelled, failed or interrupted
+    /// left them. A line the seller decided is not in Landau (`NoneDecision`) is in neither: it was
+    /// decided, not held, and carried it would arrive whole the day the part is linked. Marked lines
+    /// are the caller's to leave out.
+    pub fn aggregated_lines(&self, job: i64) -> Result<crate::jobs::planner::Carried> {
+        let rows: Vec<(String, String, String)> = self.with(|c| {
+            let mut st = c.prepare(
+                "SELECT j.status, i.code, i.invoice_ids_json FROM job_items i
+                 JOIN jobs j ON j.id = i.job_id
+                 WHERE j.kind = 'IMPORT' AND j.mode = 'QUANTITY' AND j.id < ?1
+                   AND i.invoice_ids_json IS NOT NULL
+                   AND i.status NOT IN ('WRITTEN', 'DONE')
+                   AND COALESCE(i.error_kind, '') <> 'NoneDecision'
+                   AND (j.status <> 'DONE' OR i.status IN ('SKIPPED', 'FAILED'))",
+            )?;
+            let rows = st.query_map([job], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+            rows.collect()
+        })?;
+        let mut out = crate::jobs::planner::Carried::default();
+        for (status, code, invoices) in rows {
+            let invoices: Vec<i64> = serde_json::from_str(&invoices).unwrap_or_default();
+            let set = if status == "DONE" {
+                &mut out.finished
+            } else {
+                &mut out.unfinished
+            };
+            set.extend(invoices.into_iter().map(|inv| (inv, code.clone())));
+        }
+        Ok(out)
+    }
+
     /// Every cost a job left on a shelf row, oldest first (see [`ShelfWrite`]): the items stamped
     /// written, then the items of landed intents that were not (a lost reply settled by a later job).
     pub fn shelf_writes(&self) -> Result<Vec<ShelfWrite>> {
@@ -480,6 +514,54 @@ impl Db {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// PI-24, its review: only a line an earlier QUANTITY run *held* is carried past «از تاریخ» —
+    /// never one the seller decided is not in Landau (it would come back, every unit at once, the
+    /// day the part is linked), nor a written one.
+    #[test]
+    fn only_held_lines_of_earlier_runs_are_carried() {
+        let db = Db::in_memory().unwrap();
+        let item = |job: i64, code: &str, invoice: i64, status: &str, kind: Option<&str>| {
+            let id = db.add_job_item(job, code, code, 1).unwrap();
+            let mut patch = vec![
+                ("invoice_ids_json", crate::jobs::t(&format!("[{invoice}]"))),
+                ("status", crate::jobs::t(status)),
+            ];
+            if let Some(k) = kind {
+                patch.push(("error_kind", crate::jobs::t(k)));
+            }
+            db.update_job_item(id, &patch).unwrap();
+        };
+        let done = db
+            .create_job("IMPORT", Some("QUANTITY"), None, "store", false)
+            .unwrap();
+        item(done, "N", 1, "SKIPPED", Some("NoneDecision"));
+        item(done, "H", 2, "SKIPPED", Some("Conflict"));
+        item(done, "F", 3, "FAILED", Some("LandauUnreachable"));
+        item(done, "U", 4, "SKIPPED", Some("Unmatched"));
+        item(done, "W", 5, "DONE", None);
+        db.set_job_status(done, "DONE", "REPORT").unwrap();
+        let cut = db
+            .create_job("IMPORT", Some("QUANTITY"), None, "store", false)
+            .unwrap();
+        item(cut, "R", 6, "REVIEW", None);
+        item(cut, "M", 7, "SKIPPED", Some("NoneDecision"));
+        db.set_job_status(cut, "CANCELLED", "REVIEW").unwrap();
+        let now = db
+            .create_job("IMPORT", Some("QUANTITY"), None, "store", false)
+            .unwrap();
+        let carried = db.aggregated_lines(now).unwrap();
+        let mut finished: Vec<_> = carried.finished.into_iter().collect();
+        finished.sort();
+        assert_eq!(
+            finished,
+            vec![(2, "H".to_string()), (3, "F".into()), (4, "U".into())]
+        );
+        assert_eq!(
+            carried.unfinished.into_iter().collect::<Vec<_>>(),
+            vec![(6, "R".to_string())]
+        );
+    }
 
     #[test]
     fn item_notes_are_appended_and_availability_is_read_back() {

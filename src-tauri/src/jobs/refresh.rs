@@ -8,10 +8,10 @@ use std::collections::HashMap;
 
 use serde_json::json;
 
-use super::proof::{prove_refresh, Judgement, Planned, ProvenWrite, Prover};
+use super::proof::{held_error, prove_refresh, Judgement, Planned, ProvenWrite, Prover};
 use super::{
-    fatal, held, i, opt_i, preflight, quote_for, read_registry, report, reprice_items, t, JobCtx,
-    Services, VatMismatches,
+    fatal, held, i, opt_i, preflight, quote_for, read_registry, renamed_reasons, report,
+    reprice_items, t, JobCtx, Services, VatMismatches,
 };
 use crate::db::matches::MatchRow;
 use crate::errors::{kinds, BridgeError, Result, IDENTITY_KINDS};
@@ -172,6 +172,18 @@ pub async fn price_row(
         };
         match quoted {
             Some(c) => {
+                if let Some(reasons) = renamed_reasons(registry, &row.product, &c) {
+                    // PI-26: the code found another name that contradicts the product
+                    ctx.db.add_item_note(
+                        id,
+                        &format!(
+                            "نام «{}» در بارزپخش به «{}» عوض شد و با قطعهٔ لاندا جور نیست؛ قیمت نوشته نشد.",
+                            link.name_seen, c.name
+                        ),
+                    )?;
+                    held(ctx, &[id], &held_error(&reasons))?;
+                    return Ok(None);
+                }
                 if c.renamed {
                     ctx.db
                         .add_item_note(id, &format!("نام در بارزپخش عوض شد: «{}»", c.name))?;

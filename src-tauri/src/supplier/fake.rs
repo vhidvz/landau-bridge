@@ -42,6 +42,22 @@ impl FakeSupplier {
         }
     }
 
+    /// The site also prices `code` today, though no invoice of this job carries it.
+    pub fn price_only(mut self, code: &str, name: &str, price: i64) -> FakeSupplier {
+        self.prices
+            .push((code.to_string(), name.to_string(), price));
+        self
+    }
+
+    /// The site now lists `code` under `name`: a name search for the invoice's spelling misses,
+    /// and only the code finds it.
+    pub fn renamed(mut self, code: &str, name: &str) -> FakeSupplier {
+        for p in self.prices.iter_mut().filter(|p| p.0 == code) {
+            p.1 = name.to_string();
+        }
+        self
+    }
+
     /// The site lists `code` as unavailable today.
     pub fn unavailable(mut self, code: &str) -> FakeSupplier {
         self.unavailable.push(code.to_string());

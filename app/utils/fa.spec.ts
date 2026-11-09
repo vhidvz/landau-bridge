@@ -104,7 +104,7 @@ describe('fa — jobs and durations', () => {
   });
 
   it('groups error kinds into families', () => {
-    for (const k of ['SupplierUnreachable', 'SupplierParse', 'SupplierFaulted', 'NoCurrentPrice', 'InvoiceUnpaid', 'LineNonPositiveQty', 'VatRateMismatch']) expect(kindFamily(k), k).toBe('supplier');
+    for (const k of ['SupplierUnreachable', 'SupplierParse', 'SupplierFaulted', 'NoCurrentPrice', 'InvoiceUnpaid', 'LineNonPositiveQty', 'LinesBeforeSince', 'VatRateMismatch']) expect(kindFamily(k), k).toBe('supplier');
     for (const k of ['LandauUnauthorized', 'LandauRejected', 'BusinessNotApproved', 'NoStore', 'ProductNotApproved', 'DuplicateRow', 'MirrorTimeout', 'NoPricingRule', 'RepriceSkipped', 'WriteUnconfirmed']) expect(kindFamily(k), k).toBe('landau');
     for (const k of ['JobCancelled', 'SettingsIncomplete', 'KeyringUnavailable', 'Db', 'Other', 'Unmatched', 'NoneDecision', 'Whatever']) expect(kindFamily(k), k).toBe('app');
   });

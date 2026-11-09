@@ -551,6 +551,16 @@ pub struct ImportCandidate {
     pub link_version: i64,
 }
 
+/// Another stored link on a product the job writes, carried by none of the job's items (PI-22):
+/// weighed as REFRESH weighs a row's links. `cost` is today's, `None` when the site lists none or
+/// the link was not proven (then its version is the one read, and it holds the row).
+#[derive(Debug, Clone, PartialEq)]
+pub struct OtherLink {
+    pub key: String,
+    pub version: i64,
+    pub cost: Option<i64>,
+}
+
 /// A write, or the items held and why.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Planned {
@@ -576,13 +586,16 @@ fn still_proven(
 /// `(product, authenticity)`: a link changed since it was proven holds its item (`LinkChanged`); a
 /// product another link of this job still waits on, or several links with different costs, hold
 /// the row (Q-3); equal costs are one write carrying the summed quantity, led by the lowest item.
-/// The answer is the same in whatever order the items come.
+/// `others` are the product's stored links no item of this job carries (PI-22): each must be proven
+/// by this job and priced at the same cost, or the row is held, so a row's cost never follows
+/// whichever of its codes was invoiced last. The answer is the same in whatever order the items come.
 pub fn plan_import(
     db: &Db,
     supplier: &str,
     job: i64,
     items: &[ImportCandidate],
     unresolved: &HashSet<String>,
+    others: &BTreeMap<String, Vec<OtherLink>>,
 ) -> Result<Vec<Planned>> {
     let mut out = Vec::new();
     let mut groups: BTreeMap<(String, &'static str), Vec<&ImportCandidate>> = BTreeMap::new();
@@ -607,24 +620,33 @@ pub fn plan_import(
     }
     for ((product, _), group) in groups {
         let ids: Vec<i64> = group.iter().map(|c| c.item_id).collect();
-        let costs: HashSet<i64> = group.iter().map(|c| c.cost).collect();
+        let extra = others.get(&product).map(Vec::as_slice).unwrap_or(&[]);
+        let mut costs: HashSet<Option<i64>> = group.iter().map(|c| Some(c.cost)).collect();
+        costs.extend(extra.iter().map(|o| o.cost));
         let links: HashSet<&str> = group.iter().map(|c| c.link_key.as_str()).collect();
+        let mut extra_unproven = false;
+        for o in extra {
+            extra_unproven |= !still_proven(db, supplier, job, &o.key, o.version, &product)?;
+        }
         if unresolved.contains(&product) {
             out.push(Planned::Held {
                 items: ids,
                 error: BridgeError::LinkConflict {
-                    links: links.len() + 1,
+                    links: links.len() + extra.len() + 1,
                 },
             });
-        } else if costs.len() > 1 {
+        } else if extra_unproven || costs.len() > 1 {
             out.push(Planned::Held {
                 items: ids,
-                error: BridgeError::LinkConflict { links: links.len() },
+                error: BridgeError::LinkConflict {
+                    links: links.len() + extra.len(),
+                },
             });
         } else {
             let mut proven: Vec<(String, i64)> = group
                 .iter()
                 .map(|c| (c.link_key.clone(), c.link_version))
+                .chain(extra.iter().map(|o| (o.key.clone(), o.version)))
                 .collect();
             proven.sort();
             proven.dedup();
@@ -1254,6 +1276,7 @@ mod tests {
                 link_version: version,
             }],
             &unresolved,
+            &BTreeMap::new(),
         )
         .unwrap();
         assert!(
@@ -1321,7 +1344,8 @@ mod tests {
             candidate(3, "row2", 50_000, 4, &d),
             candidate(7, "row3", 10_000, 1, &e),
         ];
-        let expected = plan_import(&db, SUP, job, &items, &HashSet::new()).unwrap();
+        let expected =
+            plan_import(&db, SUP, job, &items, &HashSet::new(), &BTreeMap::new()).unwrap();
         assert_eq!(expected.len(), 3);
         assert!(
             matches!(&expected[0], Planned::Held { items, error: BridgeError::LinkConflict { links: 2 } } if items == &vec![2, 5])
@@ -1339,7 +1363,7 @@ mod tests {
         permute(&mut order, 0, &mut |o| {
             let shuffled: Vec<ImportCandidate> = o.iter().map(|&i| items[i].clone()).collect();
             assert_eq!(
-                plan_import(&db, SUP, job, &shuffled, &HashSet::new()).unwrap(),
+                plan_import(&db, SUP, job, &shuffled, &HashSet::new(), &BTreeMap::new()).unwrap(),
                 expected
             );
             seen += 1;
@@ -1379,6 +1403,7 @@ mod tests {
                 candidate(2, "row2", 10, 1, &migrated),
             ],
             &HashSet::new(),
+            &BTreeMap::new(),
         )
         .unwrap();
         assert!(plan.iter().all(|p| matches!(
@@ -1442,6 +1467,45 @@ mod tests {
         ));
     }
 
+    /// PI-22: a product's other stored links, carried by no item of the job, join the collision
+    /// check — agreeing, they join the write (and the writer re-checks them); a different cost, no
+    /// price, or a link this job did not prove holds the row.
+    #[test]
+    fn a_products_other_links_join_the_collision_check() {
+        let (db, job) = db_with_job();
+        let a = proven_link(&db, job, "CW3.6", "row1");
+        let b = proven_link(&db, job, "CW4.8", "row1");
+        let items = [candidate(1, "row1", 96_800, 1, &b)];
+        let plan = |cost: Option<i64>, version: i64| {
+            let others = BTreeMap::from([(
+                "row1".to_string(),
+                vec![OtherLink {
+                    key: a.0.clone(),
+                    version,
+                    cost,
+                }],
+            )]);
+            plan_import(&db, SUP, job, &items, &HashSet::new(), &others).unwrap()
+        };
+        let held = |p: Vec<Planned>| matches!(&p[..], [Planned::Held { items, error: BridgeError::LinkConflict { links: 2 } }] if items == &vec![1]);
+        assert!(held(plan(Some(91_300), a.1)), "two costs");
+        assert!(held(plan(None, a.1)), "the other link unpriced");
+        assert!(
+            held(plan(Some(96_800), a.1 + 1)),
+            "not proven at that version"
+        );
+        let [Planned::Write(w)] = &plan(Some(96_800), a.1)[..] else {
+            panic!("agreeing links write");
+        };
+        assert_eq!(w.cost(), 96_800);
+        assert!(w.links().contains(&a) && w.links().contains(&b));
+        // never validated by this job: held
+        db.set_match(SUP, "CW3.6", "", Some(("row1", "x")), "USER", None)
+            .unwrap();
+        let fresh = db.link_by_key(SUP, &a.0).unwrap().unwrap().link_version;
+        assert!(held(plan(Some(96_800), fresh)));
+    }
+
     /// Slice 2's review: an item set aside because its link changed still holds its product —
     /// the sibling on the same row never writes its own cost alone in its place.
     #[test]
@@ -1463,6 +1527,7 @@ mod tests {
                 candidate(2, "row1", 96_800, 1, &b),
             ],
             &HashSet::new(),
+            &BTreeMap::new(),
         )
         .unwrap();
         assert_eq!(plan.len(), 2, "{plan:?}");

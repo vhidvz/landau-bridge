@@ -112,6 +112,8 @@ pub mod kinds {
     pub const NO_SUPPLIER_LINK: &str = "NoSupplierLink";
     pub const MIRROR_TIMEOUT: &str = "MirrorTimeout";
     pub const BELOW_MIN_MARGIN: &str = "BelowMinMargin";
+    /// Lines an unfinished earlier run aggregated, dated before this run's «از تاریخ» (PI-24).
+    pub const LINES_BEFORE_SINCE: &str = "LinesBeforeSince";
 }
 
 impl BridgeError {

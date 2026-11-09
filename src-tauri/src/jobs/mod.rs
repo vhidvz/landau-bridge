@@ -409,6 +409,37 @@ impl VatMismatches {
     }
 }
 
+/// The registry a job judges against after MATCH: its own read, kept past the phase (slice 4);
+/// after a restart the read a screen made since; else a new, guarded read.
+pub async fn job_registry(ctx: &JobCtx, svc: &Services) -> Result<Arc<Registry>> {
+    match svc.snapshot.latest() {
+        Some(kept) => Ok(kept.registry),
+        None => read_registry(ctx, svc, "PRICE").await,
+    }
+}
+
+/// PI-26: a quote found by its code under another name is whatever item the site gives that code
+/// today — not necessarily the part the link proved. The new name is judged against the link's
+/// product as a stored seller's pick is (Q-5): any conflict, or a number the product claims and
+/// the new name lacks, and the cost is not written. A product the registry no longer holds is not
+/// judged and holds too. `None` when the quote may be written.
+pub fn renamed_reasons(
+    registry: &Registry,
+    product: &str,
+    quote: &Costed,
+) -> Option<Vec<crate::matching::gate::Reason>> {
+    if !quote.renamed {
+        return None;
+    }
+    let Some(p) = registry.get(product) else {
+        return Some(vec![crate::matching::gate::Reason::DefinitionNotExact]);
+    };
+    let ev =
+        crate::matching::evidence::evidence(&quote.name, &quote.code, p, registry.vocabulary());
+    let reasons = crate::matching::gate::conflicts(&ev);
+    (!reasons.is_empty()).then_some(reasons)
+}
+
 /// One priced supplier row for an item (spec §14 b): by name first, then by code.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Costed {
