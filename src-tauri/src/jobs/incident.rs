@@ -1055,6 +1055,88 @@ mod tests {
         assert!(stored.covers(&clamp, CLAMP_GSR.0, site, &shown));
     }
 
+    /// PI-30: VALIDATE moves a link to the code its name now carries on the invoices, and a rename
+    /// waiting for the seller under the old code goes with it — Matches stops asking, the dashboard
+    /// stops counting it. The seller's word from a screen read before the move lands as what that
+    /// screen showed — the old code under the site's name, honoured for nothing else — and asks
+    /// nothing more.
+    #[test]
+    fn a_rename_stops_waiting_once_the_link_moves_to_another_code() {
+        use crate::matching::gate::Reason;
+        let db = Db::in_memory().unwrap();
+        link(&db, CLAMP_GSR, "USER", &clamp_57eb());
+        let registry = Registry::from_products(registry());
+        let clamp = clamp_57eb().id;
+        let site = "بست کمري 300*3/6 GSR سفيد";
+        let now = || {
+            db.match_for_name(SUPPLIER_ID, CLAMP_GSR.1)
+                .unwrap()
+                .unwrap()
+        };
+        let v = now().link_version;
+        let shown = match import::confirm_rename(
+            &db,
+            &registry,
+            CLAMP_GSR.1,
+            v,
+            &clamp,
+            CLAMP_GSR.0,
+            site,
+            None,
+        ) {
+            Err(BridgeError::ConfirmRequired { reasons }) => {
+                serde_json::from_str::<Vec<Reason>>(&reasons).unwrap()
+            }
+            r => panic!("{r:?}"),
+        };
+        assert!(db
+            .note_rename(
+                SUPPLIER_ID,
+                &now().name_key,
+                v,
+                &clamp,
+                None,
+                CLAMP_GSR.0,
+                site,
+                &shown
+            )
+            .unwrap());
+        assert_eq!(db.count_links_needing_review(SUPPLIER_ID).unwrap(), 1);
+
+        // a later invoice carries the link's own name under a new code
+        let prover = crate::jobs::proof::Prover {
+            db: &db,
+            registry: &registry,
+            supplier: SUPPLIER_ID,
+            job: 1,
+            threshold: 85,
+        };
+        let moved = "8800999";
+        prover.stored_link(CLAMP_GSR.1, moved).unwrap().unwrap();
+        assert_eq!((now().code.as_str(), now().link_version), (moved, v));
+        assert_eq!(now().renamed(), None, "nothing waits under the old code");
+        assert_eq!(db.count_links_needing_review(SUPPLIER_ID).unwrap(), 0);
+
+        let late = import::confirm_rename(
+            &db,
+            &registry,
+            CLAMP_GSR.1,
+            v,
+            &clamp,
+            CLAMP_GSR.0,
+            site,
+            Some(&shown),
+        );
+        assert!(matches!(late, Ok(true)), "{late:?}");
+        let word = now().renamed().unwrap();
+        assert!(word.covers(&clamp, CLAMP_GSR.0, site, &shown));
+        assert!(
+            !word.covers(&clamp, moved, site, &shown),
+            "not the new code"
+        );
+        assert_eq!(db.count_links_needing_review(SUPPLIER_ID).unwrap(), 0);
+    }
+
     /// Slice 9's review, findings 1, 4 and 7: a rename judged from the job's read never undoes a
     /// confirmation the seller made since; a waiting record is forgotten only by a quote of its own
     /// code; a product the registry no longer holds is held without asking the seller anything.

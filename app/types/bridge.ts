@@ -172,7 +172,23 @@ export interface AuditRow {
   should_unavailable: boolean;
   /** should_cost − cost, in rials: positive when the row holds less than it should. */
   difference: number | null;
-  last_write: LastWrite | null; unproven_units: number;
+  last_write: LastWrite | null;
+  /** Units from items whose link does not prove here, not counted by the seller since (PI-19). */
+  unproven_units: number;
+  /** The transfers behind unproven_units, oldest first: what a count of the row covers. */
+  transfers: UnitTransfer[];
+  /** Units from such items the seller counted since, left out of the doubt. */
+  counted_units: number;
+}
+/** A quantity import's write onto a shelf row: the units it moved there (PI-19). */
+export interface UnitTransfer { item_id: number; job_id: number; at: string; name: string; code: string; qty: number }
+/** The seller's word that a row's stock was counted after these transfers (PI-19), still standing. */
+export interface UnitCount {
+  id: number; stock_id: string;
+  /** The row's product as the shelf reads now; null when the row is no longer on it. */
+  product_name: string | null;
+  /** The row's inventory as the audit read it when the seller counted. */
+  inventory: number; read_at: string; counted_at: string; units: number; transfers: UnitTransfer[];
 }
 /** A row whose last cost stands on an automatic link (PI-21): listed whether or not it is doubted. */
 export interface AutoWrite {
@@ -190,6 +206,10 @@ export interface Audit {
   examined: number; consistent: number;
   /** Rows whose deciding quote could not be read: neither listed nor vouched for. */
   unweighed: number; unlinked: number;
+  /** The seller's counts still standing in this store, newest first (PI-19). */
+  counts: UnitCount[];
+  /** A count was withdrawn since this audit read the shelf: the next run lists its units again; the CSV waits for it. */
+  stale: boolean;
 }
 export interface Progress { job_id: number; phase: Phase; done: number; total: number; message: string }
 export interface JobEvent { job_id: number; level: 'INFO' | 'WARN' | 'ERROR'; kind?: string; phase: string; message: string; detail?: unknown }

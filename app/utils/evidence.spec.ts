@@ -86,6 +86,9 @@ describe('evidence', () => {
     expect(waitingRename(link({ renamed_json: renamed({}) }))?.name).toBe('بست کمري 300*3/6 GSR سفيد');
     expect(waitingRename(link({ renamed_json: renamed({ confirmed_at: '2026-11-10T01:00:00Z' }) }))).toBeNull();
     expect(waitingRename(link({ renamed_json: renamed({ product_id: 'p2' }) }))).toBeNull();
+    // one name invoiced under two codes: PRICE records the other code's rename, and Matches asks about it
+    expect(waitingRename(link({ code: '8800999', renamed_json: renamed({}) }))?.code).toBe('8800094');
+    expect(linkAsksSeller(link({ code: '8800999', renamed_json: renamed({}) }))).toBe(true);
     expect(waitingRename(link({ renamed_json: 'oops' }))).toBeNull();
     expect(waitingRename(link({}))).toBeNull();
   });
@@ -94,6 +97,8 @@ describe('evidence', () => {
     expect(confirmedRename(link({ renamed_json: renamed({ confirmed_at: '2026-11-10T01:00:00Z' }) }))?.name).toBe('بست کمري 300*3/6 GSR سفيد');
     expect(confirmedRename(link({ renamed_json: renamed({}) }))).toBeNull();
     expect(confirmedRename(link({ renamed_json: renamed({ confirmed_at: '2026-11-10T01:00:00Z', product_id: 'p2' }) }))).toBeNull();
+    // PI-30: a confirmation stays shown, under its own code, after the link moves to another
+    expect(confirmedRename(link({ code: '8800999', renamed_json: renamed({ confirmed_at: '2026-11-10T01:00:00Z' }) }))?.code).toBe('8800094');
     expect(confirmedRename(link({}))).toBeNull();
   });
 

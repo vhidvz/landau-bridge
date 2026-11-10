@@ -62,6 +62,9 @@ export const bridge = {
   matchClear: (name_seen: string) => call<void>('match_clear', { name_seen }),
   auditRun: () => call<Audit>('audit_run'),
   auditExport: (path: string) => call<number>('audit_export', { path }),
+  /** PI-19: the seller counted a listed row's stock after the transfers shown; answers the kept audit. */
+  auditUnitsCount: (stock_id: string, items: number[]) => call<Audit>('audit_units_count', { stock_id, items }),
+  auditUnitsWithdraw: (count: number) => call<Audit>('audit_units_withdraw', { count }),
   errorsList: (limit = 200) => call<ErrorRow[]>('errors_list', { limit }),
   openLogFolder: () => call<void>('open_log_folder'),
   appimageInstall: () => call<string>('appimage_install'),

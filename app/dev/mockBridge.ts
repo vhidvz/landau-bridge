@@ -306,6 +306,7 @@ const audit: Audit = {
         { name: 'بست کمري CW4.8*370 تايوان آراد پارت (100)', code: 'AR1330-4', how: 'AUTO', state: 'NEEDS_REVIEW', proven: false, reasons: [{ kind: 'NUMBER_CONFLICT', lacking: ['30 cm', '3.6 mm'] }], today: { status: 'UNKNOWN', value: 'بارزپخش پاسخ نداد' }, rename: null, units: 0 },
       ],
       last_write: { job_id: 12, kind: 'IMPORT', at: '2026-11-06T06:08:00Z', names: ['بست کمري CW4.8*370 تايوان آراد پارت (100)'], cost: 96_800 }, unproven_units: 0,
+      transfers: [], counted_units: 0,
     },
     {
       stock_id: '6aecc0a1d00e9931421f9d1e', product_id: '6aec987cd00e9931421a5e12', product_name: 'بلبرینگ بزرگ چرخ عقب پراید و چرخ جلو پیکان',
@@ -315,6 +316,9 @@ const audit: Audit = {
         { name: 'بلبرينگ چرخ جلو پرايد قديم 69349 PSN عظام (54) 3154027', code: '33102017', how: 'USER', state: 'NEEDS_REVIEW', proven: false, reasons: [{ kind: 'NUMBER_CONFLICT', lacking: ['44649'] }], today: { status: 'KNOWN', value: { cost: 5_500_000, available: true, code: '33102017', name: 'بلبرينگ چرخ جلو پرايد قديم 69349 PSN عظام (54) 3154027', renamed: false } }, rename: null, units: 3 },
       ],
       last_write: { job_id: 12, kind: 'IMPORT', at: '2026-11-06T06:08:00Z', names: ['بلبرينگ چرخ جلو پرايد قديم 69349 PSN عظام (54) 3154027'], cost: 5_500_000 }, unproven_units: 3,
+      // PI-19: the 3 units a quantity import moved from the hurried pick, for the seller to count
+      transfers: [{ item_id: 1207, job_id: 14, at: '2026-11-07T09:12:00Z', name: 'بلبرينگ چرخ جلو پرايد قديم 69349 PSN عظام (54) 3154027', code: '33102017', qty: 3 }],
+      counted_units: 0,
     },
   ],
   // PI-21: every row an automatic link last wrote — the clamp row (a doubt too) and a consistent one.
@@ -333,6 +337,38 @@ const audit: Audit = {
       last_write: { job_id: 12, kind: 'IMPORT' as const, at: '2026-11-06T06:08:00Z', names: [i ? `بوش طبق پرايد فلزي سايپا يدک ${i}` : 'بلبرينگ ميل گاردان 405 (6006) ELMA7'], cost: i ? 410_000 + i * 1_000 : 5_247_000 },
     })),
   ],
+  // PI-19: a count the seller made on another row earlier
+  counts: [{
+    id: 1, stock_id: '6aecc0a1d00e9931421f9ced', product_name: 'بست کمری نایلونی 38 سانتی عرض 4.8 میلی متر مشکی', inventory: 6,
+    read_at: '2026-11-08T10:00:00Z', counted_at: '2026-11-08T10:04:00Z', units: 4,
+    transfers: [{ item_id: 1102, job_id: 13, at: '2026-11-07T08:00:00Z', name: 'بست کمري CW4.8*370 تايوان آراد پارت (100)', code: 'AR1330-4', qty: 4 }],
+  }],
+  stale: false,
+};
+
+/** PI-19 in the mock: a count takes the row's units out as the core does; a withdrawal turns the audit stale. */
+const countUnits = (stockId: string): Audit => {
+  const i = audit.rows.findIndex((r) => r.stock_id === stockId);
+  const row = audit.rows[i];
+  if (!row) throw { kind: 'Other', message: 'بازبینی پس از باز شدن صفحه عوض شد؛ دوباره بازبینی کنید.' };
+  audit.counts.unshift({ id: audit.counts.length + 2, stock_id: row.stock_id, product_name: row.product_name, inventory: row.inventory,
+    read_at: audit.read_at, counted_at: new Date().toISOString(), units: row.unproven_units, transfers: row.transfers });
+  row.counted_units += row.unproven_units; row.unproven_units = 0; row.transfers = [];
+  row.doubts = row.doubts.filter((d) => d !== 'UNPROVEN_UNITS');
+  if (!row.doubts.length) { audit.rows.splice(i, 1); audit.consistent += 1; }
+  return audit;
+};
+
+/** A withdrawal lists a listed row's units again; on a row the audit vouched for it turns the audit stale. */
+const withdrawCount = (id: number): Audit => {
+  const c = audit.counts.find((x) => x.id === id);
+  if (!c) throw { kind: 'Other', message: 'بازبینی پس از باز شدن صفحه عوض شد؛ دوباره بازبینی کنید.' };
+  audit.counts = audit.counts.filter((x) => x.id !== id);
+  const row = audit.rows.find((r) => r.stock_id === c.stock_id);
+  if (!row) { audit.stale = true; return audit; }
+  row.counted_units -= c.units; row.unproven_units += c.units; row.transfers = [...row.transfers, ...c.transfers];
+  if (!row.doubts.includes('UNPROVEN_UNITS')) row.doubts = [...row.doubts, 'UNPROVEN_UNITS'];
+  return audit;
 };
 
 export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
@@ -368,6 +404,8 @@ export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {
       case 'decisions_export': return matches.length;
     case 'audit_run': return audit;
     case 'audit_export': return audit.rows.length + audit.automatic.length;
+      case 'audit_units_count': return countUnits(String(args.stock_id));
+      case 'audit_units_withdraw': return withdrawCount(Number(args.count));
       case 'decisions_import': return importReport;
       case 'appimage_install': return '/home/vahid/.local/bin/landau-bridge.AppImage';
       case 'review_search': return [scored('p_s1', `${args.term}`, 'جست‌وجو', 66)];

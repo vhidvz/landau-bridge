@@ -23,7 +23,7 @@
 //! unavailable-only-raises rule. A correction is the seller's: resolving the row's links in Matches,
 //! then a REFRESH, whose report shows the cost before and after.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use serde::Serialize;
 
@@ -144,8 +144,51 @@ pub struct AuditRow {
     /// `should_cost − cost`, in rials: positive when the row holds less than it should.
     pub difference: Option<i64>,
     pub last_write: Option<LastWrite>,
-    /// Units transferred onto the row from supplier items whose link does not prove here.
+    /// Units transferred onto the row from supplier items whose link does not prove here, and that
+    /// the seller has not counted since (PI-19).
     pub unproven_units: i64,
+    /// The transfers behind `unproven_units`, oldest first: what a count of the row covers.
+    pub transfers: Vec<UnitTransfer>,
+    /// Units from such items the seller counted since: left out of the doubt (PI-19).
+    pub counted_units: i64,
+    /// The transfers behind `counted_units`: what a withdrawal of their count lists again.
+    #[serde(skip)]
+    counted: Vec<UnitTransfer>,
+    /// Without the units' doubt its quotes would still decide the row (another doubt, several links,
+    /// a rename on record): a fresh run quotes it. Otherwise a fresh run vouches for it unquoted.
+    #[serde(skip)]
+    decisive_once_counted: bool,
+    /// A quote that decides the row could not be read: without a doubt it is not weighed.
+    #[serde(skip)]
+    unread: bool,
+}
+
+/// A quantity import's write onto a shelf row: the units it transferred there (PI-19).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UnitTransfer {
+    /// The job item that made it.
+    pub item_id: i64,
+    pub job_id: i64,
+    /// When its job ended.
+    pub at: String,
+    pub name: String,
+    pub code: String,
+    pub qty: i64,
+}
+
+/// The seller's word that a row's stock was counted after these transfers (PI-19), still standing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UnitCount {
+    pub id: i64,
+    pub stock_id: String,
+    /// The row's product as the shelf reads now; `None` when the row is no longer on it.
+    pub product_name: Option<String>,
+    /// The row's inventory as the audit read it when the seller counted.
+    pub inventory: i64,
+    pub read_at: String,
+    pub counted_at: String,
+    pub units: i64,
+    pub transfers: Vec<UnitTransfer>,
 }
 
 /// A shelf row whose last cost stands on an automatic link (Q-6, PI-21): of the items that made the
@@ -186,6 +229,11 @@ pub struct Audit {
     pub unweighed: usize,
     /// Rows the bridge never linked or wrote — the seller's own.
     pub unlinked: usize,
+    /// The seller's counts still standing in this store, newest first (PI-19).
+    pub counts: Vec<UnitCount>,
+    /// A count was withdrawn since this audit read the shelf: only the next run lists its units
+    /// again, so the CSV waits for that run.
+    pub stale: bool,
 }
 
 /// Where the audit reads from.
@@ -265,11 +313,44 @@ fn kept_by_hold(w: &ShelfWrite) -> bool {
     w.available == Some(false) && w.cost_before.is_none_or(|before| before == w.cost)
 }
 
-/// Per shelf row: the write that left its cost (the latest one, with the items written together
-/// with it — a collision group writes one cost from several), the keys of the links it came from,
-/// and the units each link transferred onto the row.
-type Provenance = HashMap<String, (LastWrite, Vec<String>, HashMap<String, i64>)>;
+/// What the jobs left on one shelf row: the write that left its cost, when one vouches for it (the
+/// latest one, with the items written together with it — a collision group writes one cost from
+/// several), the keys of the links it came from, and every transfer of units onto the row with the
+/// key of the link it came from.
+struct Written {
+    last: Option<LastWrite>,
+    keys: Vec<String>,
+    transfers: Vec<(String, UnitTransfer)>,
+}
 
+impl Written {
+    /// The units each link transferred onto the row.
+    fn units(&self) -> HashMap<String, i64> {
+        let mut units: HashMap<String, i64> = HashMap::new();
+        for (key, t) in &self.transfers {
+            *units.entry(key.clone()).or_default() += t.qty;
+        }
+        units
+    }
+}
+
+/// A quantity import's write moves units, whatever its cost did.
+fn transfer_of(w: &ShelfWrite) -> Option<UnitTransfer> {
+    (w.kind == "IMPORT" && w.mode.as_deref() == Some("QUANTITY")).then(|| UnitTransfer {
+        item_id: w.item_id,
+        job_id: w.job_id,
+        at: w.at.clone(),
+        name: w.name.clone(),
+        code: w.code.clone(),
+        qty: w.qty,
+    })
+}
+
+type Provenance = HashMap<String, Written>;
+
+/// Per shelf row, what the jobs left on it ([`Written`]). Units count whatever the cost did: an
+/// attach records no cost before, so one at an unavailable price reads as a cost the hold kept,
+/// which vouches for nothing, yet its units are on the shelf (PI-31).
 fn provenance(writes: Vec<ShelfWrite>) -> Provenance {
     let mut by_row: HashMap<String, Vec<ShelfWrite>> = HashMap::new();
     for w in writes {
@@ -277,35 +358,44 @@ fn provenance(writes: Vec<ShelfWrite>) -> Provenance {
     }
     let mut out = Provenance::new();
     for (stock, writes) in by_row {
-        let mut units: HashMap<String, i64> = HashMap::new();
-        for w in writes
+        let transfers: Vec<(String, UnitTransfer)> = writes
             .iter()
-            .filter(|w| w.kind == "IMPORT" && w.mode.as_deref() == Some("QUANTITY"))
-        {
-            *units.entry(write_key(w)).or_default() += w.qty;
-        }
-        let Some(latest) = writes
+            .filter_map(|w| transfer_of(w).map(|t| (write_key(w), t)))
+            .collect();
+        let latest = writes
             .iter()
             .filter(|w| !kept_by_hold(w))
-            .max_by_key(|w| w.item_id)
-        else {
-            continue;
+            .max_by_key(|w| w.item_id);
+        let (last, keys) = match latest {
+            Some(latest) => {
+                let group: Vec<&ShelfWrite> = writes
+                    .iter()
+                    .filter(|w| {
+                        w.job_id == latest.job_id && w.cost == latest.cost && !kept_by_hold(w)
+                    })
+                    .collect();
+                let mut names: Vec<String> = group.iter().map(|w| w.name.clone()).collect();
+                names.dedup();
+                let last = LastWrite {
+                    job_id: latest.job_id,
+                    kind: latest.kind.clone(),
+                    at: latest.at.clone(),
+                    names,
+                    cost: latest.cost,
+                };
+                (Some(last), group.iter().map(|w| write_key(w)).collect())
+            }
+            None if transfers.is_empty() => continue,
+            None => (None, Vec::new()),
         };
-        let group: Vec<&ShelfWrite> = writes
-            .iter()
-            .filter(|w| w.job_id == latest.job_id && w.cost == latest.cost && !kept_by_hold(w))
-            .collect();
-        let mut names: Vec<String> = group.iter().map(|w| w.name.clone()).collect();
-        names.dedup();
-        let keys = group.iter().map(|w| write_key(w)).collect();
-        let last = LastWrite {
-            job_id: latest.job_id,
-            kind: latest.kind.clone(),
-            at: latest.at.clone(),
-            names,
-            cost: latest.cost,
-        };
-        out.insert(stock, (last, keys, units));
+        out.insert(
+            stock,
+            Written {
+                last,
+                keys,
+                transfers,
+            },
+        );
     }
     out
 }
@@ -343,6 +433,42 @@ fn latest_writes(writes: &[ShelfWrite]) -> HashMap<String, (LastWrite, Vec<Strin
         );
     }
     out
+}
+
+/// The counts still standing, as the page shows them: each transfer named from its job item, the
+/// row's product from the shelf when the row is still on it (PI-19).
+fn unit_counts(
+    standing: Vec<crate::db::counts::UnitCountRow>,
+    writes: &[ShelfWrite],
+    shelf: &[ShelfRow],
+) -> Vec<UnitCount> {
+    let by_item: HashMap<i64, UnitTransfer> = writes
+        .iter()
+        .filter_map(|w| transfer_of(w).map(|t| (w.item_id, t)))
+        .collect();
+    standing
+        .into_iter()
+        .map(|c| {
+            let transfers: Vec<UnitTransfer> = c
+                .items
+                .iter()
+                .filter_map(|(item, _)| by_item.get(item).cloned())
+                .collect();
+            UnitCount {
+                product_name: shelf
+                    .iter()
+                    .find(|r| r.id == c.stock_id)
+                    .and_then(|r| r.product_name.clone()),
+                units: c.items.iter().map(|(_, q)| q).sum(),
+                id: c.id,
+                stock_id: c.stock_id,
+                inventory: c.inventory,
+                read_at: c.read_at,
+                counted_at: c.counted_at,
+                transfers,
+            }
+        })
+        .collect()
 }
 
 async fn quote(sources: &Sources<'_>, name: &str, code: &str) -> Read<Option<Quoted>> {
@@ -383,6 +509,12 @@ pub async fn audit(sources: &Sources<'_>) -> Result<Audit> {
     let copy = sources.db.scratch_copy()?;
     let judged = judge_links(&copy, sources.registry, sources.threshold).await?;
     let writes = copy.shelf_writes()?;
+    let standing = copy.standing_counts(sources.store)?;
+    let counted: HashSet<i64> = standing
+        .iter()
+        .flat_map(|c| c.items.iter().map(|(item, _)| *item))
+        .collect();
+    let counts = unit_counts(standing, &writes, &shelf);
     let mut latest = latest_writes(&writes);
     let mut provenance = provenance(writes);
     let mut audit = Audit {
@@ -395,6 +527,8 @@ pub async fn audit(sources: &Sources<'_>) -> Result<Audit> {
         consistent: 0,
         unweighed: 0,
         unlinked: 0,
+        counts,
+        stale: false,
     };
     for row in &shelf {
         let links: &[Judged] = judged.get(&row.product).map(Vec::as_slice).unwrap_or(&[]);
@@ -408,21 +542,18 @@ pub async fn audit(sources: &Sources<'_>) -> Result<Audit> {
         // The last cost's own items and the latest write's, whichever the hold may have kept: an
         // automatic link among either wrote on this row (PI-21).
         let mut writer_keys: Vec<String> = Vec::new();
-        if let Some((_, k, _)) = &written {
-            writer_keys.extend(k.iter().cloned());
+        if let Some(w) = &written {
+            writer_keys.extend(w.keys.iter().cloned());
         }
         if let Some((_, k)) = &latest {
             writer_keys.extend(k.iter().cloned());
         }
-        let units = written
-            .as_ref()
-            .map(|(_, _, u)| u.clone())
-            .unwrap_or_default();
+        let units = written.as_ref().map(Written::units).unwrap_or_default();
         let last = latest
             .as_ref()
             .map(|(l, _)| l.clone())
-            .or_else(|| written.as_ref().map(|(l, _, _)| l.clone()));
-        let (weighed, verdicts) = weigh(sources, &copy, row, links, written).await?;
+            .or_else(|| written.as_ref().and_then(|w| w.last.clone()));
+        let (weighed, verdicts) = weigh(sources, &copy, row, links, written, &counted).await?;
         // weighed first: an automatic write shows its link as the row's quote left it (PI-29)
         let automatic = {
             let by = automatic_writers(&copy, row, links, &writer_keys, &units, &verdicts)?;
@@ -524,10 +655,12 @@ fn automatic_writers(
 /// What a row's weighing made of each link it quoted, by name key: `(proven, reasons, rename)`.
 type Verdicts = HashMap<String, (bool, Vec<Reason>, Option<RenamedQuote>)>;
 
-/// A rename recorded on `link` for `product`, waiting or confirmed (PI-28): its quote decides
-/// whether PRICE writes the row, so it is asked even on a row of one link (PI-29).
+/// A rename recorded on `link` for `product` and the code it prices under, waiting or confirmed
+/// (PI-28): its quote decides whether PRICE writes the row, so it is asked even on a row of one
+/// link (PI-29). A record of a code the link left decides nothing a job would (PI-30).
 fn rename_on_record(link: &MatchRow, product: &str) -> bool {
-    link.renamed().is_some_and(|r| r.product_id == product)
+    link.renamed()
+        .is_some_and(|r| r.product_id == product && r.code == link.code)
 }
 
 /// A proven link's quote through PRICE's rename rule (`jobs::rename_rule`), read-only: a code the
@@ -557,11 +690,12 @@ fn judge_quote(
         RenameRule::Writes => None,
         RenameRule::Confirmed => Some((true, Vec::new(), renamed(RenameState::Confirmed))),
         RenameRule::Holds(reasons) => {
-            // Matches asks about any unconfirmed record on the link's product (its `waitingRename`):
-            // this code under this name once a job recorded it (PI-28), else an older name
-            let waiting = link
-                .renamed()
-                .filter(|r| r.confirmed_at.is_none() && r.product_id == product);
+            // Matches asks about an unconfirmed record on the link's product (its `waitingRename`):
+            // of this code, this name once a job recorded it (PI-28), else an older name; one of
+            // another code (a name invoiced under two) is no name of this one (PI-30)
+            let waiting = link.renamed().filter(|r| {
+                r.confirmed_at.is_none() && r.product_id == product && r.code == link.code
+            });
             let held = match waiting {
                 Some(r) if r.code == q.code && name_key(&r.name) == name_key(&q.name) => {
                     renamed(RenameState::Waiting)
@@ -577,18 +711,20 @@ fn judge_quote(
     }
 }
 
-/// One row, from its links and the write that left its cost; and what it made of each link's
-/// quote.
+/// One row, from its links and what the jobs left on it; and what it made of each link's quote.
+/// A transfer the seller counted since (`counted`, by job item) is left out of the units' doubt.
 async fn weigh(
     sources: &Sources<'_>,
     copy: &Db,
     row: &ShelfRow,
     links: &[Judged],
-    written: Option<(LastWrite, Vec<String>, HashMap<String, i64>)>,
+    written: Option<Written>,
+    counted: &HashSet<i64>,
 ) -> Result<(Weighed, Verdicts)> {
-    let (last, writer_keys, units) = match written {
-        Some((last, keys, units)) => (Some(last), keys, units),
-        None => (None, Vec::new(), HashMap::new()),
+    let units = written.as_ref().map(Written::units).unwrap_or_default();
+    let (last, writer_keys, transfers) = match written {
+        Some(w) => (w.last, w.keys, w.transfers),
+        None => (None, Vec::new(), Vec::new()),
     };
     let mut doubts = Vec::new();
     if links.iter().any(|l| !l.proven) {
@@ -605,27 +741,32 @@ async fn weigh(
             doubts.push(Doubt::WriterUnlinked);
         }
     }
-    // units from links that do not prove here: one held on this row, or one no longer on it at all
+    // units from links that do not prove here: one held on this row, or one no longer on it at all;
+    // a transfer the seller counted since is theirs (PI-19)
     let proven_keys: BTreeSet<&str> = links
         .iter()
         .filter(|l| l.proven)
         .map(|l| l.link.name_key.as_str())
         .collect();
-    let unproven_units: i64 = units
-        .iter()
+    let (counted_transfers, open_transfers): (Vec<UnitTransfer>, Vec<UnitTransfer>) = transfers
+        .into_iter()
         .filter(|(k, _)| !proven_keys.contains(k.as_str()))
-        .map(|(_, u)| u)
-        .sum();
+        .map(|(_, t)| t)
+        .partition(|t| counted.contains(&t.item_id));
+    let unproven_units: i64 = open_transfers.iter().map(|t| t.qty).sum();
+    let counted_units: i64 = counted_transfers.iter().map(|t| t.qty).sum();
+    // whether the row's quotes decide something without the units' doubt (a count may remove it)
+    let decisive_once_counted = !doubts.is_empty()
+        || links.len() >= 2
+        || links
+            .iter()
+            .any(|l| rename_on_record(&l.link, &row.product));
     if unproven_units != 0 {
         doubts.push(Doubt::UnprovenUnits);
     }
     let listed = !doubts.is_empty();
     let mut verdicts = Verdicts::new();
-    let decisive = listed
-        || links.len() >= 2
-        || links
-            .iter()
-            .any(|l| rename_on_record(&l.link, &row.product));
+    let decisive = listed || decisive_once_counted;
     if !decisive {
         return Ok((Weighed::Consistent, verdicts));
     }
@@ -719,8 +860,172 @@ async fn weigh(
         links: out,
         last_write: last,
         unproven_units,
+        transfers: open_transfers,
+        counted_units,
+        counted: counted_transfers,
+        decisive_once_counted,
+        unread,
     };
     Ok((Weighed::Listed(Box::new(listed)), verdicts))
+}
+
+// ---------------------------------------------------------------------------------------------
+// The seller's counts (PI-19)
+
+/// Refused: the page shows an audit the core no longer holds as it was shown.
+pub const AUDIT_CHANGED: &str = "بازبینی پس از باز شدن صفحه عوض شد؛ دوباره بازبینی کنید.";
+/// Refused: the count was withdrawn already.
+pub const COUNT_GONE: &str = "این شمارش پیش‌تر پس گرفته شده است.";
+/// The CSV waits for a fresh run after a withdrawal.
+pub const STALE_EXPORT: &str = "شمارشی پس گرفته شد؛ پیش از ذخیرهٔ CSV دوباره بازبینی کنید.";
+
+impl Audit {
+    /// The seller counted the stock of `self.rows[pos]` after all its listed transfers (PI-19).
+    fn counted(&mut self, pos: usize, count: UnitCount) {
+        let row = &mut self.rows[pos];
+        row.counted_units += row.unproven_units;
+        row.unproven_units = 0;
+        row.counted.append(&mut row.transfers);
+        row.counted.sort_by_key(|t| t.item_id);
+        self.counts.insert(0, count);
+        self.settle(pos);
+    }
+
+    /// The seller took back `self.counts[pos]`. A row this audit lists had every link quoted, so
+    /// the count's transfers that do not prove there are listed again as a fresh run would list
+    /// them; a row it vouched for may never have been quoted, so the audit turns stale instead,
+    /// until the next run.
+    fn withdrawn(&mut self, pos: usize) {
+        let count = self.counts.remove(pos);
+        let Some(at) = self.rows.iter().position(|r| r.stock_id == count.stock_id) else {
+            self.stale = true;
+            return;
+        };
+        let row = &mut self.rows[at];
+        let items: HashSet<i64> = count.transfers.iter().map(|t| t.item_id).collect();
+        let (back, kept): (Vec<UnitTransfer>, Vec<UnitTransfer>) = std::mem::take(&mut row.counted)
+            .into_iter()
+            .partition(|t| items.contains(&t.item_id));
+        row.counted = kept;
+        let units: i64 = back.iter().map(|t| t.qty).sum();
+        row.counted_units -= units;
+        row.unproven_units += units;
+        row.transfers.extend(back);
+        row.transfers.sort_by_key(|t| t.item_id);
+        self.settle(at);
+    }
+
+    /// `self.rows[pos]` after its units moved, as a fresh run reads it: the units' doubt where
+    /// `weigh` puts it (after the link and writer doubts, before a cost disagreement) while any
+    /// remain uncounted. Without it, a row its quotes would not decide is vouched for unquoted —
+    /// what its quote showed is not looked for — and one left with no doubt leaves the list,
+    /// consistent or not weighed as its quotes were. An automatic write it leaves is no longer
+    /// marked doubted, and shows its links as a run that never quoted them does.
+    fn settle(&mut self, pos: usize) {
+        let row = &mut self.rows[pos];
+        row.doubts.retain(|d| *d != Doubt::UnprovenUnits);
+        if row.unproven_units != 0 {
+            let at = row
+                .doubts
+                .iter()
+                .position(|d| *d == Doubt::CostsDisagree)
+                .unwrap_or(row.doubts.len());
+            row.doubts.insert(at, Doubt::UnprovenUnits);
+            return;
+        }
+        let unquoted = !row.decisive_once_counted;
+        if !unquoted && !row.doubts.is_empty() {
+            return;
+        }
+        let row = self.rows.remove(pos);
+        if row.decisive_once_counted && row.unread {
+            self.unweighed += 1;
+        } else {
+            self.consistent += 1;
+        }
+        if let Some(a) = self
+            .automatic
+            .iter_mut()
+            .find(|a| a.stock_id == row.stock_id)
+        {
+            a.doubted = false;
+            if unquoted {
+                // every link proved before the quote (no doubt but the units'), so a run that
+                // never quotes the row reads each as VALIDATE left it: proven, nothing renamed
+                for l in &mut a.links {
+                    l.proven = true;
+                    l.reasons.clear();
+                    l.rename = None;
+                }
+            }
+        }
+    }
+}
+
+/// The seller's word that `stock_id`'s stock was counted after exactly `items` — the transfers the
+/// kept `audit` lists on that row, as the page showed them (PI-19). Recorded, then applied to the
+/// kept audit. Refused («بازبینی عوض شده») when the kept audit lists that row otherwise, or the
+/// store finds an item no transfer onto the row or one counted already. Nothing reaches Landau.
+pub fn count_units(db: &Db, audit: &mut Audit, stock_id: &str, items: &[i64]) -> Result<()> {
+    let changed = || crate::errors::BridgeError::Other(AUDIT_CHANGED.into());
+    if audit.stale {
+        return Err(changed());
+    }
+    let pos = audit
+        .rows
+        .iter()
+        .position(|r| r.stock_id == stock_id)
+        .ok_or_else(changed)?;
+    let row = &audit.rows[pos];
+    let shown: BTreeSet<i64> = row.transfers.iter().map(|t| t.item_id).collect();
+    let asked: BTreeSet<i64> = items.iter().copied().collect();
+    if shown.is_empty() || shown != asked || asked.len() != items.len() {
+        return Err(changed());
+    }
+    let pairs: Vec<(i64, i64)> = row.transfers.iter().map(|t| (t.item_id, t.qty)).collect();
+    let (id, counted_at) = db
+        .record_count(
+            &audit.store,
+            stock_id,
+            row.inventory,
+            &audit.read_at,
+            &pairs,
+        )?
+        .ok_or_else(changed)?;
+    let count = UnitCount {
+        id,
+        stock_id: stock_id.to_string(),
+        product_name: row.product_name.clone(),
+        inventory: row.inventory,
+        read_at: audit.read_at.clone(),
+        counted_at,
+        units: row.unproven_units,
+        transfers: row.transfers.clone(),
+    };
+    audit.counted(pos, count);
+    Ok(())
+}
+
+/// The seller takes back a count the kept `audit` shows (PI-19): stamped withdrawn and kept, then
+/// applied to the kept audit — exactly on a row it lists, as staleness on one it vouched for (see
+/// [`Audit::withdrawn`]). Refused when the audit shows no such count, or it was withdrawn.
+pub fn withdraw_count(db: &Db, audit: &mut Audit, id: i64) -> Result<()> {
+    let Some(pos) = audit.counts.iter().position(|c| c.id == id) else {
+        return Err(crate::errors::BridgeError::Other(AUDIT_CHANGED.into()));
+    };
+    if !db.withdraw_count(id)? {
+        return Err(crate::errors::BridgeError::Other(COUNT_GONE.into()));
+    }
+    audit.withdrawn(pos);
+    Ok(())
+}
+
+/// The kept audit as CSV, unless a withdrawal made it stale.
+pub fn export(audit: &Audit) -> Result<String> {
+    if audit.stale {
+        return Err(crate::errors::BridgeError::Other(STALE_EXPORT.into()));
+    }
+    Ok(csv(audit))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -871,6 +1176,24 @@ fn link_fa(l: &AuditLink) -> String {
     )
 }
 
+/// Beside a row's doubts when the seller counted units from items that do not prove there (PI-19) —
+/// the page's sentence (`app/utils/audit.ts`).
+pub fn counted_fa(units: i64) -> String {
+    format!(
+        "موجودی پس از انتقال {} از کالاهای اثبات‌نشده را خودتان شمرده‌اید",
+        units_fa(units)
+    )
+}
+
+/// Units in the seller's words: a negative sum is units sent back (a return).
+fn units_fa(units: i64) -> String {
+    if units < 0 {
+        format!("{} واحد برگشتی", -units)
+    } else {
+        format!("{units} واحد")
+    }
+}
+
 /// Appended to a doubt row's reason in the CSV when the row is an automatic write too: a row in
 /// both lists says so on both sides.
 pub const ALSO_AUTOMATIC: &str = "نوشتهٔ خودکار هم هست";
@@ -950,9 +1273,12 @@ pub fn csv(a: &Audit) -> String {
     line(header.map(String::from));
     let automatic: BTreeSet<&str> = a.automatic.iter().map(|r| r.stock_id.as_str()).collect();
     for r in &a.rows {
-        let mut why: Vec<&str> = r.doubts.iter().map(|d| doubt_fa(*d)).collect();
+        let mut why: Vec<String> = r.doubts.iter().map(|d| doubt_fa(*d).to_string()).collect();
+        if r.counted_units != 0 {
+            why.push(counted_fa(r.counted_units));
+        }
         if automatic.contains(r.stock_id.as_str()) {
-            why.push(ALSO_AUTOMATIC);
+            why.push(ALSO_AUTOMATIC.into());
         }
         let links: Vec<String> = r.links.iter().map(link_fa).collect();
         let last = r.last_write.as_ref().map(last_write_fa).unwrap_or_default();
@@ -1192,6 +1518,483 @@ mod tests {
         assert_eq!(a.consistent, 3);
     }
 
+    /// PI-31: units a quantity import moved onto a row count whatever its cost did. An attach records
+    /// no cost before, so one at an unavailable price reads as a cost the unavailable-only-raises hold
+    /// kept, which vouches for nothing — yet its units are on the shelf. A row every write of which
+    /// reads so still lists the units of an item whose link does not prove there.
+    #[tokio::test]
+    async fn units_under_a_cost_the_hold_kept_are_still_counted() {
+        let db = Db::in_memory().unwrap();
+        let landau = after_job_12(&db);
+        // v1.1.1 wrote the clamp row at an unavailable price, recording no cost before (slice 7)
+        db.with(|c| {
+            c.execute(
+                "UPDATE job_items SET available = 0 WHERE stock_id = ?1",
+                [ROW_9CEA],
+            )
+        })
+        .unwrap();
+        let job = db
+            .create_job(
+                "IMPORT",
+                Some("QUANTITY"),
+                Some("1405/08/15"),
+                incident::STORE,
+                false,
+            )
+            .unwrap();
+        // units from a code linked to another product: they do not prove on this row
+        let id = item_on(
+            &db,
+            job,
+            CLAMP_4,
+            ROW_9CEA,
+            &[("cost", 165_000), ("available", 0)],
+        );
+        db.with(|c| c.execute("UPDATE job_items SET qty = 7 WHERE id = ?1", [id]))
+            .unwrap();
+        db.set_job_status(job, "DONE", "REPORT").unwrap();
+
+        let a = run(&db, &landau, &incident::supplier()).await;
+        let row = a
+            .rows
+            .iter()
+            .find(|r| r.stock_id == ROW_9CEA)
+            .expect("its units are listed");
+        assert_eq!(row.doubts, [Doubt::UnprovenUnits]);
+        assert_eq!(row.unproven_units, 7);
+        assert_eq!(row.last_write, None, "the hold's cost vouches for nothing");
+    }
+
+    /// A quantity import's transfer of `qty` units onto the GSR clamp's `stock` from `item`, its cost
+    /// since rewritten by the row's own link; the transfer's job item id.
+    fn transfer_onto(db: &Db, item: (&str, &str), stock: &str, cost: i64, qty: i64) -> i64 {
+        let job = db
+            .create_job(
+                "IMPORT",
+                Some("QUANTITY"),
+                Some("1405/08/15"),
+                incident::STORE,
+                false,
+            )
+            .unwrap();
+        let id = item_on(db, job, item, stock, &[("cost", cost)]);
+        db.with(|c| c.execute("UPDATE job_items SET qty = ?2 WHERE id = ?1", [id, qty]))
+            .unwrap();
+        db.set_job_status(job, "DONE", "REPORT").unwrap();
+        // the row's own link rewrites the cost after it, as a refresh does: only the units stay
+        let refresh = db
+            .create_job("REFRESH", None, None, incident::STORE, false)
+            .unwrap();
+        item_on(db, refresh, incident::CLAMP_GSR, stock, &[("cost", cost)]);
+        db.set_job_status(refresh, "DONE", "REPORT").unwrap();
+        id
+    }
+
+    /// PI-19: the seller says a row's stock was counted after the transfers the audit lists on it.
+    /// The core takes the word only for exactly those transfers of the row it shows; the kept
+    /// audit then reads as a fresh run does — the row leaves the list, counted consistent — and
+    /// the next run agrees. A later transfer is listed again, alone. A withdrawal is kept on record;
+    /// on a row the kept audit lists it is applied as a fresh run reads it, and on a row it vouched
+    /// for it makes the kept audit stale (its CSV waits for a run). Nothing reaches Landau, and the
+    /// seller's links and jobs stay as they were.
+    #[tokio::test]
+    async fn a_count_takes_the_rows_units_off_the_list_until_a_new_transfer() {
+        let db = Db::in_memory().unwrap();
+        let landau = after_job_12(&db);
+        // the GSR clamp row, consistent, takes 4 units from a code linked to another product
+        let first = transfer_onto(&db, CLAMP_4, ROW_9CED, 20_900, 4);
+        let before = fingerprint(&db);
+        let mut a = run(&db, &landau, &incident::supplier()).await;
+        let row = a.rows.iter().find(|r| r.stock_id == ROW_9CED).unwrap();
+        assert_eq!(row.doubts, [Doubt::UnprovenUnits]);
+        assert_eq!((row.unproven_units, row.counted_units), (4, 0));
+        assert_eq!(
+            row.transfers.iter().map(|t| t.item_id).collect::<Vec<_>>(),
+            [first]
+        );
+        assert_eq!(row.transfers[0].name, CLAMP_4.1);
+        let (consistent, listed) = (a.consistent, a.rows.len());
+        let changed = |r: Result<()>| matches!(r, Err(crate::errors::BridgeError::Other(m)) if m == AUDIT_CHANGED);
+
+        // not what the page shows: none, another, one more, another row
+        assert!(changed(count_units(&db, &mut a, ROW_9CED, &[])));
+        assert!(changed(count_units(&db, &mut a, ROW_9CED, &[first + 1000])));
+        assert!(changed(count_units(&db, &mut a, ROW_9CED, &[first, first])));
+        assert!(changed(count_units(&db, &mut a, ROW_9CEA, &[first])));
+        assert!(db.standing_counts(incident::STORE).unwrap().is_empty());
+
+        count_units(&db, &mut a, ROW_9CED, &[first]).unwrap();
+        assert!(!a.rows.iter().any(|r| r.stock_id == ROW_9CED));
+        assert_eq!((a.rows.len(), a.consistent), (listed - 1, consistent + 1));
+        assert_eq!(a.counts.len(), 1);
+        let c = &a.counts[0];
+        assert_eq!(
+            (c.stock_id.as_str(), c.units, c.inventory),
+            (ROW_9CED, 4, landau.row(ROW_9CED).unwrap().inventory)
+        );
+        assert!(!c.counted_at.is_empty());
+        assert!(
+            changed(count_units(&db, &mut a, ROW_9CED, &[first])),
+            "counted once"
+        );
+        assert!(
+            !csv(&a).contains(ROW_9CED),
+            "the CSV follows the kept audit"
+        );
+
+        let fresh = run(&db, &landau, &incident::supplier()).await;
+        assert!(!fresh.rows.iter().any(|r| r.stock_id == ROW_9CED));
+        assert_eq!(
+            (fresh.consistent, fresh.counts.len()),
+            (a.consistent, 1),
+            "a fresh run reads as the kept audit did"
+        );
+        assert_eq!(fresh.counts[0].transfers[0].item_id, first);
+
+        // withdrawn while the kept audit vouches for the row: kept on record, the kept audit stale
+        // (it never quoted the row as a listed one), the CSV and further counts waiting for a run
+        let id = a.counts[0].id;
+        assert!(changed(withdraw_count(&db, &mut a, id + 1000)));
+        withdraw_count(&db, &mut a, id).unwrap();
+        assert!(a.stale && a.counts.is_empty());
+        assert!(
+            matches!(export(&a), Err(crate::errors::BridgeError::Other(m)) if m == STALE_EXPORT)
+        );
+        assert!(
+            changed(count_units(&db, &mut a, ROW_9CEA, &[first])),
+            "stale"
+        );
+        assert!(db.standing_counts(incident::STORE).unwrap().is_empty());
+        let mut a = run(&db, &landau, &incident::supplier()).await;
+        let row = a.rows.iter().find(|r| r.stock_id == ROW_9CED).unwrap();
+        assert_eq!((row.unproven_units, row.counted_units), (4, 0));
+        count_units(&db, &mut a, ROW_9CED, &[first]).unwrap();
+
+        // a later transfer from that code: listed again, alone, the counted units named
+        let later = transfer_onto(&db, CLAMP_4, ROW_9CED, 20_900, 2);
+        let mut a = run(&db, &landau, &incident::supplier()).await;
+        let row = a.rows.iter().find(|r| r.stock_id == ROW_9CED).unwrap();
+        assert_eq!((row.unproven_units, row.counted_units), (2, 4));
+        assert_eq!(
+            row.transfers.iter().map(|t| t.item_id).collect::<Vec<_>>(),
+            [later]
+        );
+        let text = csv(&a);
+        let line = text.lines().find(|l| l.starts_with(ROW_9CED)).unwrap();
+        assert!(line.contains(&counted_fa(4)), "{line}");
+
+        // withdrawn while the kept audit lists the row, every link quoted: applied as a fresh run
+        // reads it — all six units listed again, the kept audit not stale
+        let id = a.counts[0].id;
+        withdraw_count(&db, &mut a, id).unwrap();
+        assert!(!a.stale && a.counts.is_empty());
+        let row = a.rows.iter().find(|r| r.stock_id == ROW_9CED).unwrap();
+        assert_eq!(row.doubts, [Doubt::UnprovenUnits]);
+        assert_eq!((row.unproven_units, row.counted_units), (6, 0));
+        assert_eq!(
+            row.transfers.iter().map(|t| t.item_id).collect::<Vec<_>>(),
+            [first, later]
+        );
+        assert!(!csv(&a).contains(&counted_fa(4)));
+        let fresh = run(&db, &landau, &incident::supplier()).await;
+        let again = fresh.rows.iter().find(|r| r.stock_id == ROW_9CED).unwrap();
+        assert_eq!(
+            (
+                again.doubts.clone(),
+                again.unproven_units,
+                again.counted_units,
+                again.transfers.clone()
+            ),
+            (
+                row.doubts.clone(),
+                row.unproven_units,
+                row.counted_units,
+                row.transfers.clone()
+            ),
+            "a fresh run reads as the kept audit did"
+        );
+        assert!(export(&a).is_ok());
+
+        assert_eq!(
+            (fingerprint(&db).0, fingerprint(&db).2),
+            (before.0, before.2 + 2),
+            "the links stay; only the later transfer's jobs were added"
+        );
+        assert!(landau.writes().is_empty(), "nothing sent to Landau");
+    }
+
+    /// Slice 11's review, findings 1 and 2: after a count or a withdrawal the kept audit reads as a
+    /// fresh run does. A row of one link listed only for its units is quoted, and its quote, renamed
+    /// into a conflict, adds the link doubt; counted, no quote decides it any more, so it leaves the
+    /// list as a fresh run vouches for it unquoted. A withdrawal that brings a row's uncounted units
+    /// to zero (a return counted, the same units sent later) takes the doubt away too.
+    #[tokio::test]
+    async fn a_count_or_withdrawal_leaves_the_kept_audit_as_a_fresh_run_reads_it() {
+        let db = Db::in_memory().unwrap();
+        let landau = after_job_12(&db);
+        let gsr = incident::CLAMP_GSR;
+        let site = "بست کمري 300*3/6 GSR سفيد";
+        let renamed = || priced_with(&[]).renamed(gsr.0, site);
+        let first = transfer_onto(&db, CLAMP_4, ROW_9CED, 20_900, 4);
+        let mut a = run(&db, &landau, &renamed()).await;
+        let row = a.rows.iter().find(|r| r.stock_id == ROW_9CED).unwrap();
+        assert_eq!(row.doubts, [Doubt::UnprovenLink, Doubt::UnprovenUnits]);
+        count_units(&db, &mut a, ROW_9CED, &[first]).unwrap();
+        let fresh = run(&db, &landau, &renamed()).await;
+        let listed = |a: &Audit| {
+            a.rows
+                .iter()
+                .map(|r| r.stock_id.clone())
+                .collect::<Vec<_>>()
+        };
+        assert!(!listed(&fresh).contains(&ROW_9CED.to_string()));
+        assert_eq!(
+            (listed(&a), a.consistent, a.unweighed),
+            (listed(&fresh), fresh.consistent, fresh.unweighed)
+        );
+
+        // a return of 3 counted, then 3 sent again: taking the count back leaves nothing uncounted
+        let db = Db::in_memory().unwrap();
+        let landau = after_job_12(&db);
+        let back = transfer_onto(&db, CLAMP_4, ROW_9CED, 20_900, -3);
+        let mut a = run(&db, &landau, &incident::supplier()).await;
+        count_units(&db, &mut a, ROW_9CED, &[back]).unwrap();
+        transfer_onto(&db, CLAMP_4, ROW_9CED, 20_900, 3);
+        let mut a = run(&db, &landau, &incident::supplier()).await;
+        let row = a.rows.iter().find(|r| r.stock_id == ROW_9CED).unwrap();
+        assert_eq!((row.unproven_units, row.counted_units), (3, -3));
+        let id = a.counts[0].id;
+        withdraw_count(&db, &mut a, id).unwrap();
+        let fresh = run(&db, &landau, &incident::supplier()).await;
+        assert!(!listed(&fresh).contains(&ROW_9CED.to_string()));
+        assert_eq!(
+            (listed(&a), a.consistent, a.unweighed, a.stale),
+            (listed(&fresh), fresh.consistent, fresh.unweighed, false)
+        );
+    }
+
+    /// Slice 11's review, finding 4: once a withdrawal turned the kept audit stale, no count is taken
+    /// on it — not even of a row it still lists with transfers the store would accept.
+    #[tokio::test]
+    async fn a_stale_audit_takes_no_count() {
+        let db = Db::in_memory().unwrap();
+        let landau = after_job_12(&db);
+        let first = transfer_onto(&db, CLAMP_4, ROW_9CED, 20_900, 4);
+        let other = transfer_onto(&db, CLAMP_4, ROW_9D12, 5_247_000, 2);
+        let mut a = run(&db, &landau, &incident::supplier()).await;
+        count_units(&db, &mut a, ROW_9CED, &[first]).unwrap();
+        let id = a.counts[0].id;
+        withdraw_count(&db, &mut a, id).unwrap();
+        assert!(a.stale, "the counted row was not listed any more");
+        let row = a.rows.iter().find(|r| r.stock_id == ROW_9D12).unwrap();
+        assert_eq!(
+            row.transfers.iter().map(|t| t.item_id).collect::<Vec<_>>(),
+            [other]
+        );
+        let r = count_units(&db, &mut a, ROW_9D12, &[other]);
+        assert!(
+            matches!(&r, Err(crate::errors::BridgeError::Other(m)) if m == AUDIT_CHANGED),
+            "{r:?}"
+        );
+        assert!(db.standing_counts(incident::STORE).unwrap().is_empty());
+    }
+
+    /// PI-19: with Barezpakhsh unreachable, a row of one link listed only for its units is still
+    /// counted consistent once the seller counts it, as a fresh run reads it — that run would not
+    /// quote such a row at all — never «not weighed».
+    #[tokio::test]
+    async fn a_count_with_no_quote_readable_reads_as_a_fresh_run() {
+        let db = Db::in_memory().unwrap();
+        let landau = after_job_12(&db);
+        let first = transfer_onto(&db, CLAMP_4, ROW_9CED, 20_900, 4);
+        let unreadable = || async {
+            let registry = Registry::from_products(incident::registry());
+            let client = LandauClient::new(&landau.url, "apt-test").unwrap();
+            audit(&Sources {
+                db: &db,
+                registry: &registry,
+                registry_read_at: "2026-11-09T09:00:00Z",
+                landau: &client,
+                store: incident::STORE,
+                supplier: Err(crate::errors::BridgeError::Other("offline".into())),
+                quote_lock: None,
+                vat_percent: 10.0,
+                threshold: 70,
+            })
+            .await
+            .unwrap()
+        };
+        let mut a = unreadable().await;
+        let row = a.rows.iter().find(|r| r.stock_id == ROW_9CED).unwrap();
+        assert_eq!(row.doubts, [Doubt::UnprovenUnits]);
+        count_units(&db, &mut a, ROW_9CED, &[first]).unwrap();
+        let fresh = unreadable().await;
+        assert!(!fresh.rows.iter().any(|r| r.stock_id == ROW_9CED));
+        assert_eq!(
+            (a.consistent, a.unweighed, a.rows.len()),
+            (fresh.consistent, fresh.unweighed, fresh.rows.len())
+        );
+    }
+
+    /// PI-19: a count moves a row out of the kept audit as a fresh run would class it — not weighed
+    /// when a quote that decides it could not be read, consistent otherwise, and consistent when no
+    /// quote would decide it, whatever its quote showed (slice 11's review, finding 1) — and a row
+    /// with another doubt stays listed for it; an automatic write it leaves is no longer marked
+    /// doubted, and reads unquoted where a fresh run would not quote it.
+    #[test]
+    fn a_count_reclassifies_the_row_as_a_fresh_run_would() {
+        let transfer = UnitTransfer {
+            item_id: 7,
+            job_id: 3,
+            at: "t".into(),
+            name: "n".into(),
+            code: "c".into(),
+            qty: 2,
+        };
+        let row = |id: &str, doubts: Vec<Doubt>, decisive: bool, unread: bool| AuditRow {
+            stock_id: id.into(),
+            product_id: "p".into(),
+            product_name: None,
+            brand: None,
+            authenticity: None,
+            inventory: 5,
+            cost: Some(1),
+            price: None,
+            doubts,
+            links: Vec::new(),
+            should_cost: None,
+            should_unavailable: false,
+            difference: None,
+            last_write: None,
+            unproven_units: 2,
+            transfers: vec![transfer.clone()],
+            counted_units: 0,
+            counted: Vec::new(),
+            decisive_once_counted: decisive,
+            unread,
+        };
+        let renamed_link = AuditLink {
+            name: "n".into(),
+            code: "c".into(),
+            how: "AUTO".into(),
+            state: "VALID".into(),
+            proven: false,
+            reasons: vec![Reason::NoBrandInName],
+            today: None,
+            rename: Some(RenamedQuote {
+                state: RenameState::Unasked,
+                code: "c".into(),
+                name: "n2".into(),
+                asked: None,
+            }),
+            units: 0,
+        };
+        let auto = |id: &str| AutoWrite {
+            stock_id: id.into(),
+            product_id: "p".into(),
+            product_name: None,
+            brand: None,
+            authenticity: None,
+            inventory: 5,
+            cost: Some(1),
+            price: None,
+            links: Vec::new(),
+            last_write: LastWrite {
+                job_id: 3,
+                kind: "IMPORT".into(),
+                at: "t".into(),
+                names: Vec::new(),
+                cost: 1,
+            },
+            doubted: true,
+        };
+        let count = |id: i64, stock: &str| UnitCount {
+            id,
+            stock_id: stock.into(),
+            product_name: None,
+            inventory: 5,
+            read_at: "t".into(),
+            counted_at: "t".into(),
+            units: 2,
+            transfers: vec![transfer.clone()],
+        };
+        let mut a = Audit {
+            read_at: "t".into(),
+            registry_read_at: "t".into(),
+            store: "s".into(),
+            rows: vec![
+                row("unread", vec![Doubt::UnprovenUnits], true, true),
+                row(
+                    "also",
+                    vec![Doubt::UnprovenLink, Doubt::UnprovenUnits],
+                    true,
+                    false,
+                ),
+                row("plain", vec![Doubt::UnprovenUnits], true, false),
+                // one link, listed only for its units: its quote, renamed, added the link doubt
+                row(
+                    "lone",
+                    vec![Doubt::UnprovenLink, Doubt::UnprovenUnits],
+                    false,
+                    true,
+                ),
+            ],
+            automatic: vec![
+                auto("plain"),
+                auto("also"),
+                AutoWrite {
+                    links: vec![renamed_link.clone()],
+                    ..auto("lone")
+                },
+            ],
+            examined: 3,
+            consistent: 0,
+            unweighed: 0,
+            unlinked: 0,
+            counts: Vec::new(),
+            stale: false,
+        };
+        a.counted(0, count(1, "unread"));
+        assert_eq!((a.unweighed, a.consistent, a.rows.len()), (1, 0, 3));
+        a.counted(0, count(2, "also"));
+        let also = &a.rows[0];
+        assert_eq!(also.doubts, [Doubt::UnprovenLink]);
+        assert_eq!((also.unproven_units, also.counted_units), (0, 2));
+        assert!(also.transfers.is_empty());
+        a.counted(1, count(3, "plain"));
+        assert_eq!((a.unweighed, a.consistent, a.rows.len()), (1, 1, 2));
+        a.counted(1, count(4, "lone"));
+        assert_eq!(
+            (a.unweighed, a.consistent, a.rows.len()),
+            (1, 2, 1),
+            "a row no quote decides leaves consistent, its quote unread or renamed"
+        );
+        assert_eq!(
+            a.automatic.iter().map(|w| w.doubted).collect::<Vec<_>>(),
+            [false, true, false]
+        );
+        let lone = &a.automatic[2].links[0];
+        assert!(lone.proven && lone.reasons.is_empty() && lone.rename.is_none());
+        assert_eq!(
+            a.counts.iter().map(|c| c.id).collect::<Vec<_>>(),
+            [4, 3, 2, 1],
+            "newest first"
+        );
+
+        // taken back on the same audit: the row still listed for its link gets its units and their
+        // doubt back, where a fresh run puts it; a row the audit vouched for turns it stale
+        a.withdrawn(2);
+        let also = &a.rows[0];
+        assert_eq!(also.doubts, [Doubt::UnprovenLink, Doubt::UnprovenUnits]);
+        assert_eq!((also.unproven_units, also.counted_units), (2, 0));
+        assert_eq!(also.transfers, std::slice::from_ref(&transfer));
+        assert!(!a.stale);
+        a.withdrawn(0);
+        assert!(a.stale);
+        assert_eq!(a.counts.iter().map(|c| c.id).collect::<Vec<_>>(), [3, 1]);
+    }
+
     /// R-i's correction is the seller's: the audit lists the bearing row; the seller re-points the
     /// hurried pick at its own product in Matches; the next REFRESH writes the row's proven cost,
     /// its report naming the cost before and after; and the audit no longer lists the row.
@@ -1358,13 +2161,13 @@ mod tests {
             qty: 0,
         };
         let p = provenance(vec![w(1, "CW3.6", 91_300), w(2, "CW4.8", 96_800)]);
-        assert_eq!(p["row"].0.names, ["CW4.8"]);
+        assert_eq!(p["row"].last.as_ref().unwrap().names, ["CW4.8"]);
         let p = provenance(vec![w(1, "a", 50_000), w(2, "b", 50_000)]);
-        assert_eq!(p["row"].0.names, ["a", "b"]);
+        assert_eq!(p["row"].last.as_ref().unwrap().names, ["a", "b"]);
         // the link the item was written from wins over its name
         let mut keyed = w(3, "renamed", 70_000);
         keyed.link_key = Some("the-link".into());
-        assert_eq!(provenance(vec![keyed])["row"].1, ["the-link"]);
+        assert_eq!(provenance(vec![keyed])["row"].keys, ["the-link"]);
     }
 
     /// Review finding 4: a proven link the site no longer lists holds a row of two links, as PRICE
@@ -1911,6 +2714,79 @@ mod tests {
         );
     }
 
+    /// PI-30: «asked about an older name» means an older name of this code. A waiting record of
+    /// another code (one name invoiced under two) says nothing of this code's rename: not asked.
+    #[test]
+    fn a_waiting_record_of_another_code_is_no_older_name_of_this_one() {
+        let registry = Registry::from_products(incident::registry());
+        let gsr = incident::CLAMP_GSR;
+        let clamp = crate::matching::evidence::tests::clamp_57eb().id;
+        let site = "بست کمري 300*3/6 GSR سفيد";
+        let record = |code: &str| {
+            serde_json::json!({"product_id": clamp, "code": code, "name": "بست کمري قدیم",
+                "reasons": [], "seen_at": "t", "confirmed_at": null})
+            .to_string()
+        };
+        let link = |code: &str| MatchRow {
+            name_key: name_key(gsr.1),
+            code: gsr.0.into(),
+            product_id: Some(clamp.clone()),
+            how: "USER".into(),
+            name_seen: gsr.1.into(),
+            renamed_json: Some(record(code)),
+            ..MatchRow::default()
+        };
+        let q = Quoted {
+            cost: 23_100,
+            available: true,
+            code: gsr.0.into(),
+            name: site.into(),
+            renamed: true,
+        };
+        let state = |l: &MatchRow| judge_quote(&registry, l, &clamp, &q).map(|(_, _, r)| r.state);
+        assert_eq!(state(&link(gsr.0)), Some(RenameState::AskedOlder));
+        assert_eq!(state(&link("8800999")), Some(RenameState::Unasked));
+    }
+
+    /// PI-30: a rename recorded for a code the link no longer prices under decides nothing a job
+    /// would, so it makes no quote decisive: a row of one link whose confirmed rename names its old
+    /// code is not quoted, and not listed.
+    #[tokio::test]
+    async fn a_rename_of_a_code_the_link_left_decides_nothing() {
+        let db = Db::in_memory().unwrap();
+        let landau = after_job_12(&db);
+        let gsr = incident::CLAMP_GSR;
+        let clamp = crate::matching::evidence::tests::clamp_57eb().id;
+        let site = "بست کمري 300*3/6 GSR سفيد";
+        refresh_with(&db, &landau, priced_with(&[]).renamed(gsr.0, site)).await;
+        confirm_rename(&db, gsr, &clamp, site);
+        let key = db
+            .match_for_name(SUPPLIER_ID, gsr.1)
+            .unwrap()
+            .unwrap()
+            .name_key;
+        db.set_link_code(SUPPLIER_ID, &key, "8800999").unwrap();
+        assert!(
+            db.match_for_name(SUPPLIER_ID, gsr.1)
+                .unwrap()
+                .unwrap()
+                .renamed()
+                .is_some_and(|r| r.confirmed_at.is_some()),
+            "the seller's word stays on the link"
+        );
+
+        let s = priced_with(&[]);
+        let a = run(&db, &landau, &s).await;
+        assert!(!a.rows.iter().any(|r| r.stock_id == ROW_9CED));
+        let asked = s.asked.lock().unwrap().clone();
+        assert!(
+            !asked
+                .iter()
+                .any(|q| q.contains("8800999") || q.contains(gsr.0) || q.contains(gsr.1)),
+            "{asked:?}"
+        );
+    }
+
     /// PI-29, the slice review's finding 3: units a quantity import moved under a code since renamed
     /// stay judged on the link (the invoices named the part itself), and the link says so where it
     /// reads «اثبات‌نشده», so its units never look like the row's unproven ones.
@@ -1994,6 +2870,19 @@ mod tests {
         );
         assert!(!l.reasons.is_empty());
         assert_eq!(l.today, None, "an automatic write is never quoted");
+    }
+
+    /// PI-19: a count of returns is said as units sent back, never with a minus sign.
+    #[test]
+    fn a_count_of_returns_says_so() {
+        assert_eq!(
+            counted_fa(4),
+            "موجودی پس از انتقال 4 واحد از کالاهای اثبات‌نشده را خودتان شمرده‌اید"
+        );
+        assert_eq!(
+            counted_fa(-3),
+            "موجودی پس از انتقال 3 واحد برگشتی از کالاهای اثبات‌نشده را خودتان شمرده‌اید"
+        );
     }
 
     #[test]

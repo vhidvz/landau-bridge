@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { auditSummary, costBefore, differenceText, doubtText, linkToday, linkUnits, renameText, writtenCost } from './audit';
-import type { AuditLink, Quoted, RenameState } from '~/types/bridge';
+import { auditSummary, costBefore, countEffect, countSummary, countedText, differenceText, doubtText, linkToday, linkUnits, renameText, transferText, writtenCost } from './audit';
+import type { AuditLink, Quoted, RenameState, UnitCount, UnitTransfer } from '~/types/bridge';
 
 const link = (over: Partial<AuditLink>): AuditLink => ({
   name: 'n', code: 'c', how: 'USER', state: 'VALID', proven: true, reasons: [], today: null, rename: null, units: 0, ...over,
@@ -85,5 +85,38 @@ describe('audit', () => {
   it('shows the cost an automatic link wrote only when the row holds another now', () => {
     expect(writtenCost({ cost: 410_000, last_write: { cost: 410_000 } as never })).toBeNull();
     expect(writtenCost({ cost: 450_000, last_write: { cost: 410_000 } as never })).toBe('نوشته‌شده ۴۱۰٬۰۰۰ ریال (۴۱٬۰۰۰ تومان)؛ بعد تغییر کرده');
+  });
+});
+
+// PI-19: the seller's word that a row's stock was counted after the units listed on it
+describe('stock counts', () => {
+  const transfer = (over: Partial<UnitTransfer> = {}): UnitTransfer => ({
+    item_id: 7, job_id: 14, at: '2026-11-10T08:00:00Z', name: 'بست کمري CW4.8*370 تايوان آراد پارت (100)', code: 'AR1330-4', qty: 4, ...over,
+  });
+
+  it('says what a count leaves out, in the CSV\'s words', () => {
+    // `counted_fa` in the core, with the page's digits
+    expect(countedText(4)).toBe('موجودی پس از انتقال ۴ واحد از کالاهای اثبات‌نشده را خودتان شمرده‌اید');
+  });
+
+  it('names each transfer with its units and its job', () => {
+    expect(transferText(transfer())).toBe('۴ واحد در عملیات #۱۴');
+    expect(transferText(transfer({ qty: -1 }))).toBe('۱ واحد برگشتی در عملیات #۱۴');
+  });
+
+  it('says before the click what a count does and does not do', () => {
+    const effect = countEffect(4);
+    expect(effect).toContain('۴ واحد');
+    expect(effect).toContain('چیزی در لاندا نمی‌نویسد');
+    expect(effect).toContain('دوباره');
+    expect(effect).toContain('پس بگیرید');
+    // a count of returns says so, never a minus sign (slice 11's review)
+    expect(countEffect(-3)).toContain('این ۳ واحد برگشتی');
+    expect(countedText(-3)).toBe('موجودی پس از انتقال ۳ واحد برگشتی از کالاهای اثبات‌نشده را خودتان شمرده‌اید');
+  });
+
+  it('sums up a standing count with the inventory read when it was made', () => {
+    const c: UnitCount = { id: 1, stock_id: 's', product_name: null, inventory: 5, read_at: 't', counted_at: 't', units: 4, transfers: [transfer()] };
+    expect(countSummary(c)).toBe('۴ واحد · موجودی هنگام شمارش ۵');
   });
 });

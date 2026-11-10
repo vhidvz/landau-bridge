@@ -1,5 +1,6 @@
 //! SQLite persistence (spec §8). One connection behind a mutex; every call is short.
 
+pub mod counts;
 pub mod errors;
 pub mod intents;
 pub mod invoices;
@@ -24,6 +25,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0006_confirmed_picks.sql"),
     include_str!("migrations/0007_cost_before.sql"),
     include_str!("migrations/0008_renamed_codes.sql"),
+    include_str!("migrations/0009_unit_counts.sql"),
 ];
 
 /// The schema this build writes: one version per migration.

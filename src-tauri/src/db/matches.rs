@@ -274,7 +274,9 @@ fn as_expected(old: Option<&MatchRow>, expect: Option<Expect<'_>>) -> bool {
 /// or `None` when `expect` no longer holds (nothing written). The version moves when the product
 /// or the decision changes, never for a code or a state — and never restarts: a link created
 /// again after a clear continues past every version its name ever had, so a proof taken before
-/// the clear can never match it.
+/// the clear can never match it. A rename record (PI-28) belongs to the version: a new one forgets
+/// it, and the same decision under a new code forgets one still waiting under the old code
+/// (PI-30, as [`Db::set_link_code`] does).
 fn put(
     c: &Connection,
     supplier: &str,
@@ -315,6 +317,9 @@ fn put(
            validated_job = excluded.validated_job, link_version = excluded.link_version,
            confirmed_json = excluded.confirmed_json,
            renamed_json = CASE WHEN supplier_links.link_version = excluded.link_version
+             AND NOT (supplier_links.renamed_json IS NOT NULL
+               AND json_extract(supplier_links.renamed_json, '$.confirmed_at') IS NULL
+               AND json_extract(supplier_links.renamed_json, '$.code') IS NOT excluded.code)
              THEN supplier_links.renamed_json END",
         params![
             supplier,
@@ -451,11 +456,20 @@ impl Db {
         .map(|_| ())
     }
 
-    /// A name hit seen under a new code: the code is an attribute, so the version stays.
+    /// A name hit seen under a new code: the code is an attribute, so the version stays. A rename
+    /// still waiting for the seller under another code goes with the old code (PI-30): no job
+    /// prices the link under it any more, so Matches would ask about a hold nothing makes. Judged
+    /// on the row as it stands, in the same statement, so a confirmation made since is kept — it
+    /// asks nothing and covers its own code only. `put` keeps the same rule.
     pub fn set_link_code(&self, supplier: &str, key: &str, code: &str) -> Result<()> {
         self.with(|c| {
             c.execute(
-                "UPDATE supplier_links SET code = ?3 WHERE supplier = ?1 AND name_key = ?2",
+                "UPDATE supplier_links SET code = ?3,
+                   renamed_json = CASE WHEN renamed_json IS NOT NULL
+                     AND json_extract(renamed_json, '$.confirmed_at') IS NULL
+                     AND json_extract(renamed_json, '$.code') IS NOT ?3
+                     THEN NULL ELSE renamed_json END
+                 WHERE supplier = ?1 AND name_key = ?2",
                 params![supplier, key, code],
             )
             .map(|_| ())
@@ -767,7 +781,9 @@ impl Db {
     /// exactly the conflicts the core judged and the seller was shown — stored only while the link
     /// is still at the `version` and `product` the screen read, and while any rename it records is
     /// this code under this name (a job that met another name since asks again), with a `SELLER`
-    /// `shown` trail entry. `false` when the link or its rename moved.
+    /// `shown` trail entry. The code need not be the link's: one name invoiced under two codes has
+    /// PRICE record the other's rename too (plan 130 slice 11's review). `false` when the link or its
+    /// rename moved.
     #[allow(clippy::too_many_arguments)]
     pub fn confirm_rename(
         &self,
@@ -1318,6 +1334,100 @@ mod tests {
             None,
             "a rebuild forgets it"
         );
+    }
+
+    /// PI-30: VALIDATE moving the link to the code a name hit carries now, or the same decision
+    /// again under a new code (the version stays), forgets a waiting rename of another code — never
+    /// one of the code it moves to, never one the seller confirmed (it asks nothing and covers its
+    /// own code only). A word from a screen read before the move lands as what it showed: that code
+    /// under that name. A waiting record of another code that PRICE makes afterwards (one name
+    /// invoiced under two codes) is asked about like any.
+    #[test]
+    fn a_waiting_rename_goes_when_the_link_moves_to_another_code() {
+        use crate::matching::gate::Reason;
+        let db = db();
+        let reasons = vec![Reason::NumberConflict {
+            lacking: vec!["38 cm".into()],
+        }];
+        let site = "بست کمري 300*3/6 GSR سفيد";
+        let read = || db.match_for_name("s", "قطعه").unwrap().unwrap();
+        let wait = |code: &str| {
+            let l = read();
+            assert!(db
+                .note_rename(
+                    "s",
+                    "قطعه",
+                    l.link_version,
+                    "p1",
+                    l.renamed_json.as_deref(),
+                    code,
+                    site,
+                    &reasons,
+                )
+                .unwrap());
+        };
+        let confirm = |code: &str| {
+            let v = read().link_version;
+            db.confirm_rename("s", "قطعه", v, "p1", code, site, &reasons)
+                .unwrap()
+        };
+        db.set_match("s", "قطعه", "C1", Some(("p1", "الف")), "USER", None)
+            .unwrap();
+        let v = read().link_version;
+
+        // VALIDATE: the invoice names the link under a new code
+        wait("C1");
+        assert_eq!(db.count_links_needing_review("s").unwrap(), 1);
+        db.set_link_code("s", "قطعه", "C2").unwrap();
+        assert_eq!((read().code.as_str(), read().link_version), ("C2", v));
+        assert_eq!(read().renamed(), None, "the old code's waiting record goes");
+        assert_eq!(db.count_links_needing_review("s").unwrap(), 0);
+        assert!(confirm("C1"), "the word for what the screen showed");
+        let late = read().renamed().unwrap();
+        assert!(
+            late.covers("p1", "C1", site, &reasons) && !late.covers("p1", "C2", site, &reasons)
+        );
+        assert_eq!(db.count_links_needing_review("s").unwrap(), 0);
+        assert!(db.withdraw_rename("s", "قطعه", v).unwrap());
+
+        // a record of the code the link moves to stays
+        db.set_link_code("s", "قطعه", "C1").unwrap();
+        wait("C2");
+        db.set_link_code("s", "قطعه", "C2").unwrap();
+        assert!(read().renamed().is_some());
+
+        // a confirmed one stays, covering its own code only
+        assert!(confirm("C2"));
+        db.set_link_code("s", "قطعه", "C3").unwrap();
+        let kept = read().renamed().unwrap();
+        assert!(kept.confirmed_at.is_some(), "the seller's word stays");
+        assert!(kept.covers("p1", "C2", site, &reasons));
+        assert!(!kept.covers("p1", "C3", site, &reasons));
+        assert_eq!(db.count_links_needing_review("s").unwrap(), 0);
+
+        // the same decision again, under a new code: the version stays, a waiting record goes
+        assert!(db.withdraw_rename("s", "قطعه", v).unwrap());
+        wait("C3");
+        db.set_match("s", "قطعه", "C3", Some(("p1", "الف")), "USER", None)
+            .unwrap();
+        assert!(read().renamed().is_some(), "the same code keeps it");
+        db.set_match("s", "قطعه", "C4", Some(("p1", "الف")), "USER", None)
+            .unwrap();
+        assert_eq!(read().link_version, v);
+        assert_eq!(read().renamed(), None);
+        wait("C4");
+        assert!(confirm("C4"));
+        db.set_match("s", "قطعه", "C5", Some(("p1", "الف")), "USER", None)
+            .unwrap();
+        assert!(read().renamed().is_some_and(|r| r.confirmed_at.is_some()));
+
+        // PRICE meets the other code of a name invoiced under two: recorded, and asked about
+        assert!(db.withdraw_rename("s", "قطعه", v).unwrap());
+        wait("C1");
+        assert_eq!(read().code, "C5");
+        assert_eq!(db.count_links_needing_review("s").unwrap(), 1);
+        assert!(confirm("C1"));
+        assert_eq!(db.count_links_needing_review("s").unwrap(), 0);
     }
 
     /// Slice 9's review, finding 1: a job notes or forgets a rename only on the record it read,

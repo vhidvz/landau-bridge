@@ -155,6 +155,7 @@ pub fn run() {
                 inspector: Default::default(),
                 inspecting: Default::default(),
                 audit: Default::default(),
+                counts_changed: Default::default(),
             });
             commands::refresh_appimage_entry(app.handle());
 
@@ -178,6 +179,8 @@ pub fn run() {
             commands::settings_get,
             commands::audit_run,
             commands::audit_export,
+            commands::audit_units_count,
+            commands::audit_units_withdraw,
             commands::intents_held,
             commands::intent_resolve,
             commands::settings_save,

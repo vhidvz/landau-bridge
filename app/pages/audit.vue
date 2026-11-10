@@ -5,12 +5,12 @@
 // the Matches page, then a price refresh, whose report shows the cost before and after.
 import { save } from '@tauri-apps/plugin-dialog';
 import { documentDir, homeDir, join } from '@tauri-apps/api/path';
-import type { Audit, BridgeError } from '~/types/bridge';
+import type { Audit, AuditRow, BridgeError, UnitCount } from '~/types/bridge';
 
 const toast = useToast();
 const audit = ref<Audit | null>(null);
 const error = ref<BridgeError | null>(null);
-const busy = ref<'run' | 'export' | null>(null);
+const busy = ref<'run' | 'export' | 'count' | 'withdraw' | null>(null);
 
 const at = (iso: string) => new Intl.DateTimeFormat('fa-IR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
 
@@ -28,6 +28,29 @@ const run = async () => {
   error.value = null; busy.value = 'run';
   try { audit.value = await bridge.auditRun(); } catch (e) { error.value = e as BridgeError; } finally { busy.value = null; }
 };
+
+// PI-19: units moved onto a row from items that do not prove there stay listed until the seller says
+// the row's stock was counted after them. The core takes the word for exactly the transfers shown and
+// answers the kept audit; nothing is written to Landau, and a count can be taken back below.
+const counting = ref<AuditRow | null>(null);
+const countable = (row: AuditRow) => row.doubts.includes('UNPROVEN_UNITS') && row.transfers.length > 0;
+const confirmCount = async () => {
+  const row = counting.value;
+  if (!row) return;
+  error.value = null; busy.value = 'count';
+  try {
+    audit.value = await bridge.auditUnitsCount(row.stock_id, row.transfers.map((t) => t.item_id));
+    toast.add({ title: 'شمارش ثبت شد', description: 'این واحدها دیگر در بازبینی نمی‌آیند.', color: 'success' });
+  } catch (e) { error.value = e as BridgeError; } finally { busy.value = null; counting.value = null; }
+};
+const withdraw = async (c: UnitCount) => {
+  error.value = null; busy.value = 'withdraw';
+  try {
+    audit.value = await bridge.auditUnitsWithdraw(c.id);
+    toast.add({ title: 'شمارش پس گرفته شد', description: 'بازبینی بعدی این واحدها را دوباره می‌آورد.', color: 'success' });
+  } catch (e) { error.value = e as BridgeError; } finally { busy.value = null; }
+};
+const counts = computed(() => audit.value?.counts ?? []);
 
 // The file is written by the Rust side at the path the native dialog answers (Documents first: given
 // a bare name, GTK opens the AppImage's read-only mount — see matches.vue).
@@ -52,7 +75,7 @@ const exportCsv = async () => {
   <div>
     <PageHeader title="بازبینی قفسه" lede="هر ردیف قفسه با شواهد سنجیده می‌شود: کدام پیوند اثبات می‌شود و بهای خرید باید چند باشد. چیزی نوشته نمی‌شود.">
       <template #actions>
-        <UButton color="neutral" variant="outline" icon="i-lucide-file-spreadsheet" :disabled="!audit || !!busy" :loading="busy === 'export'" @click="exportCsv">ذخیرهٔ CSV</UButton>
+        <UButton color="neutral" variant="outline" icon="i-lucide-file-spreadsheet" :disabled="!audit || audit.stale || !!busy" :loading="busy === 'export'" @click="exportCsv">ذخیرهٔ CSV</UButton>
         <UButton icon="i-lucide-scan-search" :disabled="!!busy" :loading="busy === 'run'" @click="run">{{ audit ? 'بازبینی دوباره' : 'بازبینی' }}</UButton>
       </template>
     </PageHeader>
@@ -66,6 +89,9 @@ const exportCsv = async () => {
       <p class="mb-1 text-sm text-paper" data-reveal>{{ auditSummary(audit) }}</p>
       <p class="mb-6 text-xs text-paper-mute" data-reveal>
         قفسه و قیمت‌ها خوانده‌شده {{ at(audit.read_at) }} · فهرست لاندا {{ at(audit.registry_read_at) }}
+      </p>
+      <p v-if="audit.stale" class="mb-6 text-sm text-warn" role="status" data-reveal>
+        شمارشی پس گرفته شد؛ «بازبینی دوباره» واحدهای آن را باز در فهرست می‌آورد، و ذخیرهٔ CSV تا آن زمان صبر می‌کند.
       </p>
 
       <GlassCard v-if="!audit.rows.length" :pad="false" data-reveal>
@@ -128,9 +154,18 @@ const exportCsv = async () => {
             <NuxtLink :to="`/jobs/${row.last_write.job_id}`" class="hover:text-crimson-300">#{{ faNumber(row.last_write.job_id) }}</NuxtLink>،
             از {{ row.last_write.names.map((n) => `«${n}»`).join(' و ') }}
           </p>
-          <p v-if="row.unproven_units" class="mt-1 text-xs text-warn">
-            {{ faNumber(row.unproven_units) }} واحد از موجودی این ردیف از کالاهایی منتقل شده که پیوندشان اینجا اثبات نمی‌شود.
-          </p>
+          <div v-if="row.unproven_units" class="mt-1 space-y-1.5">
+            <p class="text-xs text-warn">
+              {{ faNumber(row.unproven_units) }} واحد از موجودی این ردیف از کالاهایی منتقل شده که پیوندشان اینجا اثبات نمی‌شود.
+            </p>
+            <ul v-if="countable(row)" class="space-y-0.5 text-xs text-paper-mute" aria-label="انتقال‌ها">
+              <li v-for="t in row.transfers" :key="t.item_id">
+                «{{ t.name }}» <bdi dir="ltr" class="font-mono">{{ t.code }}</bdi> · {{ transferText(t) }}
+              </li>
+            </ul>
+            <button v-if="countable(row)" type="button" class="btn-ghost btn-sm" :disabled="!!busy || audit.stale" @click="counting = row">موجودی را شمرده‌ام</button>
+          </div>
+          <p v-if="row.counted_units" class="mt-1 text-xs text-paper-mute">{{ countedText(row.counted_units) }}.</p>
         </GlassCard>
 
         <GlassCard data-reveal>
@@ -193,6 +228,49 @@ const exportCsv = async () => {
         <template #footer><Pager v-model:page="autoPage" :total="automatic.length" :items-per-page="PAGE_SIZE.table" label="ردیف" /></template>
       </LedgerTable>
     </section>
+
+    <section v-if="audit && busy !== 'run' && counts.length" class="mt-8" data-reveal>
+      <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 class="display text-xl text-paper">شمارش‌های شما <span class="tabular text-paper-mute">({{ faNumber(counts.length) }})</span></h2>
+        <span class="text-xs text-paper-mute">تازه‌ترین بالاتر</span>
+      </div>
+      <p class="mb-4 text-sm text-paper-dim">
+        موجودی این ردیف‌ها را پس از واحدهایی که از کالای اثبات‌نشده آمده بود خودتان شمرده‌اید، پس بازبینی آن واحدها را نمی‌آورد. اگر اشتباه بوده، پس بگیرید.
+      </p>
+      <LedgerTable class="glass">
+        <thead><tr><th>ردیف</th><th>شمارش</th><th>ثبت‌شده</th><th class="text-end"><span class="sr-only">پس گرفتن</span></th></tr></thead>
+        <tbody>
+          <tr v-for="c in counts" :key="c.id">
+            <td class="min-w-48">
+              <p class="text-paper">{{ c.product_name ?? 'دیگر روی قفسه نیست' }}</p>
+              <p class="text-xs text-paper-mute">ردیف <bdi dir="ltr" class="font-mono">{{ c.stock_id }}</bdi></p>
+            </td>
+            <td class="whitespace-nowrap text-sm tabular">{{ countSummary(c) }}</td>
+            <td class="whitespace-nowrap text-xs text-paper-mute tabular">{{ isoToLocal(c.counted_at) }}</td>
+            <td class="text-end"><button type="button" class="btn-ghost btn-sm" :disabled="!!busy" @click="withdraw(c)">پس گرفتن</button></td>
+          </tr>
+        </tbody>
+      </LedgerTable>
+    </section>
+
+    <UModal :open="!!counting" title="موجودی این ردیف را شمرده‌اید؟" :dismissible="busy !== 'count'" @update:open="(v: boolean) => { if (!v && busy !== 'count') counting = null; }">
+      <template #body>
+        <div v-if="counting" class="space-y-4 text-sm">
+          <div class="space-y-1">
+            <p class="text-paper">{{ counting.product_name ?? counting.product_id }}</p>
+            <p class="text-xs text-paper-mute">موجودی امروز {{ faNumber(counting.inventory) }}، خوانده‌شده {{ at(audit!.read_at) }}</p>
+          </div>
+          <ul class="space-y-1 rounded-lg border border-warn/30 bg-warn/6 px-4 py-3 text-paper" aria-label="انتقال‌ها">
+            <li v-for="t in counting.transfers" :key="t.item_id">«{{ t.name }}» <bdi dir="ltr" class="font-mono text-xs">{{ t.code }}</bdi> · {{ transferText(t) }}</li>
+          </ul>
+          <p class="text-paper-dim">{{ countEffect(counting.unproven_units) }}</p>
+          <div class="flex justify-end gap-2 border-t hairline pt-4">
+            <button type="button" class="btn-ghost" :disabled="busy === 'count'" @click="counting = null">انصراف</button>
+            <button type="button" class="btn-primary" :disabled="busy === 'count'" @click="confirmCount">شمرده‌ام، ثبت شود</button>
+          </div>
+        </div>
+      </template>
+    </UModal>
 
     <p class="mt-6 text-xs text-paper-mute">
       فروشی که در صندوق درست در فاصلهٔ خواندن و نوشتن موجودی انجام شود ممکن است موجودی را بیش از واقع نشان دهد؛ این پنجرهٔ کوتاه تا آمدن رسید لاندا باقی است.

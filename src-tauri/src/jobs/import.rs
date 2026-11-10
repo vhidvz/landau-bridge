@@ -504,7 +504,8 @@ pub fn matches_pick(
 /// unless exactly those reasons come back confirmed. Refused too when the link moved since the
 /// screen read it (`version`, `product_id`), when the rename it records is another code or name (a
 /// job met a newer one since), or the snapshot lacks the product. A name that agrees needs no word:
-/// a waiting record of it is forgotten, and `false` says nothing was confirmed.
+/// a waiting record of it is forgotten, and `false` says nothing was confirmed. A word for a record a
+/// job forgot since (PI-30) lands as what the seller was shown: that code under that name.
 #[allow(clippy::too_many_arguments)]
 pub fn confirm_rename(
     db: &Db,

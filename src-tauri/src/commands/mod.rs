@@ -3,6 +3,7 @@
 pub mod dto;
 
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use tauri::{AppHandle, Manager, State};
@@ -48,6 +49,9 @@ pub struct AppState {
     pub inspecting: tokio::sync::Mutex<()>,
     /// The last audit (plan 130 R-i), kept for its CSV export.
     pub audit: tokio::sync::Mutex<Option<crate::audit::Audit>>,
+    /// Bumped by every count and withdrawal (PI-19), under the audit's lock: a run whose copy was
+    /// taken before one is stored stale (slice 11's review, finding 5).
+    pub counts_changed: std::sync::atomic::AtomicU64,
 }
 
 fn settings(state: &AppState) -> Result<Settings> {
@@ -892,7 +896,8 @@ pub async fn audit_run(state: State<'_, AppState>) -> Result<crate::audit::Audit
     let registry = Arc::new(jobs::read_checked(&state.db, &client).await?);
     state.snapshot.keep(registry.clone(), started.clone());
     let sup = inspector(&state, &s).await;
-    let audit = crate::audit::audit(&crate::audit::Sources {
+    let counts_before = state.counts_changed.load(Ordering::SeqCst);
+    let mut audit = crate::audit::audit(&crate::audit::Sources {
         db: &state.db,
         registry: &registry,
         registry_read_at: &started,
@@ -905,7 +910,12 @@ pub async fn audit_run(state: State<'_, AppState>) -> Result<crate::audit::Audit
         threshold: s.threshold,
     })
     .await?;
-    *state.audit.lock().await = Some(audit.clone());
+    let mut kept = state.audit.lock().await;
+    // a count or a withdrawal recorded while this run read its copy is not in it
+    if state.counts_changed.load(Ordering::SeqCst) != counts_before {
+        audit.stale = true;
+    }
+    *kept = Some(audit.clone());
     Ok(audit)
 }
 
@@ -917,9 +927,44 @@ pub async fn audit_export(state: State<'_, AppState>, path: String) -> Result<us
     let audit = kept
         .as_ref()
         .ok_or_else(|| BridgeError::Other("هنوز بازبینی‌ای انجام نشده است.".into()))?;
-    std::fs::write(&path, crate::audit::csv(audit))
+    let csv = crate::audit::export(audit)?;
+    std::fs::write(&path, csv)
         .map_err(|e| BridgeError::Other(format!("ذخیرهٔ فایل بازبینی ممکن نشد: {e}")))?;
     Ok(audit.rows.len() + audit.automatic.len())
+}
+
+/// The seller's word that a listed row's stock was counted after the transfers the page shows on it
+/// (plan 130 PI-19): recorded in the bridge, applied to the kept audit, which is answered. Nothing
+/// is written to Landau.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn audit_units_count(
+    state: State<'_, AppState>,
+    stock_id: String,
+    items: Vec<i64>,
+) -> Result<crate::audit::Audit> {
+    let mut kept = state.audit.lock().await;
+    let audit = kept
+        .as_mut()
+        .ok_or_else(|| BridgeError::Other(crate::audit::AUDIT_CHANGED.into()))?;
+    crate::audit::count_units(&state.db, audit, &stock_id, &items)?;
+    state.counts_changed.fetch_add(1, Ordering::SeqCst);
+    Ok(audit.clone())
+}
+
+/// The seller takes back a count the page shows (PI-19); the kept audit is answered — the units back
+/// on a row it lists, or stale when the row was not listed.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn audit_units_withdraw(
+    state: State<'_, AppState>,
+    count: i64,
+) -> Result<crate::audit::Audit> {
+    let mut kept = state.audit.lock().await;
+    let audit = kept
+        .as_mut()
+        .ok_or_else(|| BridgeError::Other(crate::audit::AUDIT_CHANGED.into()))?;
+    crate::audit::withdraw_count(&state.db, audit, count)?;
+    state.counts_changed.fetch_add(1, Ordering::SeqCst);
+    Ok(audit.clone())
 }
 
 /// The «بدون تصمیم» list: parts ended jobs left undecided, with the candidates review showed.

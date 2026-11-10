@@ -232,59 +232,7 @@ impl Db {
     /// Every cost a job left on a shelf row, oldest first (see [`ShelfWrite`]): the items stamped
     /// written, then the items of landed intents that were not (a lost reply settled by a later job).
     pub fn shelf_writes(&self) -> Result<Vec<ShelfWrite>> {
-        const COLS: &str =
-            "ji.id, ji.job_id, j.kind, j.mode, COALESCE(j.finished_at, j.started_at),
-                            ji.code, ji.name, ji.link_key, ji.cost_before, ji.available, ji.qty";
-        let read =
-            |r: &rusqlite::Row<'_>, stock: String, cost: i64| -> rusqlite::Result<ShelfWrite> {
-                Ok(ShelfWrite {
-                    item_id: r.get(0)?,
-                    job_id: r.get(1)?,
-                    kind: r.get(2)?,
-                    mode: r.get(3)?,
-                    at: r.get(4)?,
-                    code: r.get(5)?,
-                    name: r.get(6)?,
-                    link_key: r.get(7)?,
-                    cost_before: r.get(8)?,
-                    available: r.get::<_, Option<i64>>(9)?.map(|a| a != 0),
-                    qty: r.get(10)?,
-                    stock_id: stock,
-                    cost,
-                })
-            };
-        self.with(|c| {
-            let mut out: Vec<ShelfWrite> = Vec::new();
-            let mut st = c.prepare(&format!(
-                "SELECT {COLS}, ji.stock_id, ji.cost
-                 FROM job_items ji JOIN jobs j ON j.id = ji.job_id
-                 WHERE ji.stock_id IS NOT NULL AND ji.cost IS NOT NULL
-                   AND ji.status IN ('WRITTEN', 'DONE')"
-            ))?;
-            for w in st.query_map([], |r| {
-                let (stock, cost) = (r.get(11)?, r.get(12)?);
-                read(r, stock, cost)
-            })? {
-                out.push(w?);
-            }
-            let mut st = c.prepare(&format!(
-                "SELECT {COLS}, wi.stock_id, wi.target_cost
-                 FROM write_intents wi, json_each(wi.items_json) item
-                 JOIN job_items ji ON ji.id = item.value
-                 JOIN jobs j ON j.id = ji.job_id
-                 WHERE wi.status = 'LANDED' AND wi.stock_id IS NOT NULL
-                   AND NOT (ji.status IN ('WRITTEN', 'DONE') AND ji.stock_id IS NOT NULL
-                            AND ji.cost IS NOT NULL)"
-            ))?;
-            for w in st.query_map([], |r| {
-                let (stock, cost) = (r.get(11)?, r.get(12)?);
-                read(r, stock, cost)
-            })? {
-                out.push(w?);
-            }
-            out.sort_by_key(|w| w.item_id);
-            Ok(out)
-        })
+        self.with(shelf_writes_on)
     }
 
     pub fn create_job(
@@ -509,6 +457,59 @@ impl Db {
         })?;
         Ok(JobDetail { job, items, events })
     }
+}
+
+/// [`Db::shelf_writes`] on an open connection, so a caller can read them inside its transaction.
+pub(crate) fn shelf_writes_on(c: &rusqlite::Connection) -> rusqlite::Result<Vec<ShelfWrite>> {
+    const COLS: &str = "ji.id, ji.job_id, j.kind, j.mode, COALESCE(j.finished_at, j.started_at),
+                        ji.code, ji.name, ji.link_key, ji.cost_before, ji.available, ji.qty";
+    let read = |r: &rusqlite::Row<'_>, stock: String, cost: i64| -> rusqlite::Result<ShelfWrite> {
+        Ok(ShelfWrite {
+            item_id: r.get(0)?,
+            job_id: r.get(1)?,
+            kind: r.get(2)?,
+            mode: r.get(3)?,
+            at: r.get(4)?,
+            code: r.get(5)?,
+            name: r.get(6)?,
+            link_key: r.get(7)?,
+            cost_before: r.get(8)?,
+            available: r.get::<_, Option<i64>>(9)?.map(|a| a != 0),
+            qty: r.get(10)?,
+            stock_id: stock,
+            cost,
+        })
+    };
+    let mut out: Vec<ShelfWrite> = Vec::new();
+    let mut st = c.prepare(&format!(
+        "SELECT {COLS}, ji.stock_id, ji.cost
+             FROM job_items ji JOIN jobs j ON j.id = ji.job_id
+             WHERE ji.stock_id IS NOT NULL AND ji.cost IS NOT NULL
+               AND ji.status IN ('WRITTEN', 'DONE')"
+    ))?;
+    for w in st.query_map([], |r| {
+        let (stock, cost) = (r.get(11)?, r.get(12)?);
+        read(r, stock, cost)
+    })? {
+        out.push(w?);
+    }
+    let mut st = c.prepare(&format!(
+        "SELECT {COLS}, wi.stock_id, wi.target_cost
+             FROM write_intents wi, json_each(wi.items_json) item
+             JOIN job_items ji ON ji.id = item.value
+             JOIN jobs j ON j.id = ji.job_id
+             WHERE wi.status = 'LANDED' AND wi.stock_id IS NOT NULL
+               AND NOT (ji.status IN ('WRITTEN', 'DONE') AND ji.stock_id IS NOT NULL
+                        AND ji.cost IS NOT NULL)"
+    ))?;
+    for w in st.query_map([], |r| {
+        let (stock, cost) = (r.get(11)?, r.get(12)?);
+        read(r, stock, cost)
+    })? {
+        out.push(w?);
+    }
+    out.sort_by_key(|w| w.item_id);
+    Ok(out)
 }
 
 #[cfg(test)]

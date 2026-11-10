@@ -1,7 +1,7 @@
 // What the audit page says (plan 130 R-i): why a shelf row is listed, how far its cost is from what
 // the evidence names, each link's cost today — every figure in rials with toman beside, and an unknown
 // figure said as unknown, never as zero.
-import type { Audit, AuditLink, AuditRow, AutoWrite, Doubt, JobItemRow, RenamedQuote } from '~/types/bridge';
+import type { Audit, AuditLink, AuditRow, AutoWrite, Doubt, JobItemRow, RenamedQuote, UnitCount, UnitTransfer } from '~/types/bridge';
 import { faNumber } from './fa';
 import { money, toman } from './evidence';
 
@@ -80,3 +80,25 @@ export const auditSummary = (
 /** The cost an automatic link wrote, shown only when the row holds another now (edited since). */
 export const writtenCost = (r: Pick<AutoWrite, 'cost' | 'last_write'>): string | null =>
   r.cost === r.last_write.cost ? null : `نوشته‌شده ${money(r.last_write.cost)}؛ بعد تغییر کرده`;
+
+// PI-19: the seller's word that a row's stock was counted after the units listed on it. Nothing is
+// written to Landau; the audit only stops listing those units, and a count can be taken back.
+
+/** Units in the seller's words: a negative sum is units sent back (a return) — the core's `units_fa`. */
+const unitsText = (n: number): string => `${faNumber(Math.abs(n))} واحد${n < 0 ? ' برگشتی' : ''}`;
+
+/** Beside a row's doubts once the seller counted units from items that do not prove there — the CSV's `counted_fa`. */
+export const countedText = (units: number): string =>
+  `موجودی پس از انتقال ${unitsText(units)} از کالاهای اثبات‌نشده را خودتان شمرده‌اید`;
+
+/** One transfer a count covers: its units (a return moves them back) and its job. */
+export const transferText = (t: UnitTransfer): string => `${unitsText(t.qty)} در عملیات #${faNumber(t.job_id)}`;
+
+/** What a count does, said before the seller confirms it. */
+export const countEffect = (units: number): string =>
+  `با ثبت شمارش، بازبینی این ${unitsText(units)} را دیگر نمی‌آورد. پل چیزی در لاندا نمی‌نویسد: موجودی ردیف همان است که شمرده‌اید و در لاندا دارید. `
+  + 'واحدهایی که بعداً از کالای اثبات‌نشده منتقل شوند دوباره می‌آیند، و شمارش را هر وقت بخواهید پس بگیرید.';
+
+/** A standing count, with the inventory the audit read when it was made. */
+export const countSummary = (c: Pick<UnitCount, 'units' | 'inventory'>): string =>
+  `${unitsText(c.units)} · موجودی هنگام شمارش ${faNumber(c.inventory)}`;

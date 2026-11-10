@@ -103,6 +103,8 @@ The app uses Microsoft Edge WebView2, which Windows 10 (1803+) and Windows 11 al
 
 **ذخیرهٔ CSV** saves both lists in one file (UTF-8, opens in a spreadsheet), the last column saying which list a row is in. To correct a row, fix its links on **تطبیق‌ها** (Matches) and run a price refresh: the refresh's report shows each row's cost before and after.
 
+**Stock you have counted.** A row listed for stock moved from an item that does not prove there names each of those transfers. Once you have counted that row's stock and set it right in Landau, **موجودی را شمرده‌ام** records it: the audit stops listing those units, and lists any moved later. The app writes nothing to Landau for it. Your counts are listed under **شمارش‌های شما**, where **پس گرفتن** takes one back; if its row was not in the list, the CSV waits until you run the audit again.
+
 ### What the app cannot prevent
 
 These are measured or known, and named rather than hidden:

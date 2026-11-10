@@ -96,6 +96,8 @@ const renameOf = (r: MatchRow): Renamed | null => {
     return v.product_id === r.product_id ? v : null;
   } catch { return null; }
 };
+/** Any code's: one name invoiced under two codes has PRICE record the other's rename too, and the core
+ *  forgets a waiting one only when the link's code moves away from it (PI-30). */
 export const waitingRename = (r: MatchRow): Renamed | null => {
   const v = renameOf(r);
   return v && v.confirmed_at == null ? v : null;
