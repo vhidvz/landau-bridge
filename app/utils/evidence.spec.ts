@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
-  confirmReasons, costChange, costChangeShort, costChangeText, money, numLabel, pickLabel, reasonText, ruleText, storedReasons, toman,
+  confirmReasons, costChange, costChangeShort, costChangeText, linkAsksSeller, money, numLabel, pickLabel, reasonText, ruleText, storedReasons, toman,
+  confirmedRename, waitingRename,
 } from './evidence';
-import type { Reason } from '~/types/bridge';
+import type { MatchRow, Reason } from '~/types/bridge';
 
 describe('evidence', () => {
   it('names every figure in rials with toman beside', () => {
@@ -68,5 +69,39 @@ describe('evidence', () => {
     expect(storedReasons('{"why":"gone","reasons":[{"kind":"DEFINITION_NOT_EXACT"}]}')).toEqual([{ kind: 'DEFINITION_NOT_EXACT' }]);
     expect(storedReasons(null)).toEqual([]);
     expect(storedReasons('oops')).toEqual([]);
+  });
+
+  // PI-28: a code the site renamed into a conflict waits on its link for the seller's word
+  const link = (over: Partial<MatchRow>): MatchRow => ({
+    supplier: 'barezpakhsh', name_key: 'k', code: '8800094', product_id: 'p1', product_name: 'بست', how: 'USER', similarity: 90,
+    name_seen: 'بست کمري 380*4/8 GSR مشکي', priced_at: null, decided_at: '2026-11-10T00:00:00Z', state: 'VALID', state_reason: null,
+    state_at: null, validated_job: 1, link_version: 2, product_brand: 'GSR', product_alias: '', confirmed_json: null, renamed_json: null, ...over,
+  });
+  const renamed = (over: object) => JSON.stringify({
+    product_id: 'p1', code: '8800094', name: 'بست کمري 300*3/6 GSR سفيد', reasons: [{ kind: 'NUMBER_CONFLICT', lacking: ['380'] }],
+    seen_at: '2026-11-10T00:00:00Z', confirmed_at: null, ...over,
+  });
+
+  it('finds a rename waiting for the seller on the link\'s own product only', () => {
+    expect(waitingRename(link({ renamed_json: renamed({}) }))?.name).toBe('بست کمري 300*3/6 GSR سفيد');
+    expect(waitingRename(link({ renamed_json: renamed({ confirmed_at: '2026-11-10T01:00:00Z' }) }))).toBeNull();
+    expect(waitingRename(link({ renamed_json: renamed({ product_id: 'p2' }) }))).toBeNull();
+    expect(waitingRename(link({ renamed_json: 'oops' }))).toBeNull();
+    expect(waitingRename(link({}))).toBeNull();
+  });
+
+  it('finds a rename the seller confirmed on the link\'s own product, so it can be shown and withdrawn', () => {
+    expect(confirmedRename(link({ renamed_json: renamed({ confirmed_at: '2026-11-10T01:00:00Z' }) }))?.name).toBe('بست کمري 300*3/6 GSR سفيد');
+    expect(confirmedRename(link({ renamed_json: renamed({}) }))).toBeNull();
+    expect(confirmedRename(link({ renamed_json: renamed({ confirmed_at: '2026-11-10T01:00:00Z', product_id: 'p2' }) }))).toBeNull();
+    expect(confirmedRename(link({}))).toBeNull();
+  });
+
+  it('asks the seller about a link held for review, gone stale, or waiting on a rename', () => {
+    expect(linkAsksSeller(link({}))).toBe(false);
+    expect(linkAsksSeller(link({ state: 'NEEDS_REVIEW' }))).toBe(true);
+    expect(linkAsksSeller(link({ state: 'STALE' }))).toBe(true);
+    expect(linkAsksSeller(link({ renamed_json: renamed({}) }))).toBe(true);
+    expect(linkAsksSeller(link({ how: 'NONE', product_id: null, renamed_json: renamed({}) }))).toBe(false);
   });
 });

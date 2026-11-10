@@ -155,7 +155,7 @@ const importReport: DecisionImportReport = {
 
 const match = (code: string, name_seen: string, how: MatchRow['how'], product_name: string | null, similarity: number | null, days: number, state: MatchRow['state'] = 'VALID', state_reason: string | null = null): MatchRow =>
   ({ supplier: 'barezpakhsh', name_key: name_seen.toLowerCase(), code, product_id: product_name ? `p_${code}` : null, product_name, how, similarity, name_seen, priced_at: how === 'NONE' ? null : ago(days, 15, 0), decided_at: ago(days, 14, 5),
-    state, state_reason, state_at: ago(days, 15, 0), validated_job: state === 'VALID' ? 42 : null, link_version: 1, product_brand: null, product_alias: null, confirmed_json: null });
+    state, state_reason, state_at: ago(days, 15, 0), validated_job: state === 'VALID' ? 42 : null, link_version: 1, product_brand: null, product_alias: null, confirmed_json: null, renamed_json: null });
 const matches: MatchRow[] = [
   ...(bulk ? Array.from({ length: 121 }, (_, i) => match(`BP-6${String(i).padStart(4, '0')}`, `تطبیق آزمایشی ${i + 1}`, 'AUTO', `قطعهٔ لاندا ${i + 1}`, 85, 2)) : []),
   match('BP-10422', 'لنت ترمز جلو پراید', 'USER', 'لنت ترمز جلو پراید ۱۳۱', 91, 0),
@@ -172,6 +172,19 @@ const matches: MatchRow[] = [
   match('BP-91002', 'رادیاتور آب دنا', 'NONE', null, null, 20),
   match('BP-91777', 'سنسور اکسیژن سمند EF7', 'AUTO', 'سنسور اکسیژن EF7', 86, 20),
 ];
+// PI-28: the site now lists BP-70110 under the right-hand part, which conflicts with the left one
+const RENAME_REASONS: Reason[] = [{ kind: 'OPPOSITE_WORDS', supplier: 'راست', candidate: 'چپ' }];
+const renamedLink = matches.find((m) => m.code === 'BP-70110')!;
+renamedLink.renamed_json = JSON.stringify({
+  product_id: renamedLink.product_id, code: 'BP-70110', name: 'سیبک فرمان راست پژو 405 امیرنیا', reasons: RENAME_REASONS, seen_at: ago(0, 9, 0), confirmed_at: null,
+});
+const confirmRename = (confirmed: unknown) => {
+  if (JSON.stringify(confirmed ?? null) !== JSON.stringify(RENAME_REASONS)) {
+    throw { kind: 'ConfirmRequired', message: 'نام بارزپخش با این قطعه جور نیست؛ ناسازگاری‌ها و تغییر قیمت خرید را ببینید و دوباره تأیید کنید.', detail: JSON.stringify(RENAME_REASONS) };
+  }
+  renamedLink.renamed_json = JSON.stringify({ ...JSON.parse(renamedLink.renamed_json!), confirmed_at: new Date().toISOString() });
+  return true;
+};
 
 const err = (id: number, days: number, job_id: number | null, kind: string, message: string, context: unknown = null): ErrorRow =>
   ({ id, at: ago(days, 9, 12), job_id, kind, message, context });
@@ -339,6 +352,8 @@ export async function mockCall<T>(cmd: string, args: Record<string, unknown> = {
       case 'import_review': return reviewItems;
       case 'match_set': confirmFirst(args.product_id, args.confirmed); decide(args.name_seen); return undefined;
       case 'match_none': decide(args.name_seen); return undefined;
+      case 'link_rename_confirm': return confirmRename(args.confirmed);
+      case 'link_rename_withdraw': renamedLink.renamed_json = null; return undefined;
       case 'review_decide': {
         const d = args.decision as { product_id?: string; confirmed?: Reason[] };
         if (d.product_id) confirmFirst(d.product_id, d.confirmed);

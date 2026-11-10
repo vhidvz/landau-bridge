@@ -1,6 +1,6 @@
 // What the review and Matches screens say about a pick (plan 130 R-d, R-k): the write table's reasons
 // and the evidence in plain Persian, and every money figure with its unit — rials, toman beside.
-import type { BridgeError, EvidenceState, LinkState, Read, Reason, RuleView, ShelfView, Verdict } from '~/types/bridge';
+import type { BridgeError, EvidenceState, LinkState, MatchRow, Read, Reason, Renamed, RuleView, ShelfView, Verdict } from '~/types/bridge';
 import { faDigits, faNumber, faPercent, type Tone } from './fa';
 
 /** Toman beside rials: one toman is ten rials. */
@@ -86,6 +86,27 @@ export const linkStateLabel: Record<LinkState, string> = {
 };
 export const linkStateTone: Record<LinkState, Tone> = { UNVERIFIED: 'muted', VALID: 'ok', REBUILT: 'ok', NEEDS_REVIEW: 'warn', STALE: 'danger' };
 export const needsReview = (s: LinkState): boolean => s === 'NEEDS_REVIEW' || s === 'STALE';
+
+/** PI-28: the rename a job met on this link — the site listing its code under a name that conflicts
+ *  with its product — while it waits for the seller's word. A record for another product never shows. */
+const renameOf = (r: MatchRow): Renamed | null => {
+  if (!r.renamed_json || !r.product_id) return null;
+  try {
+    const v = JSON.parse(r.renamed_json) as Renamed;
+    return v.product_id === r.product_id ? v : null;
+  } catch { return null; }
+};
+export const waitingRename = (r: MatchRow): Renamed | null => {
+  const v = renameOf(r);
+  return v && v.confirmed_at == null ? v : null;
+};
+/** A rename the seller confirmed: shown on the link, so a mistaken one can be found and withdrawn. */
+export const confirmedRename = (r: MatchRow): Renamed | null => {
+  const v = renameOf(r);
+  return v && v.confirmed_at != null ? v : null;
+};
+/** A link the seller is asked about: held for review, gone stale, or a rename waiting for them. */
+export const linkAsksSeller = (r: MatchRow): boolean => needsReview(r.state) || waitingRename(r) != null;
 
 /** A link's stored reasons (`state_reason`): the write table's `Reason[]`, or `{why, reasons}`. */
 export const storedReasons = (stateReason: string | null): Reason[] => {

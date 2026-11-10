@@ -28,6 +28,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The shelf audit also lists every row an automatic link last wrote, apart from its doubts, and so does its CSV. @vhidvz
 - After an upgrade from 1.1.1 the dashboard says once what changed and names older copies of the app it finds. @vhidvz
 - The README describes the shelf audit and the risks the app names but cannot prevent. @vhidvz
+- A code the supplier renamed into a conflict can be confirmed in Matches, then is written under that name only. @vhidvz
+- A confirmed rename shows on its link in Matches and can be withdrawn there; the next run asks again. @vhidvz
 
 ### Changed
 

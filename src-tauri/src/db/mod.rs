@@ -23,6 +23,7 @@ const MIGRATIONS: &[&str] = &[
     include_str!("migrations/0005_write_intents.sql"),
     include_str!("migrations/0006_confirmed_picks.sql"),
     include_str!("migrations/0007_cost_before.sql"),
+    include_str!("migrations/0008_renamed_codes.sql"),
 ];
 
 /// The schema this build writes: one version per migration.

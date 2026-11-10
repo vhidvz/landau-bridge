@@ -10,8 +10,9 @@ use serde_json::json;
 
 use super::proof::{held_error, prove_refresh, Judgement, Planned, ProvenWrite, Prover};
 use super::{
-    fatal, held, i, opt_i, preflight, quote_for, read_registry, renamed_reasons, report,
-    reprice_items, t, JobCtx, Services, VatMismatches,
+    fatal, held, i, judge_rename, opt_i, preflight, quote_for, read_registry, report,
+    reprice_items, t, JobCtx, Rename, Services, VatMismatches, RENAME_ASK_NOTE,
+    RENAME_CONFIRMED_NOTE,
 };
 use crate::db::matches::MatchRow;
 use crate::errors::{kinds, BridgeError, Result, IDENTITY_KINDS};
@@ -172,12 +173,23 @@ pub async fn price_row(
         };
         match quoted {
             Some(c) => {
-                if let Some(reasons) = renamed_reasons(registry, &row.product, &c) {
-                    // PI-26: the code found another name that contradicts the product
+                // PI-26: the code found another name that contradicts the product — held unless
+                // the seller confirmed that very rename (PI-28)
+                let rename = judge_rename(&ctx.db, registry, Some(link), &row.product, &c)?;
+                if let Rename::Holds {
+                    reasons,
+                    asks_seller,
+                } = rename
+                {
+                    let ask = if asks_seller {
+                        format!(" {RENAME_ASK_NOTE}")
+                    } else {
+                        String::new()
+                    };
                     ctx.db.add_item_note(
                         id,
                         &format!(
-                            "نام «{}» در بارزپخش به «{}» عوض شد و با قطعهٔ لاندا جور نیست؛ قیمت نوشته نشد.",
+                            "نام «{}» در بارزپخش به «{}» عوض شد و با قطعهٔ لاندا جور نیست؛ قیمت نوشته نشد.{ask}",
                             link.name_seen, c.name
                         ),
                     )?;
@@ -187,6 +199,9 @@ pub async fn price_row(
                 if c.renamed {
                     ctx.db
                         .add_item_note(id, &format!("نام در بارزپخش عوض شد: «{}»", c.name))?;
+                }
+                if rename == Rename::Confirmed {
+                    ctx.db.add_item_note(id, RENAME_CONFIRMED_NOTE)?;
                 }
                 if !link.code.is_empty() && c.code != link.code {
                     ctx.db.add_item_note(

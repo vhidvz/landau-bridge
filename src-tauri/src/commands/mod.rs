@@ -793,6 +793,46 @@ pub async fn match_set(
     jobs::import::matches_pick(&state.db, &name_seen, &code, &judged, confirmed.as_deref())
 }
 
+/// The seller's word that the name the site now lists `code` under is the link's product
+/// (PI-28): judged by the core against the kept registry snapshot, a conflict confirmed exactly,
+/// on the link and the rename as the screen read them (`version`, `product_id`, `code`,
+/// `site_name`). PRICE then writes that code's cost under that name alone. `false`: the name
+/// agrees with the product, so there was nothing to confirm.
+#[tauri::command(rename_all = "snake_case")]
+#[allow(clippy::too_many_arguments)]
+pub async fn link_rename_confirm(
+    state: State<'_, AppState>,
+    name_seen: String,
+    version: i64,
+    product_id: String,
+    code: String,
+    site_name: String,
+    confirmed: Option<Vec<Reason>>,
+) -> Result<bool> {
+    let kept = kept_snapshot(&state).await?;
+    jobs::import::confirm_rename(
+        &state.db,
+        &kept.registry,
+        &name_seen,
+        version,
+        &product_id,
+        &code,
+        &site_name,
+        confirmed.as_deref(),
+    )
+}
+
+/// The seller takes back a rename on the link as the screen read it (PI-28): the next run holds
+/// the code again and asks.
+#[tauri::command(rename_all = "snake_case")]
+pub async fn link_rename_withdraw(
+    state: State<'_, AppState>,
+    name_seen: String,
+    version: i64,
+) -> Result<()> {
+    jobs::import::withdraw_rename(&state.db, &name_seen, version)
+}
+
 #[tauri::command(rename_all = "snake_case")]
 pub async fn match_none(state: State<'_, AppState>, name_seen: String, code: String) -> Result<()> {
     state

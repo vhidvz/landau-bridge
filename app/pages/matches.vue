@@ -21,9 +21,9 @@ const load = async () => {
 };
 onMounted(load);
 
-const inFilter = (r: MatchRow) => filter.value === 'ALL' || (filter.value === 'REVIEW' ? needsReview(r.state) : r.how === filter.value);
+const inFilter = (r: MatchRow) => filter.value === 'ALL' || (filter.value === 'REVIEW' ? linkAsksSeller(r) : r.how === filter.value);
 const shown = computed(() => rows.value.filter((r) => inFilter(r) && matchesQuery(query.value, [r.name_seen, r.code, r.product_name])));
-const toReview = computed(() => rows.value.filter((r) => needsReview(r.state)).length);
+const toReview = computed(() => rows.value.filter(linkAsksSeller).length);
 const shownUndecided = computed(() => undecided.value.filter((u) => matchesQuery(query.value, [u.name_seen, u.code, ...u.candidates.map((c) => c.candidate.name)])));
 const PAGE = PAGE_SIZE.table;
 const { page: matchPage, rows: matchRows } = usePaged(shown, PAGE, [filter, query]);
@@ -57,7 +57,68 @@ const viewOf = (id: string): CandidateView | undefined => inspection.value?.cand
 const opened = reactive<Record<string, boolean>>({});
 const { pending, busy: picking, pick: confirmPick, respond } = usePick();
 
-const openEdit = (r: MatchRow) => { editing.value = r; term.value = r.name_seen; candidates.value = []; void inspect(); };
+const openEdit = (r: MatchRow) => { editing.value = r; term.value = r.name_seen; candidates.value = []; void inspect(); void inspectRename(r); };
+
+// ---- PI-28: the site lists the link's code under a name that conflicts with its product. The seller
+// says it is the same part; the core judges the pair and asks for the second confirm, as for a pick.
+const editRename = computed(() => (editing.value ? waitingRename(editing.value) : null));
+const editConfirmedRename = computed(() => (editing.value ? confirmedRename(editing.value) : null));
+// the money is read for the name the seller is asked about; the site listing that code under yet
+// another name today means this word would write nothing, so it is not offered
+const renameMovedOn = computed(() => known(renameInspection.value?.quote)?.renamed === true);
+const renameInspection = ref<Inspection | null>(null);
+const renameLoading = ref(false);
+const renameFailed = ref<string | null>(null);
+let renameSeq = 0;
+const inspectRename = async (r: MatchRow) => {
+  renameInspection.value = null;
+  renameFailed.value = null;
+  const seq = ++renameSeq;
+  const rename = waitingRename(r);
+  if (!rename || !r.product_id) return;
+  renameLoading.value = true;
+  try {
+    const got = await bridge.reviewInspect(rename.name, rename.code, [r.product_id]);
+    if (seq === renameSeq) renameInspection.value = got;
+  } catch (e) { if (seq === renameSeq) renameFailed.value = (e as BridgeError).message; } finally { if (seq === renameSeq) renameLoading.value = false; }
+};
+const confirmRename = async () => {
+  // the link and its rename as the seller sees them, captured at the click
+  const r = editing.value;
+  const rename = editRename.value;
+  if (!r?.product_id || !rename) return;
+  const product = r.product_id;
+  error.value = null;
+  let recorded = true;
+  try {
+    const done = await confirmPick(
+      async (confirmed) => { recorded = await bridge.linkRenameConfirm(r.name_seen, r.link_version, product, rename.code, rename.name, confirmed); },
+      {
+        supplierName: rename.name,
+        product: { name: r.product_name ?? '', brand: r.product_brand },
+        candidate: renameInspection.value?.candidates.find((c) => c.product.id === product) ?? null,
+        inspection: renameInspection.value,
+      },
+    );
+    if (!done) return;
+    editing.value = null;
+    toast.add(recorded
+      ? { title: 'نام تازه تأیید شد؛ از اجرای بعدی قیمت این کد نوشته می‌شود', color: 'success' }
+      : { title: 'این نام با قطعه جور است و تأیید نمی‌خواهد؛ اجرای بعدی دوباره می‌سنجد', color: 'info' });
+    await load();
+  } catch (e) { error.value = e as BridgeError; }
+};
+const withdrawRename = async () => {
+  const r = editing.value;
+  if (!r) return;
+  error.value = null;
+  try {
+    await bridge.linkRenameWithdraw(r.name_seen, r.link_version);
+    editing.value = null;
+    toast.add({ title: 'تأیید نام تازه پس گرفته شد؛ اجرای بعدی دوباره می‌پرسد', color: 'success' });
+    await load();
+  } catch (e) { error.value = e as BridgeError; }
+};
 // An undecided part opens on the candidates review showed — no new search; one is there if wanted.
 const openDecide = (u: UndecidedRow | null) => { deciding.value = u; term.value = u?.name_seen ?? ''; candidates.value = u?.candidates ?? []; void inspect(); };
 const search = async () => {
@@ -204,7 +265,7 @@ const closeImport = () => { importing.value = null; report.value = null; };
               <p class="truncate text-xs text-paper-mute"><bdi dir="ltr">{{ r.code }}</bdi></p>
             </td>
             <td class="w-1/2 max-w-0"><p class="truncate" :class="!r.product_name && 'text-paper-mute'" :title="r.product_name ?? undefined">{{ r.product_name ?? '—' }}</p></td>
-            <td class="whitespace-nowrap"><span class="inline-flex gap-1.5"><StatusPill :tone="r.how === 'NONE' ? 'danger' : r.how === 'USER' ? 'ok' : 'info'" :label="howLabel[r.how] ?? r.how" /><StatusPill v-if="r.how !== 'NONE'" :tone="linkStateTone[r.state]" :label="linkStateLabel[r.state]" /></span></td>
+            <td class="whitespace-nowrap"><span class="inline-flex gap-1.5"><StatusPill :tone="r.how === 'NONE' ? 'danger' : r.how === 'USER' ? 'ok' : 'info'" :label="howLabel[r.how] ?? r.how" /><StatusPill v-if="r.how !== 'NONE'" :tone="linkStateTone[r.state]" :label="linkStateLabel[r.state]" /><StatusPill v-if="waitingRename(r)" tone="warn" label="نام تازه در بارزپخش" /><StatusPill v-else-if="confirmedRename(r)" tone="muted" label="نام تازهٔ تأییدشده" /></span></td>
             <td><SimilarityBar v-if="r.similarity != null" :value="r.similarity" /><span v-else class="text-paper-mute">—</span></td>
             <td class="whitespace-nowrap">{{ isoToDate(r.decided_at) }}</td>
             <td class="text-end"><button type="button" class="btn-ghost btn-sm" @click="openEdit(r)">تغییر</button></td>
@@ -232,6 +293,20 @@ const closeImport = () => { importing.value = null; report.value = null; };
           <ul v-if="editing && needsReview(editing.state) && storedReasons(editing.state_reason).length" class="space-y-1 rounded-lg border border-warn/30 bg-warn/6 px-4 py-2.5 text-xs text-paper" aria-label="چرا این پیوند بررسی می‌خواهد">
             <li v-for="(r, i) in storedReasons(editing.state_reason)" :key="i">{{ reasonText(r) }}</li>
           </ul>
+          <section v-if="editing && editRename" class="space-y-3 rounded-lg border border-warn/30 bg-warn/6 px-4 py-3 text-sm text-paper" aria-label="نام تازه در بارزپخش">
+            <p>بارزپخش کد <bdi dir="ltr">{{ editRename.code }}</bdi> را اکنون با این نام می‌فروشد: <span class="font-medium">{{ editRename.name }}</span></p>
+            <p class="text-xs text-paper-mute">این نام با «{{ editing.product_name }}» جور نیست، پس قیمتش روی قفسه نوشته نمی‌شود تا شما بگویید همان قطعه است.</p>
+            <ul class="space-y-1 text-xs" aria-label="ناسازگاری‌های نام تازه">
+              <li v-for="(x, i) in editRename.reasons" :key="i" class="flex gap-2"><UIcon name="i-lucide-triangle-alert" class="mt-0.5 size-3.5 shrink-0 text-warn" aria-hidden="true" />{{ reasonText(x) }}</li>
+            </ul>
+            <MoneyLine :inspection="renameInspection" :loading="renameLoading" :failed="renameFailed" />
+            <p v-if="renameMovedOn" class="text-xs text-warn">بارزپخش امروز این کد را با نام دیگری می‌فروشد؛ اجرای بعدی نام تازه را دوباره می‌سنجد و اگر لازم باشد دوباره می‌پرسد.</p>
+            <div class="flex justify-end"><button type="button" class="btn-ghost btn-sm" :disabled="picking || renameMovedOn" @click="confirmRename">همان قطعه است</button></div>
+          </section>
+          <section v-else-if="editing && editConfirmedRename" class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-white/10 px-4 py-3 text-sm text-paper" aria-label="نام تازهٔ تأییدشده">
+            <p>شما تأیید کرده‌اید که کد <bdi dir="ltr">{{ editConfirmedRename.code }}</bdi> با نام «{{ editConfirmedRename.name }}» همین قطعه است؛ قیمت آن با همین نام نوشته می‌شود.</p>
+            <button type="button" class="btn-ghost btn-sm" @click="withdrawRename">پس گرفتن تأیید</button>
+          </section>
           <MoneyLine v-if="candidates.length" :inspection="inspection" :loading="inspecting" :failed="inspectFailed" />
           <div class="flex gap-2">
             <input v-model="term" class="field flex-1" aria-label="عبارت جست‌وجو" @keyup.enter="search" />

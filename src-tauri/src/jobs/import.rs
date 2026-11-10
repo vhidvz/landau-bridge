@@ -11,8 +11,9 @@ use super::proof::{
     held_error, plan_import, ImportCandidate, Judgement, OtherLink, Planned, Prover,
 };
 use super::{
-    fatal, held, i, job_registry, opt_i, preflight, quote_for, read_registry, renamed_reasons,
-    report, reprice_items, t, JobCtx, Services, VatMismatches,
+    fatal, forget_waiting_rename, held, i, job_registry, judge_rename, opt_i, preflight, quote_for,
+    read_registry, report, reprice_items, t, JobCtx, Rename, Services, VatMismatches,
+    RENAME_ASK_NOTE, RENAME_CONFIRMED_NOTE, RENAME_HELD_NOTE,
 };
 use crate::db::jobs::JobItemRow;
 use crate::db::matches::{actor, state, LinkProduct, LinkPut};
@@ -497,6 +498,104 @@ pub fn matches_pick(
     .map(|_| ())
 }
 
+/// The seller's word on the Matches screen that the name the site now lists `code` under is the
+/// link's product (PI-28, R-d's mechanism). The core judges that name against the product in the
+/// kept registry snapshot, as PRICE does (`gate::conflicts`, Q-5), and refuses `ConfirmRequired`
+/// unless exactly those reasons come back confirmed. Refused too when the link moved since the
+/// screen read it (`version`, `product_id`), when the rename it records is another code or name (a
+/// job met a newer one since), or the snapshot lacks the product. A name that agrees needs no word:
+/// a waiting record of it is forgotten, and `false` says nothing was confirmed.
+#[allow(clippy::too_many_arguments)]
+pub fn confirm_rename(
+    db: &Db,
+    registry: &crate::matching::registry::Registry,
+    name_seen: &str,
+    version: i64,
+    product_id: &str,
+    code: &str,
+    site_name: &str,
+    confirmed: Option<&[Reason]>,
+) -> Result<bool> {
+    let moved = || BridgeError::Other(LINK_MOVED.into());
+    let link = db
+        .match_for_name(SUPPLIER_ID, name_seen)?
+        .ok_or_else(moved)?;
+    if link.link_version != version || link.product_id.as_deref() != Some(product_id) {
+        return Err(moved());
+    }
+    // the word is for the rename the screen showed: a job that met another code or name since asks
+    // again (slice 9's review, finding 2)
+    let same = |r: &crate::db::matches::Renamed| {
+        r.code == code
+            && crate::matching::normalize::name_key(&r.name)
+                == crate::matching::normalize::name_key(site_name)
+    };
+    if link.renamed().is_some_and(|r| !same(&r)) {
+        return Err(moved());
+    }
+    let product = registry
+        .get(product_id)
+        .ok_or_else(|| BridgeError::Other(crate::inspect::NOT_IN_SNAPSHOT.into()))?;
+    let ev = crate::matching::evidence::evidence(site_name, code, product, registry.vocabulary());
+    let reasons = crate::matching::gate::conflicts(&ev);
+    if reasons.is_empty() {
+        if link.renamed().is_some_and(|r| r.confirmed_at.is_none()) {
+            db.forget_rename(
+                SUPPLIER_ID,
+                &link.name_key,
+                version,
+                link.renamed_json.as_deref(),
+            )?;
+        }
+        return Ok(false);
+    }
+    let confirmed = crate::inspect::confirmation(
+        &crate::matching::gate::Verdict::ConfirmThenWrite(reasons),
+        confirmed,
+    )?;
+    if !db.confirm_rename(
+        SUPPLIER_ID,
+        &link.name_key,
+        version,
+        product_id,
+        code,
+        site_name,
+        &confirmed,
+    )? {
+        return Err(moved());
+    }
+    Ok(true)
+}
+
+/// The seller takes back a rename on the Matches screen (PI-28): the link as the screen read it
+/// (`version`) forgets it, and the next run holds the code again and asks.
+pub fn withdraw_rename(db: &Db, name_seen: &str, version: i64) -> Result<()> {
+    let key = crate::matching::normalize::name_key(name_seen);
+    if !db.withdraw_rename(SUPPLIER_ID, &key, version)? {
+        return Err(BridgeError::Other(LINK_MOVED.into()));
+    }
+    Ok(())
+}
+
+/// A link edited elsewhere since the screen read it: the seller reopens it.
+pub const LINK_MOVED: &str = "این تطبیق پس از باز شدن صفحه عوض شد؛ دوباره بازش کنید.";
+
+/// The link a planned item writes from, as the job planned it: `None` when the seller re-pointed
+/// it since (another version or product) — its write is refused then, and nothing about a rename
+/// is noted on the seller's new decision.
+pub(super) fn item_link(
+    ctx: &JobCtx,
+    item: &JobItemRow,
+) -> Result<Option<crate::db::matches::MatchRow>> {
+    let Some(key) = item.link_key.as_deref() else {
+        return Ok(None);
+    };
+    Ok(ctx
+        .db
+        .link_by_key(SUPPLIER_ID, key)?
+        .filter(|l| Some(l.link_version) == item.link_version && l.product_id == item.product_id))
+}
+
 /// A judgement made for another supplier item never decides this one.
 fn same_item(judged: &PickJudgement, name: &str) -> Result<()> {
     use crate::matching::normalize::name_key;
@@ -588,20 +687,32 @@ async fn other_links(
                 continue;
             };
             let cost = match quote_for(ctx, svc, &now.name_seen, &now.code, vat).await {
-                Ok(Some(c)) if renamed_reasons(&registry, &product, &c).is_some() => {
-                    said.push(format!(
-                        "«{}» نام تازه‌اش جور نیست: «{}»",
-                        now.name_seen, c.name
-                    ));
-                    None
-                }
-                Ok(Some(c)) => {
-                    if !c.available {
-                        out.unavailable.insert(product.clone());
+                Ok(Some(c)) => match judge_rename(&ctx.db, &registry, Some(&now), &product, &c)? {
+                    Rename::Holds { asks_seller, .. } => {
+                        let ask = if asks_seller {
+                            format!(" — {RENAME_ASK_NOTE}")
+                        } else {
+                            String::new()
+                        };
+                        said.push(format!(
+                            "«{}» نام تازه‌اش جور نیست: «{}»{ask}",
+                            now.name_seen, c.name
+                        ));
+                        None
                     }
-                    said.push(format!("«{}» {} ریال", now.name_seen, c.cost));
-                    Some(c.cost)
-                }
+                    rename => {
+                        if !c.available {
+                            out.unavailable.insert(product.clone());
+                        }
+                        let confirmed = if rename == Rename::Confirmed {
+                            format!("، نام تازه «{}» را فروشنده تأیید کرده", c.name)
+                        } else {
+                            String::new()
+                        };
+                        said.push(format!("«{}» {} ریال{confirmed}", now.name_seen, c.cost));
+                        Some(c.cost)
+                    }
+                },
                 Ok(None) => {
                     said.push(format!("«{}» بی‌قیمت", now.name_seen));
                     None
@@ -695,25 +806,36 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
         match quote_for(ctx, svc, &item.name, &item.code, &mut vat).await {
             Ok(Some(c)) if c.renamed => {
                 // PI-26: the code found another name — judged against the product before its cost
-                // may stand for this link
+                // may stand for this link; PI-28: unless the seller confirmed that very rename
                 if registry.is_none() {
                     registry = Some(job_registry(ctx, svc).await?);
                 }
                 let product = item.product_id.as_deref().unwrap_or("");
-                let judged = registry
-                    .as_deref()
-                    .and_then(|r| renamed_reasons(r, product, &c));
+                let link = item_link(ctx, item)?;
+                let judged = match registry.as_deref() {
+                    Some(r) => judge_rename(&ctx.db, r, link.as_ref(), product, &c)?,
+                    None => Rename::Holds {
+                        reasons: vec![Reason::DefinitionNotExact],
+                        asks_seller: false,
+                    },
+                };
                 ctx.db
                     .add_item_note(item.id, &format!("نام در بارزپخش عوض شد: «{}»", c.name))?;
                 match judged {
-                    Some(reasons) => {
-                        ctx.db.add_item_note(
-                            item.id,
-                            "نام تازهٔ این کد با قطعهٔ لاندا جور نیست؛ قیمت آن نوشته نشد.",
-                        )?;
+                    Rename::Holds {
+                        reasons,
+                        asks_seller,
+                    } => {
+                        ctx.db.add_item_note(item.id, RENAME_HELD_NOTE)?;
+                        if asks_seller {
+                            ctx.db.add_item_note(item.id, RENAME_ASK_NOTE)?;
+                        }
                         held(ctx, &[item.id], &held_error(&reasons))?;
                     }
-                    None => {
+                    rename => {
+                        if rename == Rename::Confirmed {
+                            ctx.db.add_item_note(item.id, RENAME_CONFIRMED_NOTE)?;
+                        }
                         if !item.code.is_empty() && c.code != item.code {
                             ctx.db.add_item_note(
                                 item.id,
@@ -731,6 +853,8 @@ pub async fn commit(ctx: &JobCtx, svc: &Services) -> Result<()> {
                 }
             }
             Ok(Some(c)) => {
+                // found under the invoice's name: a rename waiting for the seller is gone (PI-28)
+                forget_waiting_rename(&ctx.db, item_link(ctx, item)?.as_ref(), &c)?;
                 if !item.code.is_empty() && c.code != item.code {
                     ctx.db.add_item_note(
                         item.id,

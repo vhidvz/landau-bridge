@@ -48,6 +48,11 @@ export const bridge = {
   matchesList: () => call<MatchRow[]>('matches_list'),
   matchSet: (name_seen: string, code: string, product_id: string, confirmed?: Reason[]) =>
     call<void>('match_set', { name_seen, code, product_id, confirmed }),
+  /** PI-28: the seller's word that the site's new name for the code is the link's product. */
+  /** `false`: the name agrees with the part, so nothing needed confirming. */
+  linkRenameConfirm: (name_seen: string, version: number, product_id: string, code: string, site_name: string, confirmed?: Reason[]) =>
+    call<boolean>('link_rename_confirm', { name_seen, version, product_id, code, site_name, confirmed }),
+  linkRenameWithdraw: (name_seen: string, version: number) => call<void>('link_rename_withdraw', { name_seen, version }),
   intentsHeld: () => call<HeldWrite[]>('intents_held'),
   intentResolve: (id: number, resolution: 'ON_SHELF' | 'TRANSFER_AGAIN') => call<boolean>('intent_resolve', { id, resolution }),
   matchesUndecided: () => call<UndecidedRow[]>('matches_undecided'),

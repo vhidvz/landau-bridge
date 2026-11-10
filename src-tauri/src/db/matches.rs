@@ -3,10 +3,11 @@
 //! moves whenever its product or decision does, and an append-only trail in `match_events`.
 
 use rusqlite::{params, Connection, OptionalExtension};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{now, Db};
 use crate::errors::Result;
+use crate::matching::gate::Reason;
 use crate::matching::normalize::name_key;
 
 /// Link states (R-a). Only [`VALID`] and [`REBUILT`] write, and only for the job that proved them.
@@ -57,9 +58,45 @@ pub struct MatchRow {
     /// JSON `Reason[]`: what the seller confirmed when picking against a conflict (R-d), or
     /// `None`. A stored pick whose conflicts are all among these still writes (slice 4).
     pub confirmed_json: Option<String>,
+    /// JSON [`Renamed`]: the rename a job last met on this link (PI-28), or `None`.
+    pub renamed_json: Option<String>,
+}
+
+/// A code the site lists under another name than the link's, that conflicts with the link's
+/// product (PI-28): what PRICE met, and whether the seller has said it is the same part.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Renamed {
+    pub product_id: String,
+    pub code: String,
+    /// The name the site lists the code under.
+    pub name: String,
+    /// The conflicts PRICE found between that name and the product (`gate::conflicts`).
+    pub reasons: Vec<Reason>,
+    pub seen_at: String,
+    /// When the seller confirmed it; `None` while it waits for them.
+    pub confirmed_at: Option<String>,
+}
+
+impl Renamed {
+    /// A confirmation covers this product, this code and this name (letter forms aside), and only
+    /// reasons the seller was shown.
+    pub fn covers(&self, product: &str, code: &str, name: &str, reasons: &[Reason]) -> bool {
+        self.confirmed_at.is_some()
+            && self.product_id == product
+            && self.code == code
+            && name_key(&self.name) == name_key(name)
+            && reasons.iter().all(|r| self.reasons.contains(r))
+    }
 }
 
 impl MatchRow {
+    /// The rename recorded on the link, if any.
+    pub fn renamed(&self) -> Option<Renamed> {
+        self.renamed_json
+            .as_deref()
+            .and_then(|j| serde_json::from_str(j).ok())
+    }
+
     /// Writable for `job` at `version` onto `product` (R-b, R-l): proven by that job, unchanged
     /// since, and still pointing at the product the write was planned for.
     pub fn writable_for(&self, job: i64, version: i64, product: &str) -> bool {
@@ -91,13 +128,14 @@ fn row(r: &rusqlite::Row<'_>) -> rusqlite::Result<MatchRow> {
         prev_product_id: r.get(16)?,
         link_version: r.get(17)?,
         confirmed_json: r.get(18)?,
+        renamed_json: r.get(19)?,
     })
 }
 
 const COLS: &str =
     "supplier, name_key, code, product_id, product_name, product_brand, product_alias, how, \
     similarity, name_seen, priced_at, decided_at, state, state_reason, state_at, validated_job, \
-    prev_product_id, link_version, confirmed_json";
+    prev_product_id, link_version, confirmed_json, renamed_json";
 
 /// The product a link points at, with the definition fields that identify it (Q-1).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -275,7 +313,9 @@ fn put(
            decided_at = excluded.decided_at, state = excluded.state,
            state_reason = excluded.state_reason, state_at = excluded.state_at,
            validated_job = excluded.validated_job, link_version = excluded.link_version,
-           confirmed_json = excluded.confirmed_json",
+           confirmed_json = excluded.confirmed_json,
+           renamed_json = CASE WHEN supplier_links.link_version = excluded.link_version
+             THEN supplier_links.renamed_json END",
         params![
             supplier,
             key,
@@ -511,7 +551,7 @@ impl Db {
             tx.execute(
                 "UPDATE supplier_links SET prev_product_id = product_id, product_id = ?3, product_name = ?4,
                    product_brand = ?5, product_alias = ?6, state = ?7, state_reason = ?8, state_at = ?9,
-                   validated_job = ?10, link_version = ?11
+                   validated_job = ?10, link_version = ?11, renamed_json = NULL
                  WHERE supplier = ?1 AND name_key = ?2",
                 params![
                     supplier,
@@ -686,11 +726,182 @@ impl Db {
         })
     }
 
-    /// Links a job held for the seller — `NEEDS_REVIEW` or `STALE` — for the dashboard's tile.
+    /// PRICE met the link's code under a name that conflicts with its product (PI-28): recorded,
+    /// waiting for the seller, only while the link is still at the `version` and `product` the job
+    /// used and still holds the record the job read (`read`, its `renamed_json`) — a seller's edit
+    /// or confirmation since wins. `false` when nothing was recorded. No trail entry: the job's
+    /// report carries the sighting.
+    #[allow(clippy::too_many_arguments)]
+    pub fn note_rename(
+        &self,
+        supplier: &str,
+        key: &str,
+        version: i64,
+        product: &str,
+        read: Option<&str>,
+        code: &str,
+        name: &str,
+        reasons: &[Reason],
+    ) -> Result<bool> {
+        let record = Renamed {
+            product_id: product.to_string(),
+            code: code.to_string(),
+            name: name.to_string(),
+            reasons: reasons.to_vec(),
+            seen_at: now(),
+            confirmed_at: None,
+        };
+        let json = serde_json::to_string(&record)?;
+        self.with(|c| {
+            c.execute(
+                "UPDATE supplier_links SET renamed_json = ?6
+                 WHERE supplier = ?1 AND name_key = ?2 AND link_version = ?3 AND product_id = ?4
+                   AND renamed_json IS ?5",
+                params![supplier, key, version, product, read, json],
+            )
+            .map(|n| n == 1)
+        })
+    }
+
+    /// The seller's word that the site's `name` for `code` is the link's product (PI-28), with
+    /// exactly the conflicts the core judged and the seller was shown — stored only while the link
+    /// is still at the `version` and `product` the screen read, and while any rename it records is
+    /// this code under this name (a job that met another name since asks again), with a `SELLER`
+    /// `shown` trail entry. `false` when the link or its rename moved.
+    #[allow(clippy::too_many_arguments)]
+    pub fn confirm_rename(
+        &self,
+        supplier: &str,
+        key: &str,
+        version: i64,
+        product: &str,
+        code: &str,
+        name: &str,
+        reasons: &[Reason],
+    ) -> Result<bool> {
+        let at = now();
+        self.with(|c| {
+            let tx = c.unchecked_transaction()?;
+            let expect = Expect::At {
+                version,
+                product: Some(product),
+            };
+            let Some(old) =
+                by_key(&tx, supplier, key)?.filter(|o| as_expected(Some(o), Some(expect)))
+            else {
+                return Ok(false);
+            };
+            if old
+                .renamed()
+                .is_some_and(|r| r.code != code || name_key(&r.name) != name_key(name))
+            {
+                return Ok(false);
+            }
+            let seen_at = old
+                .renamed()
+                .filter(|r| {
+                    r.product_id == product && r.code == code && name_key(&r.name) == name_key(name)
+                })
+                .map(|r| r.seen_at)
+                .unwrap_or_else(|| at.clone());
+            let record = Renamed {
+                product_id: product.to_string(),
+                code: code.to_string(),
+                name: name.to_string(),
+                reasons: reasons.to_vec(),
+                seen_at,
+                confirmed_at: Some(at),
+            };
+            let json = serde_json::to_string(&record)
+                .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+            tx.execute(
+                "UPDATE supplier_links SET renamed_json = ?3 WHERE supplier = ?1 AND name_key = ?2",
+                params![supplier, key, json],
+            )?;
+            event(
+                &tx,
+                supplier,
+                key,
+                None,
+                actor::SELLER,
+                Some(&old),
+                Some(product),
+                Some(old.state.as_str()),
+                Some("shown"),
+                Some(&serde_json::json!({"renamed": record}).to_string()),
+            )?;
+            tx.commit()?;
+            Ok(true)
+        })
+    }
+
+    /// The recorded rename no longer holds anything (the site's name agrees with the product):
+    /// forgotten, only while the link is still at `version` and holds the record the job read
+    /// (`read`) — never a confirmation the seller made since.
+    pub fn forget_rename(
+        &self,
+        supplier: &str,
+        key: &str,
+        version: i64,
+        read: Option<&str>,
+    ) -> Result<bool> {
+        self.with(|c| {
+            c.execute(
+                "UPDATE supplier_links SET renamed_json = NULL
+                 WHERE supplier = ?1 AND name_key = ?2 AND link_version = ?3
+                   AND renamed_json IS ?4 AND renamed_json IS NOT NULL",
+                params![supplier, key, version, read],
+            )
+            .map(|n| n == 1)
+        })
+    }
+
+    /// The seller takes back a rename they confirmed (or one waiting for them) on the link as the
+    /// screen read it (`version`), with a `SELLER` trail entry; the next run holds the code again
+    /// and asks. `false` when the link moved or holds no rename.
+    pub fn withdraw_rename(&self, supplier: &str, key: &str, version: i64) -> Result<bool> {
+        self.with(|c| {
+            let tx = c.unchecked_transaction()?;
+            let Some(old) = by_key(&tx, supplier, key)?
+                .filter(|o| o.link_version == version && o.renamed_json.is_some())
+            else {
+                return Ok(false);
+            };
+            tx.execute(
+                "UPDATE supplier_links SET renamed_json = NULL WHERE supplier = ?1 AND name_key = ?2",
+                params![supplier, key],
+            )?;
+            let withdrawn: serde_json::Value = old
+                .renamed_json
+                .as_deref()
+                .and_then(|j| serde_json::from_str(j).ok())
+                .unwrap_or_default();
+            event(
+                &tx,
+                supplier,
+                key,
+                None,
+                actor::SELLER,
+                Some(&old),
+                old.product_id.as_deref(),
+                Some(old.state.as_str()),
+                Some("shown"),
+                Some(&serde_json::json!({ "withdrawn": withdrawn }).to_string()),
+            )?;
+            tx.commit()?;
+            Ok(true)
+        })
+    }
+
+    /// Links a job held for the seller — `NEEDS_REVIEW` or `STALE`, or a rename on the link's
+    /// product the seller has not confirmed (PI-28) — for the dashboard's tile.
     pub fn count_links_needing_review(&self, supplier: &str) -> Result<i64> {
         self.with(|c| {
             c.query_row(
-                "SELECT COUNT(*) FROM supplier_links WHERE supplier = ?1 AND state IN (?2, ?3)",
+                "SELECT COUNT(*) FROM supplier_links WHERE supplier = ?1 AND (state IN (?2, ?3)
+                   OR (renamed_json IS NOT NULL
+                       AND json_extract(renamed_json, '$.confirmed_at') IS NULL
+                       AND json_extract(renamed_json, '$.product_id') = product_id))",
                 params![supplier, state::NEEDS_REVIEW, state::STALE],
                 |r| r.get(0),
             )
@@ -974,6 +1185,229 @@ mod tests {
         assert_eq!(
             db.match_events("s", "قطعه").unwrap().last().unwrap().actor,
             actor::WRITE
+        );
+    }
+
+    /// PI-28: a link remembers the rename a job met on it, only on the version and product that
+    /// job read; the seller's confirmation lands only on the version and product the screen read,
+    /// and covers that product, code and name alone. VALIDATE and the same decision again keep
+    /// it; another product, another `how` or a rebuild forget it.
+    #[test]
+    fn a_rename_is_remembered_confirmed_on_its_version_and_forgotten_by_a_new_decision() {
+        use crate::matching::gate::Reason;
+        let db = db();
+        db.set_match("s", "قطعه", "C1", Some(("p1", "الف")), "USER", None)
+            .unwrap();
+        let v = db
+            .match_for_name("s", "قطعه")
+            .unwrap()
+            .unwrap()
+            .link_version;
+        let reasons = vec![Reason::NumberConflict {
+            lacking: vec!["38 cm".into()],
+        }];
+        let site = "بست کمري 300*3/6 GSR سفيد";
+        assert!(!db
+            .note_rename("s", "قطعه", v + 1, "p1", None, "C1", site, &reasons)
+            .unwrap());
+        assert!(!db
+            .note_rename("s", "قطعه", v, "p2", None, "C1", site, &reasons)
+            .unwrap());
+        assert_eq!(
+            db.match_for_name("s", "قطعه").unwrap().unwrap().renamed(),
+            None
+        );
+        assert!(db
+            .note_rename("s", "قطعه", v, "p1", None, "C1", site, &reasons)
+            .unwrap());
+        let seen = db
+            .match_for_name("s", "قطعه")
+            .unwrap()
+            .unwrap()
+            .renamed()
+            .unwrap();
+        assert_eq!(
+            (
+                seen.product_id.as_str(),
+                seen.code.as_str(),
+                seen.name.as_str()
+            ),
+            ("p1", "C1", site)
+        );
+        assert_eq!(seen.confirmed_at, None);
+        assert!(
+            !seen.covers("p1", "C1", site, &reasons),
+            "not confirmed yet"
+        );
+        assert_eq!(
+            db.count_links_needing_review("s").unwrap(),
+            1,
+            "an unconfirmed rename waits for the seller"
+        );
+
+        assert!(!db
+            .confirm_rename("s", "قطعه", v + 1, "p1", "C1", site, &reasons)
+            .unwrap());
+        assert!(!db
+            .confirm_rename("s", "قطعه", v, "p2", "C1", site, &reasons)
+            .unwrap());
+        assert!(db
+            .confirm_rename("s", "قطعه", v, "p1", "C1", site, &reasons)
+            .unwrap());
+        let ok = db
+            .match_for_name("s", "قطعه")
+            .unwrap()
+            .unwrap()
+            .renamed()
+            .unwrap();
+        assert!(ok.confirmed_at.is_some());
+        assert!(
+            ok.covers("p1", "C1", "بست کمری 300*3/6 GSR سفید", &reasons),
+            "letter forms"
+        );
+        assert!(ok.covers("p1", "C1", site, &[]), "fewer reasons");
+        assert!(!ok.covers("p2", "C1", site, &reasons), "another product");
+        assert!(!ok.covers("p1", "C2", site, &reasons), "another code");
+        assert!(
+            !ok.covers("p1", "C1", "بست کمري 300*4/8 GSR سفيد", &reasons),
+            "another name"
+        );
+        let more = [reasons.clone(), vec![Reason::NoBrandInName]].concat();
+        assert!(!ok.covers("p1", "C1", site, &more), "a new reason");
+        assert_eq!(db.count_links_needing_review("s").unwrap(), 0);
+        let last = db.match_events("s", "قطعه").unwrap().pop().unwrap();
+        assert_eq!(
+            (last.actor.as_str(), last.evidence.as_deref()),
+            (actor::SELLER, Some("shown"))
+        );
+        assert!(last.detail.unwrap().contains("renamed"));
+
+        db.validate_link("s", "قطعه", v, product("p1"), state::VALID, None, 3)
+            .unwrap()
+            .unwrap();
+        db.set_match("s", "قطعه", "C1", Some(("p1", "الف")), "USER", None)
+            .unwrap();
+        assert!(
+            db.match_for_name("s", "قطعه")
+                .unwrap()
+                .unwrap()
+                .renamed()
+                .is_some(),
+            "VALIDATE and the same decision keep it"
+        );
+        db.set_match("s", "قطعه", "C1", Some(("p1", "الف")), "AUTO", Some(90))
+            .unwrap();
+        assert_eq!(
+            db.match_for_name("s", "قطعه").unwrap().unwrap().renamed(),
+            None
+        );
+
+        let v = db
+            .match_for_name("s", "قطعه")
+            .unwrap()
+            .unwrap()
+            .link_version;
+        assert!(db
+            .confirm_rename("s", "قطعه", v, "p1", "C1", site, &reasons)
+            .unwrap());
+        db.rebuild_link("s", "قطعه", v, "p1", product("p9"), state::REBUILT, None, 4)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            db.match_for_name("s", "قطعه").unwrap().unwrap().renamed(),
+            None,
+            "a rebuild forgets it"
+        );
+    }
+
+    /// Slice 9's review, finding 1: a job notes or forgets a rename only on the record it read,
+    /// so a confirmation the seller made since is never overwritten or erased. Finding 2: the
+    /// seller confirms only the record the screen showed — a rename noted since is refused. The
+    /// seller can withdraw a confirmation, on the link as the screen read it.
+    #[test]
+    fn a_job_never_undoes_a_rename_the_seller_confirmed_since_its_read() {
+        use crate::matching::gate::Reason;
+        let db = db();
+        db.set_match("s", "قطعه", "C1", Some(("p1", "الف")), "USER", None)
+            .unwrap();
+        let v = db
+            .match_for_name("s", "قطعه")
+            .unwrap()
+            .unwrap()
+            .link_version;
+        let reasons = vec![Reason::NumberConflict {
+            lacking: vec!["38 cm".into()],
+        }];
+        let site = "بست کمري 300*3/6 GSR سفيد";
+        let json = || {
+            db.match_for_name("s", "قطعه")
+                .unwrap()
+                .unwrap()
+                .renamed_json
+        };
+        assert!(db
+            .note_rename("s", "قطعه", v, "p1", None, "C1", site, &reasons)
+            .unwrap());
+        let read = json();
+        assert!(
+            !db.note_rename("s", "قطعه", v, "p1", None, "C1", site, &reasons)
+                .unwrap(),
+            "a job that read no record notes nothing over one"
+        );
+        assert!(db
+            .confirm_rename("s", "قطعه", v, "p1", "C1", site, &reasons)
+            .unwrap());
+
+        // the job, from its read before the confirmation, neither notes nor forgets
+        assert!(!db
+            .note_rename("s", "قطعه", v, "p1", read.as_deref(), "C1", site, &reasons)
+            .unwrap());
+        assert!(!db.forget_rename("s", "قطعه", v, read.as_deref()).unwrap());
+        let kept = db
+            .match_for_name("s", "قطعه")
+            .unwrap()
+            .unwrap()
+            .renamed()
+            .unwrap();
+        assert!(kept.confirmed_at.is_some(), "the seller's word stands");
+
+        // the site renamed it again since the screen read it: the old name is not confirmed
+        let other = "بست کمري 300*3/6 GSR سفيد براق";
+        assert!(db
+            .note_rename(
+                "s",
+                "قطعه",
+                v,
+                "p1",
+                json().as_deref(),
+                "C1",
+                other,
+                &reasons
+            )
+            .unwrap());
+        assert!(!db
+            .confirm_rename("s", "قطعه", v, "p1", "C1", site, &reasons)
+            .unwrap());
+        assert!(!db
+            .confirm_rename("s", "قطعه", v, "p1", "C2", other, &reasons)
+            .unwrap());
+        assert!(db
+            .confirm_rename("s", "قطعه", v, "p1", "C1", other, &reasons)
+            .unwrap());
+
+        // withdrawn by the seller, on the link as the screen read it
+        assert!(!db.withdraw_rename("s", "قطعه", v + 1).unwrap());
+        assert!(db.withdraw_rename("s", "قطعه", v).unwrap());
+        assert_eq!(
+            db.match_for_name("s", "قطعه").unwrap().unwrap().renamed(),
+            None
+        );
+        let last = db.match_events("s", "قطعه").unwrap().pop().unwrap();
+        assert_eq!(last.actor, actor::SELLER);
+        assert!(last.detail.unwrap().contains("withdrawn"));
+        assert!(
+            !db.withdraw_rename("s", "قطعه", v).unwrap(),
+            "nothing left to withdraw"
         );
     }
 

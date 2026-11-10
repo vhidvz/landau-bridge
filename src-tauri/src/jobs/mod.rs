@@ -440,6 +440,101 @@ pub fn renamed_reasons(
     (!reasons.is_empty()).then_some(reasons)
 }
 
+/// What a quote's rename does to the write (PI-26, PI-28).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Rename {
+    /// Not renamed, or renamed to a name that agrees with the product: written as before.
+    Writes,
+    /// Renamed into a conflict the seller confirmed for this product, code and name: written.
+    Confirmed,
+    /// Renamed into a conflict nobody confirmed: held. `asks_seller` when the rename now waits on
+    /// the link for the seller's word in Matches — not when the product is gone from the registry
+    /// (nothing to confirm) or the link moved since the job read it.
+    Holds {
+        reasons: Vec<crate::matching::gate::Reason>,
+        asks_seller: bool,
+    },
+}
+
+/// [`renamed_reasons`] for the quote `link` found for `product`, the seller's confirmation of that
+/// very rename honoured (PI-28). `link` is the job's read: a hold is recorded on it for the seller
+/// only while the link is still at that version and product and still holds the record read, so a
+/// confirmation made since is never overwritten (it counts from the next run). A quote of the
+/// record's own code that no longer conflicts forgets a record still waiting.
+pub fn judge_rename(
+    db: &crate::db::Db,
+    registry: &Registry,
+    link: Option<&crate::db::matches::MatchRow>,
+    product: &str,
+    quote: &Costed,
+) -> Result<Rename> {
+    use crate::matching::gate::Reason;
+    let Some(reasons) = renamed_reasons(registry, product, quote) else {
+        forget_waiting_rename(db, link, quote)?;
+        return Ok(Rename::Writes);
+    };
+    let Some(link) = link else {
+        return Ok(Rename::Holds {
+            reasons,
+            asks_seller: false,
+        });
+    };
+    if link
+        .renamed()
+        .is_some_and(|r| r.covers(product, &quote.code, &quote.name, &reasons))
+    {
+        return Ok(Rename::Confirmed);
+    }
+    // a product the registry lacks has nothing to confirm: VALIDATE deals with the link
+    let confirmable = !reasons.contains(&Reason::DefinitionNotExact);
+    let asks_seller = confirmable
+        && db.note_rename(
+            SUPPLIER_ID,
+            &link.name_key,
+            link.link_version,
+            product,
+            link.renamed_json.as_deref(),
+            &quote.code,
+            &quote.name,
+            &reasons,
+        )?;
+    Ok(Rename::Holds {
+        reasons,
+        asks_seller,
+    })
+}
+
+/// A rename recorded on `link` and still waiting for the seller, forgotten once a quote of its own
+/// code no longer conflicts (PI-28) — never on a quote of another code, and never over a record
+/// changed since the job read it. A confirmed one stays: it asks nothing.
+pub fn forget_waiting_rename(
+    db: &crate::db::Db,
+    link: Option<&crate::db::matches::MatchRow>,
+    quote: &Costed,
+) -> Result<()> {
+    let Some(l) = link else {
+        return Ok(());
+    };
+    if l.renamed()
+        .is_some_and(|r| r.confirmed_at.is_none() && r.code == quote.code)
+    {
+        db.forget_rename(
+            SUPPLIER_ID,
+            &l.name_key,
+            l.link_version,
+            l.renamed_json.as_deref(),
+        )?;
+    }
+    Ok(())
+}
+
+/// The report's note on a held rename (PI-26).
+pub const RENAME_HELD_NOTE: &str = "نام تازهٔ این کد با قطعهٔ لاندا جور نیست؛ قیمت آن نوشته نشد.";
+/// Added when the rename now waits for the seller in Matches (PI-28).
+pub const RENAME_ASK_NOTE: &str = "اگر همان قطعه است، در «تطبیق‌ها» تأییدش کنید.";
+/// The report's note on a rename the seller confirmed (PI-28).
+pub const RENAME_CONFIRMED_NOTE: &str = "نام تازه را فروشنده تأیید کرده است.";
+
 /// One priced supplier row for an item (spec §14 b): by name first, then by code.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Costed {

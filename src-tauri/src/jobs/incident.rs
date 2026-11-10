@@ -600,19 +600,47 @@ mod tests {
         other_how: &str,
         other_price: i64,
     ) -> (FakeLandau, JobCtx) {
-        one_code_of_two_named(other, other_how, other_price, other.1).await
+        one_code_of_two_named(other, other_how, other_price, other.1, false).await
     }
 
-    /// [`one_code_of_two`], the site listing the other code under `site_name`.
+    /// The seller's word, through the core, that the site's `site_name` for `item`'s code is
+    /// `product`: first refused, then sent again with exactly the reasons the refusal named.
+    fn confirm_as_shown(db: &Db, item: (&str, &str), product: &str, site_name: &str) {
+        let registry = Registry::from_products(registry());
+        let version = db
+            .match_for_name(SUPPLIER_ID, item.1)
+            .unwrap()
+            .unwrap()
+            .link_version;
+        let confirm = |c: Option<&[crate::matching::gate::Reason]>| {
+            import::confirm_rename(
+                db, &registry, item.1, version, product, item.0, site_name, c,
+            )
+        };
+        let shown = match confirm(None) {
+            Err(BridgeError::ConfirmRequired { reasons }) => {
+                serde_json::from_str::<Vec<crate::matching::gate::Reason>>(&reasons).unwrap()
+            }
+            other => panic!("{other:?}"),
+        };
+        confirm(Some(&shown)).unwrap();
+    }
+
+    /// [`one_code_of_two`], the site listing the other code under `site_name` — a rename the
+    /// seller confirmed beforehand when `confirmed`.
     async fn one_code_of_two_named(
         other: (&str, &str),
         other_how: &str,
         other_price: i64,
         site_name: &str,
+        confirmed: bool,
     ) -> (FakeLandau, JobCtx) {
         let db = Db::in_memory().unwrap();
         link(&db, other, other_how, &clamp_57eb());
         link(&db, GSR_TWIN, "USER", &clamp_57eb());
+        if confirmed {
+            confirm_as_shown(&db, other, &clamp_57eb().id, site_name);
+        }
         let landau = FakeLandau::start(
             STORE,
             registry(),
@@ -725,6 +753,13 @@ mod tests {
             registry(),
             vec![row(ROW_9CED, &clamp_57eb(), 20_900)],
         );
+        let (import, refresh) = import_and_refresh(&db, &landau, site_name).await;
+        (landau, import, refresh)
+    }
+
+    /// One ZERO import, then one refresh, over `db` and `landau`, the site listing `CLAMP_GSR`'s
+    /// code under `site_name` at 21,000.
+    async fn import_and_refresh(db: &Db, landau: &FakeLandau, site_name: &str) -> (JobCtx, JobCtx) {
         let svc = Services {
             landau: LandauClient::new(&landau.url, "apt-test").unwrap(),
             supplier: Box::new(
@@ -734,16 +769,126 @@ mod tests {
             settings: settings(&landau.url),
             snapshot: Default::default(),
         };
-        let import = ctx(&db, "IMPORT");
+        let import = ctx(db, "IMPORT");
         assert_eq!(
             import::start(&import, &svc, &zero()).await.unwrap(),
             Outcome::Done
         );
         import.finish(&Ok(()), "REPORT");
-        let refresh = ctx(&db, "REFRESH");
+        let refresh = ctx(db, "REFRESH");
         super::super::refresh::run(&refresh, &svc).await.unwrap();
         refresh.finish(&Ok(()), "REPORT");
-        (landau, import, refresh)
+        (import, refresh)
+    }
+
+    /// PI-28: the hold PI-26 puts on a renamed code is recorded on its link for the seller, and
+    /// the seller's word that the new name is the clamp — confirmed through the core, which
+    /// refuses it until exactly the conflicts shown come back — lets the cost through in an
+    /// import and a refresh, under that name alone. A further rename asks again.
+    #[tokio::test]
+    async fn a_rename_the_seller_confirmed_writes_and_only_under_that_name() {
+        let db = Db::in_memory().unwrap();
+        link(&db, CLAMP_GSR, "USER", &clamp_57eb());
+        let landau = FakeLandau::start(
+            STORE,
+            registry(),
+            vec![row(ROW_9CED, &clamp_57eb(), 20_900)],
+        );
+        let clamp = clamp_57eb().id;
+        let site = "بست کمري 300*3/6 GSR سفيد";
+        let link_now = || {
+            db.match_for_name(SUPPLIER_ID, CLAMP_GSR.1)
+                .unwrap()
+                .unwrap()
+        };
+
+        let (import, _) = import_and_refresh(&db, &landau, site).await;
+        assert!(landau.writes().is_empty(), "{:?}", landau.writes());
+        let seen = link_now()
+            .renamed()
+            .expect("the hold is recorded on the link");
+        assert_eq!(
+            (
+                seen.product_id.as_str(),
+                seen.code.as_str(),
+                seen.name.as_str()
+            ),
+            (clamp.as_str(), CLAMP_GSR.0, site)
+        );
+        assert!(seen.confirmed_at.is_none() && !seen.reasons.is_empty());
+        assert_eq!(db.count_links_needing_review(SUPPLIER_ID).unwrap(), 1);
+        assert!(
+            item(&import, CLAMP_GSR.0)
+                .note
+                .unwrap_or_default()
+                .contains("تطبیق‌ها"),
+            "the report says where to confirm"
+        );
+
+        // the core refuses an unconfirmed or partial word, then takes exactly the reasons shown
+        let registry = Registry::from_products(registry());
+        let l = link_now();
+        let confirm = |confirmed: Option<&[crate::matching::gate::Reason]>| {
+            import::confirm_rename(
+                &db,
+                &registry,
+                CLAMP_GSR.1,
+                l.link_version,
+                &clamp,
+                CLAMP_GSR.0,
+                site,
+                confirmed,
+            )
+        };
+        let shown = match confirm(None) {
+            Err(BridgeError::ConfirmRequired { reasons }) => {
+                serde_json::from_str::<Vec<crate::matching::gate::Reason>>(&reasons).unwrap()
+            }
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(shown, seen.reasons);
+        assert!(matches!(
+            confirm(Some(&[])),
+            Err(BridgeError::ConfirmRequired { .. })
+        ));
+        confirm(Some(&shown)).unwrap();
+        assert_eq!(db.count_links_needing_review(SUPPLIER_ID).unwrap(), 0);
+
+        let (import, refresh) = import_and_refresh(&db, &landau, site).await;
+        assert_eq!(landau.row(ROW_9CED).unwrap().cost, Some(23_100));
+        let written = item(&import, CLAMP_GSR.0);
+        assert_eq!(written.status, "DONE", "{written:?}");
+        assert!(written
+            .note
+            .unwrap_or_default()
+            .contains("فروشنده تأیید کرده"));
+        assert!(
+            ctx_items(&refresh).iter().all(|i| i.error_kind.is_none()),
+            "{:?}",
+            ctx_items(&refresh)
+        );
+
+        // the site renames the code again, the same conflict under another name: held in both,
+        // asked again — a confirmation counts for the name it was given for
+        let writes = landau.writes().len();
+        let again = "بست کمري 300*3/6 GSR سفيد براق";
+        let (import, refresh) = import_and_refresh(&db, &landau, again).await;
+        assert_eq!(landau.writes().len(), writes, "{:?}", landau.writes());
+        assert_eq!(
+            item(&import, CLAMP_GSR.0).error_kind.as_deref(),
+            Some("EvidenceConflict")
+        );
+        assert_eq!(
+            ctx_items(&refresh)[0].error_kind.as_deref(),
+            Some("EvidenceConflict")
+        );
+        let pending = link_now().renamed().unwrap();
+        assert_eq!((pending.name.as_str(), pending.confirmed_at), (again, None));
+
+        // the site lists the invoice's name again: the waiting rename is forgotten
+        let (_, _) = import_and_refresh(&db, &landau, CLAMP_GSR.1).await;
+        assert_eq!(link_now().renamed(), None);
+        assert_eq!(db.count_links_needing_review(SUPPLIER_ID).unwrap(), 0);
     }
 
     #[tokio::test]
@@ -764,6 +909,304 @@ mod tests {
         let (landau, import, _) = renamed_at_the_site("بست کمری 380*4/8 GSR مشکی").await;
         assert_eq!(landau.row(ROW_9CED).unwrap().cost, Some(23_100));
         assert_eq!(item(&import, CLAMP_GSR.0).status, "DONE");
+    }
+
+    /// PI-28: the core takes a seller's word on a rename only for the link as the screen read it,
+    /// a product the kept snapshot holds, and exactly the conflicts it judges itself; a name that
+    /// agrees needs no word and forgets a record still waiting.
+    #[test]
+    fn a_rename_is_confirmed_only_as_the_core_judges_it() {
+        use crate::matching::gate::Reason;
+        let db = Db::in_memory().unwrap();
+        link(&db, CLAMP_GSR, "USER", &clamp_57eb());
+        let registry = Registry::from_products(registry());
+        let clamp = clamp_57eb().id;
+        let site = "بست کمري 300*3/6 GSR سفيد";
+        let now = || {
+            db.match_for_name(SUPPLIER_ID, CLAMP_GSR.1)
+                .unwrap()
+                .unwrap()
+        };
+        let v = now().link_version;
+        let confirm = |version: i64, product: &str, name: &str, c: Option<&[Reason]>| {
+            import::confirm_rename(
+                &db,
+                &registry,
+                CLAMP_GSR.1,
+                version,
+                product,
+                CLAMP_GSR.0,
+                name,
+                c,
+            )
+        };
+        let refused =
+            |r: crate::errors::Result<bool>| matches!(r, Err(BridgeError::ConfirmRequired { .. }));
+        let other = |r: crate::errors::Result<bool>, text: &str| matches!(r, Err(BridgeError::Other(m)) if m == text);
+        let shown = match confirm(v, &clamp, site, None) {
+            Err(BridgeError::ConfirmRequired { reasons }) => {
+                serde_json::from_str::<Vec<Reason>>(&reasons).unwrap()
+            }
+            r => panic!("{r:?}"),
+        };
+        assert!(
+            shown
+                .iter()
+                .any(|r| matches!(r, Reason::NumberConflict { .. })),
+            "{shown:?}"
+        );
+
+        // not what was shown: another reason, one more, or none
+        assert!(refused(confirm(
+            v,
+            &clamp,
+            site,
+            Some(&[Reason::NoBrandInName])
+        )));
+        let more = [shown.clone(), vec![Reason::NoBrandInName]].concat();
+        assert!(refused(confirm(v, &clamp, site, Some(&more))));
+        assert!(refused(confirm(v, &clamp, site, Some(&[]))));
+        // the link as the screen read it, onto the product it points at
+        assert!(other(
+            confirm(v + 1, &clamp, site, Some(&shown)),
+            import::LINK_MOVED
+        ));
+        assert!(other(
+            confirm(v, &clamp_57a5().id, site, Some(&shown)),
+            import::LINK_MOVED
+        ));
+        assert_eq!(now().renamed(), None, "nothing stored on a refusal");
+        // a product the snapshot lacks, and a link with no product
+        let gone = dead(clamp_57a5());
+        link(&db, CLAMP_5, "USER", &gone);
+        let v5 = db
+            .match_for_name(SUPPLIER_ID, CLAMP_5.1)
+            .unwrap()
+            .unwrap()
+            .link_version;
+        let r = import::confirm_rename(
+            &db,
+            &registry,
+            CLAMP_5.1,
+            v5,
+            &gone.id,
+            CLAMP_5.0,
+            site,
+            Some(&shown),
+        );
+        assert!(other(r, crate::inspect::NOT_IN_SNAPSHOT));
+        db.set_match(SUPPLIER_ID, CLAMP_8.1, CLAMP_8.0, None, "NONE", None)
+            .unwrap();
+        let v8 = db
+            .match_for_name(SUPPLIER_ID, CLAMP_8.1)
+            .unwrap()
+            .unwrap()
+            .link_version;
+        let r = import::confirm_rename(
+            &db,
+            &registry,
+            CLAMP_8.1,
+            v8,
+            &clamp,
+            CLAMP_8.0,
+            site,
+            Some(&shown),
+        );
+        assert!(other(r, import::LINK_MOVED));
+
+        // a waiting record binds the word to its own code and name: another is refused
+        assert!(db
+            .note_rename(
+                SUPPLIER_ID,
+                &now().name_key,
+                v,
+                &clamp,
+                None,
+                CLAMP_GSR.0,
+                site,
+                &shown
+            )
+            .unwrap());
+        let agrees = "بست کمری 380*4/8 GSR مشکی";
+        assert!(other(confirm(v, &clamp, agrees, None), import::LINK_MOVED));
+        // a recorded name that agrees with the product now (the registry changed since): no word
+        // is needed, nothing is confirmed, and the waiting record is forgotten
+        assert!(db.withdraw_rename(SUPPLIER_ID, &now().name_key, v).unwrap());
+        assert!(db
+            .note_rename(
+                SUPPLIER_ID,
+                &now().name_key,
+                v,
+                &clamp,
+                None,
+                CLAMP_GSR.0,
+                agrees,
+                &shown
+            )
+            .unwrap());
+        assert!(!confirm(v, &clamp, agrees, None).unwrap());
+        assert_eq!(now().renamed(), None);
+
+        // exactly what was shown, in any order: stored
+        let reversed: Vec<Reason> = shown.iter().rev().cloned().collect();
+        confirm(v, &clamp, site, Some(&reversed)).unwrap();
+        let stored = now().renamed().unwrap();
+        assert!(stored.confirmed_at.is_some());
+        assert!(stored.covers(&clamp, CLAMP_GSR.0, site, &shown));
+    }
+
+    /// Slice 9's review, findings 1, 4 and 7: a rename judged from the job's read never undoes a
+    /// confirmation the seller made since; a waiting record is forgotten only by a quote of its own
+    /// code; a product the registry no longer holds is held without asking the seller anything.
+    #[test]
+    fn a_rename_is_judged_from_the_job_read_without_undoing_the_seller() {
+        use super::super::{judge_rename, Costed, Rename};
+        let db = Db::in_memory().unwrap();
+        link(&db, CLAMP_GSR, "USER", &clamp_57eb());
+        let registry = Registry::from_products(registry());
+        let clamp = clamp_57eb().id;
+        let site = "بست کمري 300*3/6 GSR سفيد";
+        let quote = |code: &str, name: &str, renamed: bool| Costed {
+            cost: 23_100,
+            available: true,
+            code: code.into(),
+            name: name.into(),
+            renamed,
+        };
+        let read = || {
+            db.match_for_name(SUPPLIER_ID, CLAMP_GSR.1)
+                .unwrap()
+                .unwrap()
+        };
+        let held = |r: Rename| matches!(r, Rename::Holds { .. });
+        let asks = |r: &Rename| {
+            matches!(
+                r,
+                Rename::Holds {
+                    asks_seller: true,
+                    ..
+                }
+            )
+        };
+
+        let first = judge_rename(
+            &db,
+            &registry,
+            Some(&read()),
+            &clamp,
+            &quote(CLAMP_GSR.0, site, true),
+        )
+        .unwrap();
+        assert!(asks(&first), "{first:?}");
+        let stale = read();
+        confirm_as_shown(&db, CLAMP_GSR, &clamp, site);
+        // a refresh reaching the row on its read from before the confirmation: held this run,
+        // the seller not asked again, the confirmation kept
+        let r = judge_rename(
+            &db,
+            &registry,
+            Some(&stale),
+            &clamp,
+            &quote(CLAMP_GSR.0, site, true),
+        )
+        .unwrap();
+        assert!(held(r.clone()) && !asks(&r), "{r:?}");
+        assert!(read().renamed().unwrap().confirmed_at.is_some());
+
+        // a waiting record is forgotten only by a quote of its own code
+        assert!(db
+            .withdraw_rename(SUPPLIER_ID, &read().name_key, read().link_version)
+            .unwrap());
+        judge_rename(
+            &db,
+            &registry,
+            Some(&read()),
+            &clamp,
+            &quote(CLAMP_GSR.0, site, true),
+        )
+        .unwrap();
+        assert!(read().renamed().is_some_and(|r| r.confirmed_at.is_none()));
+        let other_code = judge_rename(
+            &db,
+            &registry,
+            Some(&read()),
+            &clamp,
+            &quote("8800999", CLAMP_GSR.1, false),
+        )
+        .unwrap();
+        assert_eq!(other_code, Rename::Writes);
+        assert!(
+            read().renamed().is_some(),
+            "another code's quote says nothing of this one"
+        );
+        judge_rename(
+            &db,
+            &registry,
+            Some(&read()),
+            &clamp,
+            &quote(CLAMP_GSR.0, CLAMP_GSR.1, false),
+        )
+        .unwrap();
+        assert_eq!(
+            read().renamed(),
+            None,
+            "the site lists the code under the invoice's name again"
+        );
+
+        // a product the registry no longer holds: held, and nothing waits for the seller
+        let gone = dead(clamp_57a5());
+        link(&db, CLAMP_5, "USER", &gone);
+        let l5 = || db.match_for_name(SUPPLIER_ID, CLAMP_5.1).unwrap().unwrap();
+        let r = judge_rename(
+            &db,
+            &registry,
+            Some(&l5()),
+            &gone.id,
+            &quote(CLAMP_5.0, site, true),
+        )
+        .unwrap();
+        assert!(held(r.clone()) && !asks(&r), "{r:?}");
+        assert_eq!(l5().renamed(), None);
+    }
+
+    /// Slice 9's review, finding 3: PRICE judges a rename on the link the item was planned on —
+    /// none when the seller re-pointed it since, so nothing is noted on their new decision.
+    #[test]
+    fn an_item_is_judged_on_the_link_it_was_planned_on() {
+        let db = Db::in_memory().unwrap();
+        link(&db, CLAMP_GSR, "USER", &clamp_57eb());
+        let l = db
+            .match_for_name(SUPPLIER_ID, CLAMP_GSR.1)
+            .unwrap()
+            .unwrap();
+        let ctx = ctx(&db, "IMPORT");
+        let id = db
+            .add_job_item(ctx.job_id, CLAMP_GSR.0, CLAMP_GSR.1, 0)
+            .unwrap();
+        let plan = |version: i64, product: &str| {
+            db.update_job_item(
+                id,
+                &[
+                    ("link_key", crate::jobs::t(&l.name_key)),
+                    ("link_version", crate::jobs::i(version)),
+                    ("product_id", crate::jobs::t(product)),
+                ],
+            )
+            .unwrap();
+            db.job_item(id).unwrap().unwrap()
+        };
+        let clamp = clamp_57eb().id;
+        assert!(import::item_link(&ctx, &plan(l.link_version, &clamp))
+            .unwrap()
+            .is_some());
+        assert!(import::item_link(&ctx, &plan(l.link_version - 1, &clamp))
+            .unwrap()
+            .is_none());
+        assert!(
+            import::item_link(&ctx, &plan(l.link_version, &clamp_57a5().id))
+                .unwrap()
+                .is_none()
+        );
     }
 
     fn ctx_items(ctx: &JobCtx) -> Vec<JobItemRow> {
@@ -811,12 +1254,26 @@ mod tests {
         );
 
         // PI-26 on the other link: its code now names another part, at an equal cost — held
-        let (landau, ctx) =
-            one_code_of_two_named(CLAMP_GSR, "USER", 21_000, "بست کمري 300*3/6 GSR سفيد").await;
+        let renamed = "بست کمري 300*3/6 GSR سفيد";
+        let (landau, ctx) = one_code_of_two_named(CLAMP_GSR, "USER", 21_000, renamed, false).await;
         assert!(landau.writes().is_empty(), "{:?}", landau.writes());
         assert_eq!(
             item(&ctx, GSR_TWIN.0).error_kind.as_deref(),
             Some("Conflict")
         );
+        assert!(
+            ctx.db
+                .match_for_name(SUPPLIER_ID, CLAMP_GSR.1)
+                .unwrap()
+                .unwrap()
+                .renamed()
+                .is_some_and(|r| r.confirmed_at.is_none()),
+            "the rename waits for the seller on the other link"
+        );
+
+        // PI-28: the seller confirmed that rename — the other link counts at its equal cost
+        let (landau, ctx) = one_code_of_two_named(CLAMP_GSR, "USER", 21_000, renamed, true).await;
+        assert_eq!(landau.row(ROW_9CED).unwrap().cost, Some(23_100));
+        assert_eq!(item(&ctx, GSR_TWIN.0).status, "DONE");
     }
 }

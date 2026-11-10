@@ -69,6 +69,12 @@ export interface MatchRow {
   similarity: number | null; name_seen: string; priced_at: string | null; decided_at: string;
   state: LinkState; state_reason: string | null; state_at: string | null; validated_job: number | null; link_version: number;
   product_brand: string | null; product_alias: string | null; confirmed_json: string | null;
+  /** JSON {@link Renamed}: the rename a job last met on the link (PI-28), or null. */
+  renamed_json: string | null;
+}
+/** A code the site lists under another name that conflicts with the link's product (PI-28). */
+export interface Renamed {
+  product_id: string; code: string; name: string; reasons: Reason[]; seen_at: string; confirmed_at: string | null;
 }
 /** A part ended import jobs left without a decision, with the candidates review showed then. */
 export interface UndecidedRow {

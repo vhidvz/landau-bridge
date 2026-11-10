@@ -200,6 +200,8 @@ pub fn run() {
             commands::decisions_export,
             commands::decisions_import,
             commands::match_set,
+            commands::link_rename_confirm,
+            commands::link_rename_withdraw,
             commands::match_none,
             commands::match_clear,
             commands::errors_list,
