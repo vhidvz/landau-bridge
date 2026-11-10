@@ -28,6 +28,13 @@ const WRONG: (&str, &str) = (
     "33102017",
     "بلبرينگ چرخ جلو پرايد قديم 69349 PSN عظام (54) 3154027",
 );
+/// PI-29: a pick of the right bearing under an invoice name the site no longer lists, its code one
+/// the site now sells as the 69349 bearing — so only the code finds a quote, under a name that
+/// contradicts the part, and every job holds it.
+const RENAMED: (&str, &str) = (
+    WRONG.0,
+    "بلبرينگ بزرگ چرخ عقب پرايد جدبد (بلبرينگ بزرگ چرخ جلو پيکان) 44649 PSN عظام (96)",
+);
 
 fn shelf_key(rows: &[ShelfRow]) -> Vec<(String, i64, Option<i64>, Option<i64>)> {
     let mut v: Vec<_> = rows
@@ -95,7 +102,7 @@ async fn the_audit_lists_the_staged_incident_row_and_writes_nothing() {
 
     let dir = tempfile::tempdir().unwrap();
     let db = Db::open(&dir.path().join("bridge.sqlite")).unwrap();
-    for (item, how) in [(RIGHT, "USER"), (WRONG, "USER")] {
+    for (item, how) in [(RIGHT, "USER"), (WRONG, "USER"), (RENAMED, "USER")] {
         db.set_match(
             SUPPLIER_ID,
             item.1,
@@ -194,12 +201,24 @@ async fn the_audit_lists_the_staged_incident_row_and_writes_nothing() {
         .find(|r| r.stock_id == staged.id)
         .expect("the staged row is listed");
     assert_eq!(row.doubts, [Doubt::UnprovenLink]);
-    let by = |code: &str| row.links.iter().find(|l| l.code == code).unwrap();
-    assert!(by(RIGHT.0).proven, "{:?}", by(RIGHT.0));
-    assert!(!by(WRONG.0).proven);
+    let by = |name: &str| row.links.iter().find(|l| l.name == name).unwrap();
+    assert!(by(RIGHT.1).proven, "{:?}", by(RIGHT.1));
+    assert!(!by(WRONG.1).proven);
+    // PI-29: the renamed code's price proves nothing, so «should» stands on the right bearing alone
+    let renamed = by(RENAMED.1);
+    let rename = renamed
+        .rename
+        .as_ref()
+        .unwrap_or_else(|| panic!("the rename is named: {renamed:?}"));
+    println!(
+        "renamed: «{}» found by {} as «{}», {:?}, reasons {:?}",
+        RENAMED.1, rename.code, rename.name, rename.state, renamed.reasons
+    );
+    assert!(!renamed.proven);
+    assert_eq!(rename.state, audit::RenameState::Unasked);
     // the evidence's cost is the right bearing's quote today, whatever Barezpakhsh lists now
-    let Some(Read::Known(Some(q))) = &by(RIGHT.0).today else {
-        panic!("no quote for the right bearing: {:?}", by(RIGHT.0).today)
+    let Some(Read::Known(Some(q))) = &by(RIGHT.1).today else {
+        panic!("no quote for the right bearing: {:?}", by(RIGHT.1).today)
     };
     assert_eq!(
         row.should_cost,

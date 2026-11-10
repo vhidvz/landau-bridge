@@ -14,6 +14,10 @@ const busy = ref<'run' | 'export' | null>(null);
 
 const at = (iso: string) => new Intl.DateTimeFormat('fa-IR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
 
+// PI-29: Matches' pill words for a rename («نام تازه در بارزپخش», «نام تازهٔ تأییدشده»); the sentence
+// beside the pill says whether Matches asks about this name, an older one, or not yet
+const renameLabel = { WAITING: 'نام تازه در بارزپخش', ASKED_OLDER: 'نام تازه در بارزپخش', UNASKED: 'نام تازه در بارزپخش', CONFIRMED: 'نام تازهٔ تأییدشده' } as const;
+
 // Every row an automatic link last wrote (PI-21, Q-6): the gate passed it, yet a wrong part can
 // pass when Landau lacks the true one, and only the seller can see that. Newest write first, paged.
 const automatic = computed(() => audit.value?.automatic ?? []);
@@ -105,12 +109,17 @@ const exportCsv = async () => {
             <li v-for="l in row.links" :key="l.name" class="flex flex-col gap-0.5">
               <p class="flex flex-wrap items-center gap-2">
                 <StatusPill :tone="l.proven ? 'ok' : 'danger'" :label="l.proven ? 'اثبات‌شده' : 'اثبات‌نشده'" />
+                <StatusPill v-if="l.rename" :tone="l.rename.state === 'CONFIRMED' ? 'muted' : 'warn'" :label="renameLabel[l.rename.state]" />
                 <span class="text-paper">{{ l.name }}</span>
                 <bdi dir="ltr" class="font-mono text-xs text-paper-mute">{{ l.code }}</bdi>
               </p>
+              <p v-if="renameText(l)" class="text-xs" :class="l.rename && l.rename.state !== 'CONFIRMED' ? 'text-warn' : 'text-paper-mute'">
+                {{ renameText(l) }}
+                <NuxtLink v-if="l.rename?.state === 'WAITING'" to="/matches" class="text-crimson-300 hover:underline">باز کردن تطبیق‌ها</NuxtLink>
+              </p>
               <p v-if="l.reasons.length" class="text-xs text-warn">{{ l.reasons.map(reasonText).join('؛ ') }}</p>
               <p v-if="linkToday(l)" class="text-xs text-paper-mute">{{ linkToday(l) }}</p>
-              <p v-if="l.units" class="text-xs text-paper-mute">{{ faNumber(l.units) }} واحد از این کالا به این ردیف منتقل شده</p>
+              <p v-if="linkUnits(l)" class="text-xs text-paper-mute">{{ linkUnits(l) }}</p>
             </li>
           </ul>
 
@@ -164,8 +173,10 @@ const exportCsv = async () => {
               <div v-for="l in r.links" :key="l.name" class="space-y-0.5">
                 <p class="flex flex-wrap items-center gap-2 text-paper-dim">
                   <StatusPill :tone="l.proven ? 'ok' : 'danger'" :label="l.proven ? 'اثبات‌شده' : 'اثبات‌نشده'" />
+                  <StatusPill v-if="l.rename" :tone="l.rename.state === 'CONFIRMED' ? 'muted' : 'warn'" :label="renameLabel[l.rename.state]" />
                   <span>{{ l.name }}</span> <bdi dir="ltr" class="font-mono text-xs text-paper-mute">{{ l.code }}</bdi>
                 </p>
+                <p v-if="renameText(l)" class="text-xs" :class="l.rename && l.rename.state !== 'CONFIRMED' ? 'text-warn' : 'text-paper-mute'">{{ renameText(l) }}</p>
                 <p v-if="l.reasons.length" class="text-xs text-warn">{{ l.reasons.map(reasonText).join('؛ ') }}</p>
               </div>
             </td>

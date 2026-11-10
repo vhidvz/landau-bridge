@@ -53,10 +53,44 @@ pub enum Doubt {
 }
 
 /// Today's quote for a link, as the cost the bridge would write from it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Quoted {
     pub cost: i64,
     pub available: bool,
+    /// The site's code and name for the item today.
+    pub code: String,
+    pub name: String,
+    /// Found by the code under another name than the link's: the site renamed the item.
+    pub renamed: bool,
+}
+
+/// What PRICE makes of a link's quote found by its code under another name (PI-26, PI-28), as the
+/// audit weighs it (PI-29). Set only on a link that proves and whose quote was renamed into a
+/// conflict; a rename that agrees with the product changes nothing and sets none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum RenameState {
+    /// Held, and waiting for the seller's word in Matches: a job recorded this code under this name.
+    Waiting,
+    /// Held, and Matches asks the seller about an older name of this code (`RenamedQuote::asked`):
+    /// a run that prices this code puts today's name in its place.
+    AskedOlder,
+    /// Held, not asked in Matches yet: a run that prices this code records it. A run prices it only
+    /// once every other link on the row proves, so this may wait on the row's other doubts.
+    Unasked,
+    /// The seller confirmed this code under this name for the product: written, as PRICE writes it.
+    Confirmed,
+}
+
+/// A link's quote found by its code under a name that contradicts the product (PI-29).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RenamedQuote {
+    pub state: RenameState,
+    /// The site's code and name for the item today.
+    pub code: String,
+    pub name: String,
+    /// [`RenameState::AskedOlder`]: the name Matches asks about.
+    pub asked: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -73,6 +107,9 @@ pub struct AuditLink {
     /// Asked only where it decides something: a listed row, or a row of several links. `None`:
     /// not asked; `Known(None)`: the site lists neither the name nor the code today.
     pub today: Option<Read<Option<Quoted>>>,
+    /// Today's quote renamed into a conflict (PI-29) — also on an automatic write, whose own
+    /// `today` is never asked, when its row's weighing quoted the link.
+    pub rename: Option<RenamedQuote>,
     /// Units a quantity import transferred onto this row from this link.
     pub units: i64,
 }
@@ -321,6 +358,9 @@ async fn quote(sources: &Sources<'_>, name: &str, code: &str) -> Read<Option<Quo
                     q.map(|q| Quoted {
                         cost: q.cost,
                         available: q.available,
+                        code: q.code,
+                        name: q.name,
+                        renamed: q.renamed,
                     })
                 }),
         ),
@@ -367,27 +407,31 @@ pub async fn audit(sources: &Sources<'_>) -> Result<Audit> {
         audit.examined += 1;
         // The last cost's own items and the latest write's, whichever the hold may have kept: an
         // automatic link among either wrote on this row (PI-21).
+        let mut writer_keys: Vec<String> = Vec::new();
+        if let Some((_, k, _)) = &written {
+            writer_keys.extend(k.iter().cloned());
+        }
+        if let Some((_, k)) = &latest {
+            writer_keys.extend(k.iter().cloned());
+        }
+        let units = written
+            .as_ref()
+            .map(|(_, _, u)| u.clone())
+            .unwrap_or_default();
+        let last = latest
+            .as_ref()
+            .map(|(l, _)| l.clone())
+            .or_else(|| written.as_ref().map(|(l, _, _)| l.clone()));
+        let (weighed, verdicts) = weigh(sources, &copy, row, links, written).await?;
+        // weighed first: an automatic write shows its link as the row's quote left it (PI-29)
         let automatic = {
-            let mut keys: Vec<String> = Vec::new();
-            if let Some((_, k, _)) = &written {
-                keys.extend(k.iter().cloned());
-            }
-            if let Some((_, k)) = &latest {
-                keys.extend(k.iter().cloned());
-            }
-            let no_units = HashMap::new();
-            let units = written.as_ref().map(|(_, _, u)| u).unwrap_or(&no_units);
-            let by = automatic_writers(&copy, row, links, &keys, units)?;
-            let last = latest
-                .as_ref()
-                .map(|(l, _)| l.clone())
-                .or_else(|| written.as_ref().map(|(l, _, _)| l.clone()));
+            let by = automatic_writers(&copy, row, links, &writer_keys, &units, &verdicts)?;
             match last {
                 Some(last) if !by.is_empty() => Some((last, by)),
                 _ => None,
             }
         };
-        let doubted = match weigh(sources, &copy, row, links, written).await? {
+        let doubted = match weighed {
             Weighed::Listed(r) => {
                 audit.rows.push(*r);
                 true
@@ -432,12 +476,14 @@ pub async fn audit(sources: &Sources<'_>) -> Result<Audit> {
 /// those `AUTO` now and still on the row's product, on the copy after its VALIDATE (PI-21). A link the
 /// seller has since picked makes the cost the seller's; one moved since is [`Doubt::WriterUnlinked`].
 /// No job item records its link's origin, so "automatic at the moment of the write" cannot be read.
+/// A link whose quote the row's weighing judged (`verdicts`, by name key) reads as that verdict.
 fn automatic_writers(
     copy: &Db,
     row: &ShelfRow,
     links: &[Judged],
     writer_keys: &[String],
     units: &HashMap<String, i64>,
+    verdicts: &Verdicts,
 ) -> Result<Vec<AuditLink>> {
     let mut out = Vec::new();
     let mut seen = BTreeSet::new();
@@ -452,10 +498,19 @@ fn automatic_writers(
             continue;
         }
         let judged = links.iter().find(|j| j.link.name_key == link.name_key);
+        let (proven, reasons, rename) = match verdicts.get(&link.name_key) {
+            Some(v) => v.clone(),
+            None => (
+                judged.is_some_and(|j| j.proven),
+                judged.map(|j| j.reasons.clone()).unwrap_or_default(),
+                None,
+            ),
+        };
         out.push(AuditLink {
-            proven: judged.is_some_and(|j| j.proven),
-            reasons: judged.map(|j| j.reasons.clone()).unwrap_or_default(),
+            proven,
+            reasons,
             today: None,
+            rename,
             units: units.get(&link.name_key).copied().unwrap_or(0),
             name: link.name_seen,
             code: link.code,
@@ -466,14 +521,71 @@ fn automatic_writers(
     Ok(out)
 }
 
-/// One row, from its links and the write that left its cost.
+/// What a row's weighing made of each link it quoted, by name key: `(proven, reasons, rename)`.
+type Verdicts = HashMap<String, (bool, Vec<Reason>, Option<RenamedQuote>)>;
+
+/// A rename recorded on `link` for `product`, waiting or confirmed (PI-28): its quote decides
+/// whether PRICE writes the row, so it is asked even on a row of one link (PI-29).
+fn rename_on_record(link: &MatchRow, product: &str) -> bool {
+    link.renamed().is_some_and(|r| r.product_id == product)
+}
+
+/// A proven link's quote through PRICE's rename rule (`jobs::rename_rule`), read-only: a code the
+/// site renamed into a conflict nobody confirmed for that name proves no cost (PI-29). `None` when
+/// the quote changes nothing.
+fn judge_quote(
+    registry: &Registry,
+    link: &MatchRow,
+    product: &str,
+    q: &Quoted,
+) -> Option<(bool, Vec<Reason>, RenamedQuote)> {
+    use crate::jobs::{rename_rule, Costed, RenameRule};
+    let costed = Costed {
+        cost: q.cost,
+        available: q.available,
+        code: q.code.clone(),
+        name: q.name.clone(),
+        renamed: q.renamed,
+    };
+    let renamed = |state| RenamedQuote {
+        state,
+        code: q.code.clone(),
+        name: q.name.clone(),
+        asked: None,
+    };
+    match rename_rule(registry, Some(link), product, &costed) {
+        RenameRule::Writes => None,
+        RenameRule::Confirmed => Some((true, Vec::new(), renamed(RenameState::Confirmed))),
+        RenameRule::Holds(reasons) => {
+            // Matches asks about any unconfirmed record on the link's product (its `waitingRename`):
+            // this code under this name once a job recorded it (PI-28), else an older name
+            let waiting = link
+                .renamed()
+                .filter(|r| r.confirmed_at.is_none() && r.product_id == product);
+            let held = match waiting {
+                Some(r) if r.code == q.code && name_key(&r.name) == name_key(&q.name) => {
+                    renamed(RenameState::Waiting)
+                }
+                Some(r) => RenamedQuote {
+                    asked: Some(r.name),
+                    ..renamed(RenameState::AskedOlder)
+                },
+                None => renamed(RenameState::Unasked),
+            };
+            Some((false, reasons, held))
+        }
+    }
+}
+
+/// One row, from its links and the write that left its cost; and what it made of each link's
+/// quote.
 async fn weigh(
     sources: &Sources<'_>,
     copy: &Db,
     row: &ShelfRow,
     links: &[Judged],
     written: Option<(LastWrite, Vec<String>, HashMap<String, i64>)>,
-) -> Result<Weighed> {
+) -> Result<(Weighed, Verdicts)> {
     let (last, writer_keys, units) = match written {
         Some((last, keys, units)) => (Some(last), keys, units),
         None => (None, Vec::new(), HashMap::new()),
@@ -508,8 +620,14 @@ async fn weigh(
         doubts.push(Doubt::UnprovenUnits);
     }
     let listed = !doubts.is_empty();
-    if !listed && links.len() < 2 {
-        return Ok(Weighed::Consistent);
+    let mut verdicts = Verdicts::new();
+    let decisive = listed
+        || links.len() >= 2
+        || links
+            .iter()
+            .any(|l| rename_on_record(&l.link, &row.product));
+    if !decisive {
+        return Ok((Weighed::Consistent, verdicts));
     }
     let mut out = Vec::with_capacity(links.len());
     for l in links {
@@ -518,16 +636,38 @@ async fn weigh(
         } else {
             None
         };
+        // PRICE holds a quote found by code under a name that contradicts the product (PI-26), so
+        // its cost proves nothing here either (PI-29); units stay judged on the link, whose own name
+        // the invoices carried
+        let (proven, reasons, rename) = match &today {
+            Some(Read::Known(Some(q))) if l.proven => {
+                match judge_quote(sources.registry, &l.link, &row.product, q) {
+                    Some((proven, reasons, renamed)) => {
+                        verdicts.insert(
+                            l.link.name_key.clone(),
+                            (proven, reasons.clone(), Some(renamed.clone())),
+                        );
+                        (proven, reasons, Some(renamed))
+                    }
+                    None => (true, Vec::new(), None),
+                }
+            }
+            _ => (l.proven, l.reasons.clone(), None),
+        };
         out.push(AuditLink {
             name: l.link.name_seen.clone(),
             code: l.link.code.clone(),
             how: l.link.how.clone(),
             state: l.link.state.clone(),
-            proven: l.proven,
-            reasons: l.reasons.clone(),
+            proven,
+            reasons,
             today,
+            rename,
             units: units.get(&l.link.name_key).copied().unwrap_or(0),
         });
+    }
+    if out.iter().any(|l| !l.proven) && !doubts.contains(&Doubt::UnprovenLink) {
+        doubts.insert(0, Doubt::UnprovenLink);
     }
     // the proven links' quotes, as PRICE weighs them: one cost between them, a link the site no
     // longer lists holding the row like a second cost, and a quote that could not be read leaving
@@ -548,11 +688,12 @@ async fn weigh(
         doubts.push(Doubt::CostsDisagree);
     }
     if doubts.is_empty() {
-        return Ok(if unread {
+        let weighed = if unread {
             Weighed::Unweighed
         } else {
             Weighed::Consistent
-        });
+        };
+        return Ok((weighed, verdicts));
     }
     let should_cost = match (unread || missing, costs.len()) {
         (false, 1) => costs.iter().next().copied(),
@@ -562,7 +703,7 @@ async fn weigh(
         && proven
             .iter()
             .any(|l| matches!(&l.today, Some(Read::Known(Some(q))) if !q.available));
-    Ok(Weighed::Listed(Box::new(AuditRow {
+    let listed = AuditRow {
         stock_id: row.id.clone(),
         product_id: row.product.clone(),
         product_name: row.product_name.clone(),
@@ -578,7 +719,8 @@ async fn weigh(
         links: out,
         last_write: last,
         unproven_units,
-    })))
+    };
+    Ok((Weighed::Listed(Box::new(listed)), verdicts))
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -664,6 +806,42 @@ fn toman(rials: i64) -> String {
     }
 }
 
+/// What today's quote says of a code the site renamed, in the seller's words — the same sentences
+/// the audit page shows (`app/utils/audit.ts`). `None` when the quote was not renamed.
+pub fn rename_fa(l: &AuditLink) -> Option<String> {
+    // a run prices a code only once every other link on its row proves (`refresh::price_row`)
+    const HELD: &str = "با قطعهٔ لاندا جور نیست و بهایش حساب نشد";
+    const AFTER: &str = "اگر پیوند دیگری روی این ردیف اثبات نشود، پس از رفع آن";
+    if let Some(r) = &l.rename {
+        let then = match r.state {
+            RenameState::Waiting => format!("{HELD}؛ در «تطبیق‌ها» منتظر تأیید شماست"),
+            RenameState::AskedOlder => format!(
+                "{HELD}؛ «تطبیق‌ها» هنوز نام پیشین «{}» را می‌پرسد و کاری که بهای این کد را بخواند نام امروز را جای آن می‌گذارد، {AFTER}",
+                r.asked.as_deref().unwrap_or_default()
+            ),
+            RenameState::Unasked => format!(
+                "{HELD}؛ هنوز در «تطبیق‌ها» پرسیده نشده و کاری که بهای این کد را بخواند آن را به «تطبیق‌ها» می‌فرستد، {AFTER}"
+            ),
+            RenameState::Confirmed => "این نام تازه را خودتان تأیید کرده‌اید".into(),
+        };
+        return Some(format!("نام امروز این کد در بارزپخش: «{}»؛ {then}", r.name));
+    }
+    match &l.today {
+        Some(Read::Known(Some(q))) if q.renamed => {
+            Some(format!("نام امروز این کد در بارزپخش: «{}»", q.name))
+        }
+        _ => None,
+    }
+}
+
+/// A link VALIDATE proves that reads «اثبات‌نشده» only because its quote was renamed into a
+/// conflict (PI-29): its units still count as proven.
+fn held_for_rename(l: &AuditLink) -> bool {
+    l.rename
+        .as_ref()
+        .is_some_and(|r| r.state != RenameState::Confirmed)
+}
+
 fn link_fa(l: &AuditLink) -> String {
     let verdict = if l.proven {
         "اثبات‌شده".to_string()
@@ -681,17 +859,25 @@ fn link_fa(l: &AuditLink) -> String {
         Some(Read::Known(None)) => " — امروز در بارزپخش نیست".into(),
         Some(Read::Unknown(why)) => format!(" — بهای امروز {UNKNOWN}: {why}"),
     };
-    let units = if l.units != 0 {
-        format!(" — {} واحد منتقل‌شده", l.units)
-    } else {
-        String::new()
+    let units = match (l.units, held_for_rename(l)) {
+        (0, _) => String::new(),
+        (n, true) => format!(" — {n} واحد منتقل‌شده، {UNITS_UNDER_OWN_NAME}"),
+        (n, false) => format!(" — {n} واحد منتقل‌شده"),
     };
-    format!("«{}» ({}) — {verdict}{today}{units}", l.name, l.code)
+    let rename = rename_fa(l).map(|r| format!(" — {r}")).unwrap_or_default();
+    format!(
+        "«{}» ({}) — {verdict}{today}{rename}{units}",
+        l.name, l.code
+    )
 }
 
 /// Appended to a doubt row's reason in the CSV when the row is an automatic write too: a row in
 /// both lists says so on both sides.
 pub const ALSO_AUTOMATIC: &str = "نوشتهٔ خودکار هم هست";
+
+/// Beside the units of a link held only for its renamed quote (PI-29): they came under the invoice's
+/// own name, which proves, so the row does not count them as unproven.
+pub const UNITS_UNDER_OWN_NAME: &str = "با نامی که در فاکتور آمده و اثبات می‌شود";
 
 /// Newest write first (a code added after the catalog import is the residual's case), the row id
 /// breaking a tie.
@@ -820,7 +1006,9 @@ pub fn csv(a: &Audit) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::jobs::incident::{self, after_job_12, ROW_9CEA, ROW_9CF0, ROW_9D12, ROW_9D1E};
+    use crate::jobs::incident::{
+        self, after_job_12, ROW_9CEA, ROW_9CED, ROW_9CF0, ROW_9D12, ROW_9D1E,
+    };
     use crate::landau::fake::FakeLandau;
     use crate::matching::evidence::tests::{
         bearing_6c04, clamp_57a5, CLAMP_4, MID_SHAFT, RIGHT_BEARING, WRONG_BEARING,
@@ -845,8 +1033,13 @@ mod tests {
         .unwrap()
     }
 
-    /// `(name key, state, product, version)` of every link, the trail's length, the jobs' count.
-    type Fingerprint = (Vec<(String, String, Option<String>, i64)>, i64, i64);
+    /// `(name key, state, product, version, rename record)` of every link, the trail's length, the
+    /// jobs' count.
+    type Fingerprint = (
+        Vec<(String, String, Option<String>, i64, Option<String>)>,
+        i64,
+        i64,
+    );
 
     /// What the audit may never change: the seller's links and their trail, the jobs.
     fn fingerprint(db: &Db) -> Fingerprint {
@@ -854,7 +1047,15 @@ mod tests {
             .list_matches(SUPPLIER_ID)
             .unwrap()
             .into_iter()
-            .map(|l| (l.name_key, l.state, l.product_id, l.link_version))
+            .map(|l| {
+                (
+                    l.name_key,
+                    l.state,
+                    l.product_id,
+                    l.link_version,
+                    l.renamed_json,
+                )
+            })
             .collect();
         let count = |sql: &str| db.with(|c| c.query_row(sql, [], |r| r.get(0))).unwrap();
         (
@@ -901,7 +1102,10 @@ mod tests {
             wrong.today,
             Some(Read::Known(Some(Quoted {
                 cost: 5_500_000,
-                available: true
+                available: true,
+                code: WRONG_BEARING.0.into(),
+                name: WRONG_BEARING.1.into(),
+                renamed: false,
             }))),
             "every link of a listed row is quoted, so the seller sees each cost"
         );
@@ -1470,6 +1674,326 @@ mod tests {
             assert!(bearing.contains(figure), "{figure} in {bearing}");
         }
         assert!(bearing.contains("عدد ناسازگار"), "{bearing}");
+    }
+
+    /// The incident's prices, each `(item, list price)` in `extra` added or replacing its own.
+    fn priced_with(extra: &[((&str, &str), i64)]) -> FakeSupplier {
+        let mut items: Vec<(&str, &str, i64, i64)> = incident::PRICES
+            .iter()
+            .filter(|(item, _)| !extra.iter().any(|(e, _)| e.0 == item.0))
+            .map(|((c, n), p)| (*c, *n, 1, *p))
+            .collect();
+        items.extend(extra.iter().map(|((c, n), p)| (*c, *n, 1, *p)));
+        FakeSupplier::new(&items)
+    }
+
+    /// A REFRESH over the shelf with today's prices from `supplier`; its job id.
+    async fn refresh_with(db: &Db, landau: &FakeLandau, supplier: FakeSupplier) -> i64 {
+        let svc = crate::jobs::Services {
+            supplier: Box::new(supplier),
+            ..incident::services(landau)
+        };
+        let ctx = incident::ctx(db, "REFRESH");
+        let outcome = crate::jobs::refresh::run(&ctx, &svc).await;
+        ctx.finish(&outcome, "REPORT");
+        outcome.unwrap();
+        ctx.job_id
+    }
+
+    /// The seller's word on the rename recorded for `item`, as Matches sends it: the core's
+    /// reasons, shown and confirmed.
+    fn confirm_rename(db: &Db, item: (&str, &str), product: &str, site: &str) {
+        let registry = Registry::from_products(incident::registry());
+        let version = db
+            .match_for_name(SUPPLIER_ID, item.1)
+            .unwrap()
+            .unwrap()
+            .link_version;
+        let confirm = |c: Option<&[Reason]>| {
+            crate::jobs::import::confirm_rename(
+                db, &registry, item.1, version, product, item.0, site, c,
+            )
+        };
+        let shown = match confirm(None) {
+            Err(crate::errors::BridgeError::ConfirmRequired { reasons }) => {
+                serde_json::from_str::<Vec<Reason>>(&reasons).unwrap()
+            }
+            other => panic!("{other:?}"),
+        };
+        assert!(confirm(Some(&shown)).unwrap());
+    }
+
+    fn link_named<'a>(row: &'a AuditRow, name: &str) -> &'a AuditLink {
+        row.links
+            .iter()
+            .find(|l| l.name == name)
+            .unwrap_or_else(|| panic!("{name} in {:?}", row.links))
+    }
+
+    /// PI-29: a code the site renamed into a conflict proves no cost in the audit, as every job
+    /// holds it (PI-26). Two links pricing a row alike, one of them renamed — the clamp row's own
+    /// code and a second code the site now sells as a 30 cm × 3.6 clamp — are not consistent: the
+    /// row is listed for the renamed link, named so, and its cost never counts. The audit records
+    /// nothing; a REFRESH on the same prices holds that row; and once a job has recorded the rename
+    /// the audit says it waits for the seller in Matches.
+    #[tokio::test]
+    async fn a_code_renamed_into_a_conflict_proves_no_cost() {
+        let db = Db::in_memory().unwrap();
+        let landau = after_job_12(&db);
+        let other = ("AR1330-9", "بست کمري 370 7/6 تايوان آراد پارت");
+        incident::link(&db, other, "USER", &clamp_57a5());
+        let site = "بست کمري 300*3/6 تايوان آراد پارت";
+        // the renamed item lists at the clamp's own price: 165,000 either way
+        let prices = || priced_with(&[(other, 150_000)]).renamed(other.0, site);
+        let before = fingerprint(&db);
+
+        let a = run(&db, &landau, &prices()).await;
+        let clamp = a
+            .rows
+            .iter()
+            .find(|r| r.stock_id == ROW_9CEA)
+            .expect("an equal renamed cost is no agreement");
+        assert_eq!(clamp.doubts, [Doubt::UnprovenLink]);
+        assert_eq!(
+            (clamp.should_cost, clamp.difference),
+            (Some(165_000), Some(0)),
+            "«should» stands on the clamp's own code alone"
+        );
+        let renamed = link_named(clamp, other.1);
+        assert!(!renamed.proven);
+        assert!(
+            renamed
+                .reasons
+                .iter()
+                .any(|r| matches!(r, Reason::NumberConflict { .. })),
+            "{:?}",
+            renamed.reasons
+        );
+        assert_eq!(
+            renamed.rename.as_ref().map(|r| r.state),
+            Some(RenameState::Unasked)
+        );
+        assert_eq!(
+            renamed.today,
+            Some(Read::Known(Some(Quoted {
+                cost: 165_000,
+                available: true,
+                code: other.0.into(),
+                name: site.into(),
+                renamed: true,
+            })))
+        );
+        let own = link_named(clamp, incident::CLAMP_5.1);
+        assert!(own.proven && own.rename.is_none(), "{own:?}");
+        assert_eq!(fingerprint(&db), before, "the audit records no rename");
+
+        // a job on the same prices holds that row: the audit concludes as PRICE does
+        let job = refresh_with(&db, &landau, prices()).await;
+        let held = db
+            .job_items(job)
+            .unwrap()
+            .into_iter()
+            .find(|i| i.stock_id.as_deref() == Some(ROW_9CEA))
+            .unwrap();
+        assert_eq!(held.error_kind.as_deref(), Some("EvidenceConflict"));
+
+        let recorded = fingerprint(&db);
+        let a = run(&db, &landau, &prices()).await;
+        assert_eq!(
+            fingerprint(&db),
+            recorded,
+            "read-only with a record waiting"
+        );
+        let clamp = a.rows.iter().find(|r| r.stock_id == ROW_9CEA).unwrap();
+        assert_eq!(
+            link_named(clamp, other.1).rename.as_ref().map(|r| r.state),
+            Some(RenameState::Waiting),
+            "the job recorded it: Matches asks"
+        );
+        let text = csv(&a);
+        let line = text.lines().find(|l| l.starts_with(ROW_9CEA)).unwrap();
+        assert!(line.contains(site), "{line}");
+        assert!(line.contains("منتظر تأیید شماست"), "{line}");
+
+        // the site renames it again: Matches still asks about the name the job recorded (as its
+        // `waitingRename` shows any unconfirmed record on the product), and the audit says so
+        let again = "بست کمري 300*3/6 تايوان آراد پارت براق";
+        let a = run(
+            &db,
+            &landau,
+            &priced_with(&[(other, 150_000)]).renamed(other.0, again),
+        )
+        .await;
+        assert_eq!(fingerprint(&db), recorded);
+        let clamp = a.rows.iter().find(|r| r.stock_id == ROW_9CEA).unwrap();
+        let l = link_named(clamp, other.1);
+        let r = l.rename.as_ref().unwrap();
+        assert_eq!(
+            (r.state, r.name.as_str(), r.asked.as_deref()),
+            (RenameState::AskedOlder, again, Some(site))
+        );
+        let text = csv(&a);
+        let line = text.lines().find(|l| l.starts_with(ROW_9CEA)).unwrap();
+        assert!(line.contains(&format!("نام پیشین «{site}»")), "{line}");
+    }
+
+    /// PI-29 with the seller's word: a row of one link, its code renamed into a conflict. Before
+    /// any job meets the rename the audit does not look for it (the named residual: no quote is
+    /// asked); once a job has recorded it, the link is quoted and holds the row; the seller's
+    /// confirmation lets it prove, as PRICE writes it; a further rename asks again.
+    #[tokio::test]
+    async fn a_rename_on_record_is_weighed_and_honoured_only_as_confirmed() {
+        let db = Db::in_memory().unwrap();
+        let landau = after_job_12(&db);
+        let gsr = incident::CLAMP_GSR;
+        let clamp = crate::matching::evidence::tests::clamp_57eb().id;
+        let site = "بست کمري 300*3/6 GSR سفيد";
+        let prices = |name: &str| priced_with(&[]).renamed(gsr.0, name);
+        let asked = |s: &FakeSupplier| s.asked.lock().unwrap().clone();
+
+        let s = prices(site);
+        let a = run(&db, &landau, &s).await;
+        assert!(!a.rows.iter().any(|r| r.stock_id == ROW_9CED));
+        assert!(
+            !asked(&s)
+                .iter()
+                .any(|q| q.contains(gsr.0) || q.contains(gsr.1)),
+            "a row of one link with no rename on record is not quoted: {:?}",
+            asked(&s)
+        );
+
+        refresh_with(&db, &landau, prices(site)).await;
+        let recorded = fingerprint(&db);
+        let a = run(&db, &landau, &prices(site)).await;
+        assert_eq!(
+            fingerprint(&db),
+            recorded,
+            "read-only with a record waiting"
+        );
+        let row = a
+            .rows
+            .iter()
+            .find(|r| r.stock_id == ROW_9CED)
+            .expect("a rename on record makes the quote decisive");
+        assert_eq!(row.doubts, [Doubt::UnprovenLink]);
+        assert_eq!((row.should_cost, row.difference), (None, None));
+        let l = link_named(row, gsr.1);
+        assert_eq!(
+            (l.proven, l.rename.as_ref().map(|r| r.state)),
+            (false, Some(RenameState::Waiting))
+        );
+
+        // the site lists the invoice's own name again: the quote writes, so the row is consistent;
+        // a job would forget the waiting record, the audit leaves it where it is
+        let a = run(&db, &landau, &priced_with(&[])).await;
+        assert!(!a.rows.iter().any(|r| r.stock_id == ROW_9CED));
+        assert_eq!(fingerprint(&db), recorded, "the record still waits");
+
+        confirm_rename(&db, gsr, &clamp, site);
+        let confirmed = fingerprint(&db);
+        let s = prices(site);
+        let a = run(&db, &landau, &s).await;
+        assert!(
+            !a.rows.iter().any(|r| r.stock_id == ROW_9CED),
+            "confirmed for this name: proven, as PRICE writes it"
+        );
+        assert!(asked(&s).iter().any(|q| q == &format!("code:{}", gsr.0)));
+
+        let again = "بست کمري 300*3/6 GSR سفيد براق";
+        let a = run(&db, &landau, &prices(again)).await;
+        assert_eq!(fingerprint(&db), confirmed);
+        let row = a.rows.iter().find(|r| r.stock_id == ROW_9CED).unwrap();
+        let l = link_named(row, gsr.1);
+        assert_eq!(
+            (l.proven, l.rename.as_ref().map(|r| r.state)),
+            (false, Some(RenameState::Unasked)),
+            "a confirmation counts for the name it was given for"
+        );
+    }
+
+    /// PI-29, the slice review's finding 3: units a quantity import moved under a code since renamed
+    /// stay judged on the link (the invoices named the part itself), and the link says so where it
+    /// reads «اثبات‌نشده», so its units never look like the row's unproven ones.
+    #[tokio::test]
+    async fn units_under_a_renamed_code_stay_proven_and_say_why() {
+        let db = Db::in_memory().unwrap();
+        let landau = after_job_12(&db);
+        let gsr = incident::CLAMP_GSR;
+        let job = db
+            .create_job(
+                "IMPORT",
+                Some("QUANTITY"),
+                Some("1405/08/15"),
+                incident::STORE,
+                false,
+            )
+            .unwrap();
+        let id = item_on(&db, job, gsr, ROW_9CED, &[("cost", 20_900)]);
+        db.with(|c| c.execute("UPDATE job_items SET qty = 4 WHERE id = ?1", [id]))
+            .unwrap();
+        db.set_job_status(job, "DONE", "REPORT").unwrap();
+        let site = "بست کمري 300*3/6 GSR سفيد";
+        let prices = || priced_with(&[]).renamed(gsr.0, site);
+        refresh_with(&db, &landau, prices()).await;
+
+        let a = run(&db, &landau, &prices()).await;
+        let row = a.rows.iter().find(|r| r.stock_id == ROW_9CED).unwrap();
+        assert_eq!(row.doubts, [Doubt::UnprovenLink]);
+        assert_eq!(row.unproven_units, 0);
+        let l = link_named(row, gsr.1);
+        assert_eq!((l.proven, l.units), (false, 4));
+        let text = csv(&a);
+        let line = text.lines().find(|l| l.starts_with(ROW_9CED)).unwrap();
+        assert!(line.contains(UNITS_UNDER_OWN_NAME), "{line}");
+    }
+
+    /// PI-29: a row listed for another doubt never reads a «should» from a renamed quote no job
+    /// would write. The seller cleared the hurried pick, so the bearing row is listed for its
+    /// writer; the right bearing's code is now sold as the 69349 bearing at 5,500,000.
+    #[tokio::test]
+    async fn a_renamed_quote_never_names_should() {
+        let db = Db::in_memory().unwrap();
+        let landau = after_job_12(&db);
+        db.clear_match(SUPPLIER_ID, WRONG_BEARING.1).unwrap();
+        let site = "بلبرينگ چرخ جلو پرايد قديم 69349 PSN عظام (54)";
+        let supplier = priced_with(&[(RIGHT_BEARING, 5_000_000)]).renamed(RIGHT_BEARING.0, site);
+        let a = run(&db, &landau, &supplier).await;
+        let bearing = a.rows.iter().find(|r| r.stock_id == ROW_9D1E).unwrap();
+        assert_eq!(bearing.doubts, [Doubt::UnprovenLink, Doubt::WriterUnlinked]);
+        assert_eq!((bearing.should_cost, bearing.difference), (None, None));
+        assert!(!link_named(bearing, RIGHT_BEARING.1).proven);
+    }
+
+    /// PI-29: a row in both lists shows its automatic link with the verdict its quote got among
+    /// the doubts; the automatic list itself still asks nothing.
+    #[tokio::test]
+    async fn an_automatic_write_shows_the_rename_its_row_was_weighed_with() {
+        let db = Db::in_memory().unwrap();
+        let landau = after_job_12(&db);
+        incident::link(&db, MID_SHAFT, "AUTO", &bearing_6c04());
+        let site = "بلبرينگ وسط 6005 پلوس پژو ELMA7-405 (10)";
+        let prices = || priced_with(&[]).renamed(MID_SHAFT.0, site);
+        refresh_with(&db, &landau, prices()).await;
+        let a = run(&db, &landau, &prices()).await;
+        assert!(
+            a.rows.iter().any(|r| r.stock_id == ROW_9D12),
+            "{:?}",
+            a.rows
+        );
+        let shaft = a.automatic.iter().find(|r| r.stock_id == ROW_9D12).unwrap();
+        assert!(shaft.doubted);
+        let l = &shaft.links[0];
+        assert_eq!(
+            (l.proven, l.rename.as_ref().map(|r| r.state)),
+            (false, Some(RenameState::Waiting))
+        );
+        assert_eq!(
+            l.rename.as_ref().unwrap().name,
+            site,
+            "named, though not quoted here"
+        );
+        assert!(!l.reasons.is_empty());
+        assert_eq!(l.today, None, "an automatic write is never quoted");
     }
 
     #[test]

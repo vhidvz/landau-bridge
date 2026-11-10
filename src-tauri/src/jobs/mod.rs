@@ -456,11 +456,43 @@ pub enum Rename {
     },
 }
 
+/// PRICE's judgement of a quote's rename (PI-26, PI-28) without the record [`judge_rename`] keeps:
+/// read-only, so the audit weighs a renamed quote exactly as a job would (PI-29).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RenameRule {
+    /// Not renamed, or renamed to a name that agrees with the product: written.
+    Writes,
+    /// Renamed into a conflict the seller confirmed for this product, code and name: written.
+    Confirmed,
+    /// Renamed into a conflict no confirmation on `link` covers: held, for these reasons.
+    Holds(Vec<crate::matching::gate::Reason>),
+}
+
 /// [`renamed_reasons`] for the quote `link` found for `product`, the seller's confirmation of that
-/// very rename honoured (PI-28). `link` is the job's read: a hold is recorded on it for the seller
-/// only while the link is still at that version and product and still holds the record read, so a
-/// confirmation made since is never overwritten (it counts from the next run). A quote of the
-/// record's own code that no longer conflicts forgets a record still waiting.
+/// very rename honoured only as [`crate::db::matches::Renamed::covers`] honours it.
+pub fn rename_rule(
+    registry: &Registry,
+    link: Option<&crate::db::matches::MatchRow>,
+    product: &str,
+    quote: &Costed,
+) -> RenameRule {
+    let Some(reasons) = renamed_reasons(registry, product, quote) else {
+        return RenameRule::Writes;
+    };
+    if link
+        .and_then(|l| l.renamed())
+        .is_some_and(|r| r.covers(product, &quote.code, &quote.name, &reasons))
+    {
+        return RenameRule::Confirmed;
+    }
+    RenameRule::Holds(reasons)
+}
+
+/// [`rename_rule`] for the quote `link` found for `product`, and the record it keeps (PI-28).
+/// `link` is the job's read: a hold is recorded on it for the seller only while the link is still
+/// at that version and product and still holds the record read, so a confirmation made since is
+/// never overwritten (it counts from the next run). A quote of the record's own code that no longer
+/// conflicts forgets a record still waiting.
 pub fn judge_rename(
     db: &crate::db::Db,
     registry: &Registry,
@@ -469,9 +501,13 @@ pub fn judge_rename(
     quote: &Costed,
 ) -> Result<Rename> {
     use crate::matching::gate::Reason;
-    let Some(reasons) = renamed_reasons(registry, product, quote) else {
-        forget_waiting_rename(db, link, quote)?;
-        return Ok(Rename::Writes);
+    let reasons = match rename_rule(registry, link, product, quote) {
+        RenameRule::Writes => {
+            forget_waiting_rename(db, link, quote)?;
+            return Ok(Rename::Writes);
+        }
+        RenameRule::Confirmed => return Ok(Rename::Confirmed),
+        RenameRule::Holds(reasons) => reasons,
     };
     let Some(link) = link else {
         return Ok(Rename::Holds {
@@ -479,12 +515,6 @@ pub fn judge_rename(
             asks_seller: false,
         });
     };
-    if link
-        .renamed()
-        .is_some_and(|r| r.covers(product, &quote.code, &quote.name, &reasons))
-    {
-        return Ok(Rename::Confirmed);
-    }
     // a product the registry lacks has nothing to confirm: VALIDATE deals with the link
     let confirmable = !reasons.contains(&Reason::DefinitionNotExact);
     let asks_seller = confirmable

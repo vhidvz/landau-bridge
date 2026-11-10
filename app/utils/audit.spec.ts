@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { auditSummary, costBefore, differenceText, doubtText, linkToday, writtenCost } from './audit';
-import type { AuditLink } from '~/types/bridge';
+import { auditSummary, costBefore, differenceText, doubtText, linkToday, linkUnits, renameText, writtenCost } from './audit';
+import type { AuditLink, Quoted, RenameState } from '~/types/bridge';
 
 const link = (over: Partial<AuditLink>): AuditLink => ({
-  name: 'n', code: 'c', how: 'USER', state: 'VALID', proven: true, reasons: [], today: null, units: 0, ...over,
+  name: 'n', code: 'c', how: 'USER', state: 'VALID', proven: true, reasons: [], today: null, rename: null, units: 0, ...over,
 });
+const quoted = (over: Partial<Quoted> = {}): Quoted => ({ cost: 6_194_100, available: true, code: 'c', name: 'n', renamed: false, ...over });
 
 describe('audit', () => {
   it('says why a row is listed in the seller\'s words', () => {
@@ -24,12 +25,39 @@ describe('audit', () => {
   });
 
   it('shows a link\'s cost today, or why there is none — never a zero', () => {
-    expect(linkToday(link({ today: { status: 'KNOWN', value: { cost: 6_194_100, available: true } } })))
+    expect(linkToday(link({ today: { status: 'KNOWN', value: quoted() } })))
       .toBe('امروز ۶٬۱۹۴٬۱۰۰ ریال (۶۱۹٬۴۱۰ تومان)');
-    expect(linkToday(link({ today: { status: 'KNOWN', value: { cost: 900, available: false } } }))).toContain('ناموجود');
+    expect(linkToday(link({ today: { status: 'KNOWN', value: quoted({ cost: 900, available: false }) } }))).toContain('ناموجود');
     expect(linkToday(link({ today: { status: 'KNOWN', value: null } }))).toBe('امروز در بارزپخش نیست');
     expect(linkToday(link({ today: { status: 'UNKNOWN', value: 'وصل نشد' } }))).toBe('بهای امروز نامعلوم: وصل نشد');
     expect(linkToday(link({ today: null }))).toBeNull();
+  });
+
+  // PI-29: the same sentences as the CSV's (`rename_fa` in src-tauri/src/audit.rs)
+  it('names a code the site renamed, and what that does to the row', () => {
+    const site = 'بست کمري 300*3/6 GSR سفيد';
+    const held = (state: RenameState, asked: string | null = null) => link({ proven: state === 'CONFIRMED', rename: { state, code: 'c', name: site, asked } });
+    expect(renameText(held('WAITING'))).toBe(`نام امروز این کد در بارزپخش: «${site}»؛ با قطعهٔ لاندا جور نیست و بهایش حساب نشد؛ در «تطبیق‌ها» منتظر تأیید شماست`);
+    // never a promise the next run keeps: a run prices the code only once the row's other links prove
+    expect(renameText(held('UNASKED'))).toBe(`نام امروز این کد در بارزپخش: «${site}»؛ با قطعهٔ لاندا جور نیست و بهایش حساب نشد؛ هنوز در «تطبیق‌ها» پرسیده نشده و کاری که بهای این کد را بخواند آن را به «تطبیق‌ها» می‌فرستد، اگر پیوند دیگری روی این ردیف اثبات نشود، پس از رفع آن`);
+    // Matches asks about the name a job recorded before: said, with that name
+    expect(renameText(held('ASKED_OLDER', 'نام پیشین'))).toBe(`نام امروز این کد در بارزپخش: «${site}»؛ با قطعهٔ لاندا جور نیست و بهایش حساب نشد؛ «تطبیق‌ها» هنوز نام پیشین «نام پیشین» را می‌پرسد و کاری که بهای این کد را بخواند نام امروز را جای آن می‌گذارد، اگر پیوند دیگری روی این ردیف اثبات نشود، پس از رفع آن`);
+    expect(renameText(held('CONFIRMED'))).toBe(`نام امروز این کد در بارزپخش: «${site}»؛ این نام تازه را خودتان تأیید کرده‌اید`);
+    // an automatic write's link is never quoted, yet the rename its row met is named
+    expect(renameText(link({ today: null, rename: { state: 'WAITING', code: 'c', name: site, asked: null } }))).toContain(site);
+    // a rename that agrees with the part changes nothing, and is only named
+    expect(renameText(link({ today: { status: 'KNOWN', value: quoted({ name: site, renamed: true }) } }))).toBe(`نام امروز این کد در بارزپخش: «${site}»`);
+    expect(renameText(link({ today: { status: 'KNOWN', value: quoted() } }))).toBeNull();
+    expect(renameText(link({ today: null }))).toBeNull();
+  });
+
+  // the slice review's finding 3: a link held only for its rename still proves its units
+  it('says why units under a renamed code are not counted as unproven', () => {
+    const rename = { state: 'UNASKED' as const, code: 'c', name: 'n2', asked: null };
+    expect(linkUnits(link({ units: 0 }))).toBeNull();
+    expect(linkUnits(link({ units: 4 }))).toBe('۴ واحد از این کالا به این ردیف منتقل شده');
+    expect(linkUnits(link({ units: 4, proven: false, rename }))).toBe('۴ واحد از این کالا به این ردیف منتقل شده، با نامی که در فاکتور آمده و اثبات می‌شود');
+    expect(linkUnits(link({ units: 4, rename: { ...rename, state: 'CONFIRMED' } }))).toBe('۴ واحد از این کالا به این ردیف منتقل شده');
   });
 
   it('shows the cost a job found on a row only when it changed', () => {

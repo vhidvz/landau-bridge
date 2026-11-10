@@ -144,11 +144,22 @@ export interface HeldWrite {
 }
 // ---- plan 130 R-i: the audit — every shelf row weighed against the evidence, read only ------------
 export type Doubt = 'UNPROVEN_LINK' | 'COSTS_DISAGREE' | 'WRITER_UNLINKED' | 'UNPROVEN_UNITS';
-export interface Quoted { cost: number; available: boolean }
+/** Today's quote for a link; `renamed` when only the code found it, under the site's `name`. */
+export interface Quoted { cost: number; available: boolean; code: string; name: string; renamed: boolean }
+/**
+ * PI-29: a quote found by the code under a name that contradicts the product, as PRICE weighs it —
+ * WAITING for the seller in Matches under this name; ASKED_OLDER, Matches asking about an older name
+ * (`asked`); UNASKED, not in Matches yet (a run that prices the code records it, once every other link
+ * on the row proves); or CONFIRMED.
+ */
+export type RenameState = 'WAITING' | 'ASKED_OLDER' | 'UNASKED' | 'CONFIRMED';
+export interface RenamedQuote { state: RenameState; code: string; name: string; asked: string | null }
 export interface AuditLink {
   name: string; code: string; how: 'AUTO' | 'USER'; state: LinkState; proven: boolean; reasons: Reason[];
   /** null: not asked (a proven link on a row of one link); KNOWN null: the site lists neither name nor code today. */
   today: Read<Quoted | null> | null;
+  /** Set when today's quote was renamed into a conflict — also on an automatic write's link, never quoted itself. */
+  rename: RenamedQuote | null;
   units: number;
 }
 export interface LastWrite { job_id: number; kind: 'IMPORT' | 'REFRESH'; at: string; names: string[]; cost: number }

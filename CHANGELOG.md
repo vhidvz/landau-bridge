@@ -30,6 +30,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The README describes the shelf audit and the risks the app names but cannot prevent. @vhidvz
 - A code the supplier renamed into a conflict can be confirmed in Matches, then is written under that name only. @vhidvz
 - A confirmed rename shows on its link in Matches and can be withdrawn there; the next run asks again. @vhidvz
+- The shelf audit names a renamed supplier code's new name and whether Matches asks about it. @vhidvz
 
 ### Changed
 
@@ -52,6 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A line a finished run held is still transferred after «از تاریخ» moves past it; an unfinished run's is named. @vhidvz
 - A link changed while a run writes is caught right before each send, and nothing is sent from the old link. @vhidvz
 - A price found by code under a name that contradicts the part is no longer written. @vhidvz
+- The shelf audit weighs a renamed supplier code as a run does: its price no longer vouches for a row's cost. @vhidvz
 
 ## [1.1.1] - 2026-11-04
 

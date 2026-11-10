@@ -302,8 +302,8 @@ const audit: Audit = {
       stock_id: '6aecc0a1d00e9931421f9cf0', product_id: '6aec9869d00e9931421a576d', product_name: 'بست کمری نایلونی 30 سانتی عرض 3.6 میلی متر CW',
       brand: 'آراد پارت', authenticity: 'ORIGINAL', inventory: 0, cost: 96_800, price: 111_000, doubts: ['UNPROVEN_LINK'], should_cost: null, should_unavailable: false, difference: null,
       links: [
-        { name: 'بست کمري CW3.6*370 آراد پارت (100)', code: 'AR1330-11', how: 'AUTO', state: 'NEEDS_REVIEW', proven: false, reasons: [{ kind: 'NUMBER_CONFLICT', lacking: ['30 cm'] }], today: { status: 'KNOWN', value: { cost: 91_300, available: true } }, units: 0 },
-        { name: 'بست کمري CW4.8*370 تايوان آراد پارت (100)', code: 'AR1330-4', how: 'AUTO', state: 'NEEDS_REVIEW', proven: false, reasons: [{ kind: 'NUMBER_CONFLICT', lacking: ['30 cm', '3.6 mm'] }], today: { status: 'UNKNOWN', value: 'بارزپخش پاسخ نداد' }, units: 0 },
+        { name: 'بست کمري CW3.6*370 آراد پارت (100)', code: 'AR1330-11', how: 'AUTO', state: 'NEEDS_REVIEW', proven: false, reasons: [{ kind: 'NUMBER_CONFLICT', lacking: ['30 cm'] }], today: { status: 'KNOWN', value: { cost: 91_300, available: true, code: 'AR1330-11', name: 'بست کمري CW3.6*370 آراد پارت (100)', renamed: false } }, rename: null, units: 0 },
+        { name: 'بست کمري CW4.8*370 تايوان آراد پارت (100)', code: 'AR1330-4', how: 'AUTO', state: 'NEEDS_REVIEW', proven: false, reasons: [{ kind: 'NUMBER_CONFLICT', lacking: ['30 cm', '3.6 mm'] }], today: { status: 'UNKNOWN', value: 'بارزپخش پاسخ نداد' }, rename: null, units: 0 },
       ],
       last_write: { job_id: 12, kind: 'IMPORT', at: '2026-11-06T06:08:00Z', names: ['بست کمري CW4.8*370 تايوان آراد پارت (100)'], cost: 96_800 }, unproven_units: 0,
     },
@@ -311,8 +311,8 @@ const audit: Audit = {
       stock_id: '6aecc0a1d00e9931421f9d1e', product_id: '6aec987cd00e9931421a5e12', product_name: 'بلبرینگ بزرگ چرخ عقب پراید و چرخ جلو پیکان',
       brand: 'PSN عظام', authenticity: 'ORIGINAL', inventory: 0, cost: 5_500_000, price: 6_325_000, doubts: ['UNPROVEN_LINK', 'UNPROVEN_UNITS'], should_cost: 6_194_100, should_unavailable: false, difference: 694_100,
       links: [
-        { name: 'بلبرينگ بزرگ چرخ عقب پرايد جدبد (بلبرينگ بزرگ چرخ جلو پيکان) 44649 PSN عظام (96) 3154028', code: '33102018', how: 'USER', state: 'REBUILT', proven: true, reasons: [], today: { status: 'KNOWN', value: { cost: 6_194_100, available: true } }, units: 0 },
-        { name: 'بلبرينگ چرخ جلو پرايد قديم 69349 PSN عظام (54) 3154027', code: '33102017', how: 'USER', state: 'NEEDS_REVIEW', proven: false, reasons: [{ kind: 'NUMBER_CONFLICT', lacking: ['44649'] }], today: { status: 'KNOWN', value: { cost: 5_500_000, available: true } }, units: 3 },
+        { name: 'بلبرينگ بزرگ چرخ عقب پرايد جدبد (بلبرينگ بزرگ چرخ جلو پيکان) 44649 PSN عظام (96) 3154028', code: '33102018', how: 'USER', state: 'REBUILT', proven: true, reasons: [], today: { status: 'KNOWN', value: { cost: 6_194_100, available: true, code: '33102018', name: 'بلبرينگ بزرگ چرخ عقب پرايد جدبد (بلبرينگ بزرگ چرخ جلو پيکان) 44649 PSN عظام (96) 3154028', renamed: false } }, rename: null, units: 0 },
+        { name: 'بلبرينگ چرخ جلو پرايد قديم 69349 PSN عظام (54) 3154027', code: '33102017', how: 'USER', state: 'NEEDS_REVIEW', proven: false, reasons: [{ kind: 'NUMBER_CONFLICT', lacking: ['44649'] }], today: { status: 'KNOWN', value: { cost: 5_500_000, available: true, code: '33102017', name: 'بلبرينگ چرخ جلو پرايد قديم 69349 PSN عظام (54) 3154027', renamed: false } }, rename: null, units: 3 },
       ],
       last_write: { job_id: 12, kind: 'IMPORT', at: '2026-11-06T06:08:00Z', names: ['بلبرينگ چرخ جلو پرايد قديم 69349 PSN عظام (54) 3154027'], cost: 5_500_000 }, unproven_units: 3,
     },
@@ -322,14 +322,14 @@ const audit: Audit = {
     {
       stock_id: '6aecc0a1d00e9931421f9cf0', product_id: '6aec9869d00e9931421a576d', product_name: 'بست کمری نایلونی 30 سانتی عرض 3.6 میلی متر CW',
       brand: 'آراد پارت', authenticity: 'ORIGINAL', inventory: 0, cost: 96_800, price: 111_000, doubted: true,
-      links: [{ name: 'بست کمري CW4.8*370 تايوان آراد پارت (100)', code: 'AR1330-4', how: 'AUTO', state: 'NEEDS_REVIEW', proven: false, reasons: [{ kind: 'NUMBER_CONFLICT', lacking: ['30 cm', '3.6 mm'] }], today: null, units: 0 }],
+      links: [{ name: 'بست کمري CW4.8*370 تايوان آراد پارت (100)', code: 'AR1330-4', how: 'AUTO', state: 'NEEDS_REVIEW', proven: false, reasons: [{ kind: 'NUMBER_CONFLICT', lacking: ['30 cm', '3.6 mm'] }], today: null, rename: null, units: 0 }],
       last_write: { job_id: 12, kind: 'IMPORT', at: '2026-11-06T06:08:00Z', names: ['بست کمري CW4.8*370 تايوان آراد پارت (100)'], cost: 96_800 },
     },
     ...Array.from({ length: bulk ? 41 : 1 }, (_, i) => ({
       stock_id: `6aecc0a1d00e9931421f${(0x9d12 + i).toString(16)}`, product_id: `6aec9869d00e9931421a${(0x6c04 + i).toString(16)}`,
       product_name: i ? `طبق پراید بوش فلزی ${i}` : 'بلبرینگ میانی گاردان پژو 405 6006', brand: i ? 'سایپا یدک' : 'الما۷',
       authenticity: 'ORIGINAL' as const, inventory: i % 4, cost: i ? 410_000 + i * 1_000 : 5_247_000, price: null, doubted: false,
-      links: [{ name: i ? `بوش طبق پرايد فلزي سايپا يدک ${i}` : 'بلبرينگ ميل گاردان 405 (6006) ELMA7', code: i ? `5903${10 + i}` : '115001165', how: 'AUTO' as const, state: 'VALID' as const, proven: true, reasons: [], today: null, units: 0 }],
+      links: [{ name: i ? `بوش طبق پرايد فلزي سايپا يدک ${i}` : 'بلبرينگ ميل گاردان 405 (6006) ELMA7', code: i ? `5903${10 + i}` : '115001165', how: 'AUTO' as const, state: 'VALID' as const, proven: true, reasons: [], today: null, rename: null, units: 0 }],
       last_write: { job_id: 12, kind: 'IMPORT' as const, at: '2026-11-06T06:08:00Z', names: [i ? `بوش طبق پرايد فلزي سايپا يدک ${i}` : 'بلبرينگ ميل گاردان 405 (6006) ELMA7'], cost: i ? 410_000 + i * 1_000 : 5_247_000 },
     })),
   ],
